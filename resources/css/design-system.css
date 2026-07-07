@@ -1,0 +1,231 @@
+/* =========================================================================
+   EvacTech Design System
+   White + Cyan government color scheme, light & dark mode, accessible type.
+   Import this file once (e.g. in resources/css/app.css via @import, or as a
+   <link> in your main Blade layout) and use the CSS variables everywhere
+   instead of hardcoded hex values.
+   ========================================================================= */
+
+/* Google Fonts:
+   - Public Sans: used by many government digital-service design systems
+     (incl. USWDS). Clean, neutral, excellent legibility at small sizes.
+   - IBM Plex Mono: for headcounts, IDs, timestamps, inventory figures --
+     tabular numbers that benefit from fixed-width alignment in tables. */
+@import url('https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&family=IBM+Plex+Mono:wght@500;600&display=swap');
+
+:root {
+  color-scheme: light;
+
+  /* ---- Typography ---- */
+  --font-sans: 'Public Sans', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
+
+  /* Base is intentionally 17px (via 106.25% on <html>) instead of the usual
+     16px -- many end users (barangay staff, senior officials) are not young,
+     so body copy starts slightly larger. Everything else is in rem so a
+     user's own browser zoom / OS text-size setting still works normally. */
+  --text-xs: 0.8125rem;   /* 13.8px  captions, timestamps */
+  --text-sm: 0.9375rem;   /* 15.9px  secondary text, table cells */
+  --text-base: 1rem;      /* 17px    body copy (root is 106.25%) */
+  --text-lg: 1.1875rem;   /* 20.2px  emphasized body / card titles */
+  --text-xl: 1.5rem;      /* 25.5px  section headings */
+  --text-2xl: 1.875rem;   /* 31.9px  page titles */
+  --text-3xl: 2.375rem;   /* 40.4px  hero / dashboard KPI numbers */
+
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.65; /* default for paragraphs -- easier for older readers */
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  /* ---- Spacing & shape ---- */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-12: 3rem;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+
+  /* Minimum interactive target -- important for older / motor-impaired users */
+  --tap-target-min: 44px;
+
+  /* ---- Color: neutrals ---- */
+  --color-bg: #FFFFFF;
+  --color-surface: #F1F5F9;       /* cards, table headers */
+  --color-surface-alt: #E2E8F0;   /* hover states, subtle dividers */
+  --color-border: #CBD5E1;
+  --color-text-primary: #0F172A;
+  --color-text-secondary: #475569;
+  --color-text-muted: #64748B;
+
+  /* ---- Color: brand (cyan) ----
+     600/700 are used for text and solid buttons so contrast against white
+     clears WCAG AA (4.5:1) for normal text. 400/100/50 are for decorative
+     use only (badges, icon backgrounds, chart fills) -- never for text on
+     a white background. */
+  --color-primary-50:  #ECFEFF;
+  --color-primary-100: #CFFAFE;
+  --color-primary-400: #22D3EE;  /* decorative / chart accents only */
+  --color-primary-600: #0891B2;  /* icons, borders, secondary buttons */
+  --color-primary-700: #0E7490;  /* PRIMARY -- solid buttons, links, active nav */
+  --color-primary-800: #155E75;  /* hover/pressed state of primary-700 */
+  --color-primary-900: #164E63;  /* sidebar / header background (staff portals) */
+
+  --color-primary: var(--color-primary-700);
+  --color-primary-hover: var(--color-primary-800);
+  --color-primary-contrast: #FFFFFF;
+
+  /* ---- Color: semantic status ----
+     Red is kept as the "critical / danger" accent, which also keeps a link
+     back to the red accent named in the Bagong Cabuyao theme -- see note
+     below about reconciling the two color directions. */
+  --color-success: #15803D;
+  --color-success-bg: #F0FDF4;
+  --color-warning: #B45309;
+  --color-warning-bg: #FFFBEB;
+  --color-danger: #B91C1C;
+  --color-danger-bg: #FEF2F2;
+  --color-info: var(--color-primary-700);
+  --color-info-bg: var(--color-primary-50);
+
+  /* ---- Shadows ---- */
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.10);
+  --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.14);
+}
+
+/* =========================================================================
+   Dark mode
+   Toggle by adding data-theme="dark" to <html> (persist the choice server
+   side per-user or in a cookie -- do NOT rely on localStorage inside
+   Blade-rendered pages if you also reuse these tokens in Claude-artifact
+   previews, but it's perfectly fine in your actual Laravel app).
+   ========================================================================= */
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --color-bg: #0B1220;
+  --color-surface: #111A2C;
+  --color-surface-alt: #1B2740;
+  --color-border: #2A3A57;
+  --color-text-primary: #F1F5F9;
+  --color-text-secondary: #94A3B8;
+  --color-text-muted: #7C8BA6;
+
+  --color-primary-50:  #083344;
+  --color-primary-100: #0E4A5C;
+  --color-primary-400: #22D3EE;  /* brighter cyan reads well on dark bg */
+  --color-primary-600: #22D3EE;
+  --color-primary-700: #38BDF8;  /* PRIMARY on dark: lighter for contrast */
+  --color-primary-800: #67E8F9;
+  --color-primary-900: #E0F2FE;
+
+  --color-primary: var(--color-primary-700);
+  --color-primary-hover: var(--color-primary-800);
+  --color-primary-contrast: #0B1220;
+
+  --color-success: #4ADE80;
+  --color-success-bg: #052e1a;
+  --color-warning: #FBBF24;
+  --color-warning-bg: #3a2405;
+  --color-danger: #F87171;
+  --color-danger-bg: #3a0a0a;
+  --color-info: var(--color-primary-700);
+  --color-info-bg: #0c2230;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.55);
+}
+
+/* ---- Base ---- */
+html {
+  font-size: 106.25%; /* 17px base */
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--leading-relaxed);
+  color: var(--color-text-primary);
+  background: var(--color-bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+.font-mono,
+[data-numeric] {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Accessibility baseline ---- */
+:focus-visible {
+  outline: 3px solid var(--color-primary-600);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button,
+.btn,
+input[type='checkbox'],
+input[type='radio'] {
+  min-height: var(--tap-target-min);
+}
+
+input,
+select,
+textarea {
+  min-height: var(--tap-target-min);
+  font-size: 1rem; /* never below 16px -- prevents iOS auto-zoom on focus */
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---- Example primitives (adapt/extend per screen) ---- */
+.btn-primary {
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-6);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+}
+.btn-primary:hover { background: var(--color-primary-hover); }
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.badge-danger { background: var(--color-danger-bg); color: var(--color-danger); }
+.badge-warning { background: var(--color-warning-bg); color: var(--color-warning); }
+.badge-success { background: var(--color-success-bg); color: var(--color-success); }
+.badge-info { background: var(--color-info-bg); color: var(--color-info); }

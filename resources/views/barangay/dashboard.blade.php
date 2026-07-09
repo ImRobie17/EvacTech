@@ -23,19 +23,34 @@
 
 <section class="kpi-grid" aria-label="Key metrics">
     <article class="card kpi-card">
-        <div class="kpi-head"><span class="kpi-icon" aria-hidden="true">👤</span><span class="kpi-title">Checked-in Individuals</span></div>
+        <div class="kpi-head">
+            <span class="kpi-icon-wrap" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="3"/><path d="M2.5 20c0-3.3 2.9-6 6.5-6s6.5 2.7 6.5 6"/><circle cx="17" cy="7.5" r="2.3"/><path d="M15.5 12c2.3 0 4.5 1.6 5 4"/></svg>
+            </span>
+            <span class="kpi-title">Checked-in Individuals</span>
+        </div>
         <p class="kpi-value" data-numeric>{{ number_format($kpis['individuals']) }}</p>
         <p class="kpi-note">Total persons currently sheltered</p>
     </article>
 
     <article class="card kpi-card">
-        <div class="kpi-head"><span class="kpi-icon" aria-hidden="true">🏠</span><span class="kpi-title">Families Sheltered</span></div>
+        <div class="kpi-head">
+            <span class="kpi-icon-wrap" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v9a1 1 0 0 0 1 1H9v-6h6v6h2.5a1 1 0 0 0 1-1v-9"/></svg>
+            </span>
+            <span class="kpi-title">Families Sheltered</span>
+        </div>
         <p class="kpi-value" data-numeric>{{ number_format($kpis['households']) }}</p>
         <p class="kpi-note">Households currently checked in</p>
     </article>
 
     <article class="card kpi-card">
-        <div class="kpi-head"><span class="kpi-icon" aria-hidden="true">◔</span><span class="kpi-title">Center Capacity</span></div>
+        <div class="kpi-head">
+            <span class="kpi-icon-wrap" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 12V4a8 8 0 0 1 8 8h-8z"/></svg>
+            </span>
+            <span class="kpi-title">Center Capacity</span>
+        </div>
         <p class="kpi-value {{ $capClass }}" data-numeric>{{ $pct !== null ? $pct . '%' : '—' }}</p>
         <p class="kpi-note">
             <span class="{{ $capClass }}">{{ $capLabel }}</span>
@@ -44,13 +59,23 @@
     </article>
 
     <article class="card kpi-card">
-        <div class="kpi-head"><span class="kpi-icon" aria-hidden="true">📦</span><span class="kpi-title">Relief Packs Available</span></div>
+        <div class="kpi-head">
+            <span class="kpi-icon-wrap" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8 12 3 3 8l9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg>
+            </span>
+            <span class="kpi-title">Relief Packs Available</span>
+        </div>
         <p class="kpi-value {{ $kpis['low_stock'] ? 'cap-warn' : '' }}" data-numeric>{{ number_format($kpis['relief_packs']) }}</p>
         <p class="kpi-note">{{ $kpis['low_stock'] ? '⚠ Some items at or below reorder level' : 'Ready for distribution' }}</p>
     </article>
 
     <article class="card kpi-card">
-        <div class="kpi-head"><span class="kpi-icon" aria-hidden="true">♿</span><span class="kpi-title">Vulnerable Individuals</span></div>
+        <div class="kpi-head">
+            <span class="kpi-icon-wrap" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5.5v5c0 5 3.2 8.7 8 10.5 4.8-1.8 8-5.5 8-10.5v-5L12 2z"/><path d="M9 12l2 2 4-4"/></svg>
+            </span>
+            <span class="kpi-title">Vulnerable Individuals</span>
+        </div>
         <p class="kpi-value" data-numeric>{{ number_format($kpis['vulnerable']) }}</p>
         <p class="kpi-note">Checked-in persons with vulnerability tags</p>
     </article>

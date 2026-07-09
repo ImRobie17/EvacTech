@@ -6,12 +6,13 @@
    instead of hardcoded hex values.
    ========================================================================= */
 
-/* Google Fonts:
-   - Public Sans: used by many government digital-service design systems
-     (incl. USWDS). Clean, neutral, excellent legibility at small sizes.
-   - IBM Plex Mono: for headcounts, IDs, timestamps, inventory figures --
-     tabular numbers that benefit from fixed-width alignment in tables. */
-@import url('https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&family=IBM+Plex+Mono:wght@500;600&display=swap');
+/* Google Fonts are loaded via <link> tags in the HTML <head> (see layouts/staff.blade.php
+   and auth/login.blade.php) instead of @import here. An @import for an external font
+   MUST be the very first statement in the final bundled stylesheet -- once Vite inlines
+   this file into app.css (which already starts with @import 'tailwindcss'), an @import
+   here would land after other rules and break the build ("@import must precede all
+   other statements"). A <link> tag has no such ordering constraint and loads in
+   parallel besides. */
 
 :root {
   color-scheme: light;

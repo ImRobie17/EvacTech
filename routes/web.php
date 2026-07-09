@@ -18,7 +18,7 @@ Route::middleware('guest')->group(function () {
 Route::post('/logout', [LoginController::class, 'logout'])->middleware('auth')->name('logout');
 
 // ---- Barangay Personnel ----
-Route::middleware(['auth', 'role:barangay_personnel'])
+Route::middleware(['auth', 'verified'])
     ->prefix('barangay')
     ->name('barangay.')
     ->group(function () {

@@ -15,6 +15,7 @@ class DatabaseSeeder extends Seeder
             ReliefGoodSeeder::class,
             DepartmentSeeder::class,
             SuperAdminSeeder::class,
+            BarangayPersonnelDemoSeeder::class, // adds a sample shelter + testable Barangay Personnel login
         ]);
     }
 }

@@ -27,9 +27,19 @@
         </nav>
 
         <div class="public-header-right">
-            <button type="button" class="icon-btn" id="themeToggle" aria-label="Toggle dark mode">&#9680;</button>
-            <a href="{{ route('login') }}" class="staff-login-link">Staff Login</a>
-        </div>
+    <button type="button" class="icon-btn" id="themeToggle" aria-label="Toggle dark mode">&#9680;</button>
+    
+    @auth
+        <form method="POST" action="{{ route('logout') }}" style="display: inline;">
+            @csrf
+            <button type="submit" class="staff-login-link" style="background: transparent; border: none; cursor: pointer;">
+                Logout
+            </button>
+        </form>
+    @else
+        <a href="{{ route('login') }}" class="staff-login-link">Staff Login</a>
+    @endauth
+</div>
     </div>
 </header>
 

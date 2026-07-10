@@ -12,7 +12,7 @@
 <body class="login-body">
     <main class="login-card" aria-labelledby="login-title">
         <div class="login-brand">
-            <span class="brand-mark" aria-hidden="true">✚</span>
+            <span class="brand-mark" aria-hidden="true">+</span>
             <span class="brand-name"><span class="brand-evac">Evac</span><span class="brand-tech">Tech</span></span>
         </div>
         <h1 id="login-title" class="login-title">Staff Sign In</h1>

@@ -12,12 +12,19 @@ use Illuminate\Support\Facades\DB;
 
 class EvacueeProfilingController extends BarangayController
 {
-    public function index(Request $request)
+    public function index(Request $request, ?\App\Models\EvacuationCenter $routeCenter = null)
     {
-        $center = $this->center();
+        $center = $this->center($routeCenter);
 
-        $query = Household::with(['headMember', 'originBarangay', 'evacuationCenter', 'members.vulnerableClassifications'])
-            ->where('origin_barangay_id', auth()->user()->barangay_id);
+        $query = Household::with(['headMember', 'originBarangay', 'evacuationCenter', 'members.vulnerableClassifications']);
+
+        // Barangay Personnel: their own barangay's households.
+        // City Admin viewing a specific shelter: that shelter's households.
+        if ($this->isCityLevel() && $center) {
+            $query->where('evacuation_center_id', $center->id);
+        } else {
+            $query->where('origin_barangay_id', auth()->user()->barangay_id);
+        }
 
         if ($search = trim((string) $request->input('q'))) {
             $query->whereHas('members', fn ($q) => $q
@@ -37,7 +44,10 @@ class EvacueeProfilingController extends BarangayController
         $households = $query->latest()->paginate(15)->withQueryString();
         $classifications = VulnerableClassification::orderBy('name')->get();
 
-        return view('barangay.evacuees.index', compact('households', 'classifications', 'center'));
+        return view('barangay.evacuees.index', array_merge(
+            compact('households', 'classifications', 'center'),
+            $this->cityChrome($center)
+        ));
     }
 
     /** Register a new household (Add Evacuee modal). checkin=1 also checks them in. */

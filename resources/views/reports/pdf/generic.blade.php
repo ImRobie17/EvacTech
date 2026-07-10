@@ -18,16 +18,18 @@
     <div class="header">
         <h1>EvacTech — {{ $title }}</h1>
         <div class="meta">
-            {{ $center->name }} · Barangay {{ $center->barangay->name ?? '' }}
+            @if(isset($scopeLabel) && ! $center)
+                {{ $scopeLabel }}
+            @else
+                {{ $center->name ?? '' }}@if($center && $center->barangay) · Barangay {{ $center->barangay->name }}@endif
+            @endif
             @if($from || $to) &nbsp;·&nbsp; {{ $from ?? 'Start' }} to {{ $to ?? 'Present' }} @endif
         </div>
     </div>
 
     <table>
         <thead>
-            <tr>
-                @foreach($headings as $h)<th>{{ $h }}</th>@endforeach
-            </tr>
+            <tr>@foreach($headings as $h)<th>{{ $h }}</th>@endforeach</tr>
         </thead>
         <tbody>
             @forelse($rows as $row)

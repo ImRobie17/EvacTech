@@ -8,8 +8,6 @@ use App\Http\Controllers\Barangay\ReportController;
 use App\Http\Controllers\Barangay\ShelterController;
 use Illuminate\Support\Facades\Route;
 
-Route::get('/', fn () => redirect()->route('login'));
-
 // ---- Auth (staff) ----
 Route::middleware('guest')->group(function () {
     Route::get('/login', [LoginController::class, 'showLoginForm'])->name('login');
@@ -43,6 +41,8 @@ Route::middleware(['auth', 'verified'])
         Route::post('/relief/distribute', [ReliefController::class, 'distribute'])->name('relief.distribute');
         Route::post('/relief/receive', [ReliefController::class, 'receive'])->name('relief.receive');
         Route::get('/relief/history/{household}', [ReliefController::class, 'history'])->name('relief.history');
+        Route::post('/relief/request-restock', [ReliefController::class, 'requestRestock'])->name('relief.request-restock');
+        Route::post('/relief/request-special', [ReliefController::class, 'requestSpecial'])->name('relief.request-special');
 
         // Report Generation
         Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');

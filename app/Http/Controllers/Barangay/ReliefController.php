@@ -13,9 +13,9 @@ use Illuminate\Support\Facades\DB;
 
 class ReliefController extends BarangayController
 {
-    public function index(Request $request)
+    public function index(Request $request, ?\App\Models\EvacuationCenter $center = null)
     {
-        $center = $this->center();
+        $center = $this->center($center);
 
         $stats = ['received' => 0, 'distributed' => 0, 'remaining' => 0, 'days_left' => null];
         $log = collect();
@@ -75,7 +75,10 @@ class ReliefController extends BarangayController
                 ->get();
         }
 
-        return view('barangay.relief.index', compact('center', 'stats', 'log', 'priority', 'inventory', 'goods'));
+        return view('barangay.relief.index', array_merge(
+            compact('center', 'stats', 'log', 'priority', 'inventory', 'goods'),
+            $this->cityChrome($center)
+        ));
     }
 
     /** Distribute relief to a household. Auto-decrements inventory (PB-09). */
@@ -179,5 +182,57 @@ class ReliefController extends BarangayController
             ]);
 
         return response()->json($rows);
+    }
+
+        public function requestRestock(Request $request)
+    {
+        $center = $this->centerOrFail();
+
+        $data = $request->validate([
+            'relief_good_id' => ['required', 'exists:relief_goods,id'],
+            'requested_quantity' => ['required', 'integer', 'min:1'],
+        ]);
+
+        $reliefRequest = \App\Models\ReliefAllocationRequest::create([
+            'evacuation_center_id' => $center->id,
+            'relief_good_id' => $data['relief_good_id'],
+            'requested_quantity' => $data['requested_quantity'],
+            'status' => 'pending',
+            'requested_by' => auth()->id(),
+            'requested_at' => now(),
+        ]);
+
+        \App\Services\AuditLogger::log('created', $reliefRequest, 'Requested relief restock from city');
+
+        return back()->with('success', 'Restock request submitted for City Admin approval.');
+    }
+    
+    public function requestSpecial(Request $request)
+    {
+        $center = $this->centerOrFail();
+
+        $data = $request->validate([
+            'household_id' => ['required', 'exists:households,id'],
+            'item_description' => ['required', 'string', 'max:255'],
+            'quantity' => ['required', 'integer', 'min:1'],
+            'remarks' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $household = \App\Models\Household::findOrFail($data['household_id']);
+        abort_if($household->origin_barangay_id !== auth()->user()->barangay_id, 403);
+
+        $special = \App\Models\SpecialReliefRequest::create([
+            'household_id' => $household->id,
+            'evacuation_center_id' => $center->id,
+            'item_description' => $data['item_description'],
+            'quantity' => $data['quantity'],
+            'status' => 'pending',
+            'requested_by' => auth()->id(),
+            'remarks' => $data['remarks'] ?? null,
+        ]);
+
+        \App\Services\AuditLogger::log('created', $special, "Requested special item: {$special->item_description}");
+
+        return back()->with('success', 'Special item request submitted for City Admin approval.');
     }
 }

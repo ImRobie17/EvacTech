@@ -1,14 +1,18 @@
-@extends('layouts.staff')
+@extends($layout ?? 'layouts.staff')
 
 @section('title', 'Evacuation Shelter')
 @section('page-title', 'Evacuation Shelter')
 @section('page-subtitle', $center?->name ?? 'No assigned shelter')
 
 @section('page-actions')
-    <button type="button" class="btn-primary" data-open-modal="checkinModal">✓ Check-in Existing Family</button>
+    <button type="button" class="btn-primary" data-open-modal="checkinModal">&check; Check-in Existing Family</button>
 @endsection
 
 @section('content')
+@isset($backLink)
+    <a href="{{ $backLink }}" class="btn-link" style="display:inline-block;margin-bottom:var(--space-4);">&larr; Back to all shelters</a>
+    @if($viewingCenter ?? null)<p class="page-subtitle" style="margin-bottom:var(--space-4);">Managing: <strong>{{ $viewingCenter->name }}</strong></p>@endif
+@endisset
 @php
     $pct = $center && $center->capacity > 0 ? round($center->current_occupancy / $center->capacity * 100) : null;
     $capClass = $pct === null ? '' : ($pct > 100 ? 'cap-over' : ($pct >= 90 ? 'cap-full' : ($pct >= 70 ? 'cap-warn' : 'cap-ok')));
@@ -29,12 +33,12 @@
                 <div class="capacity-bar-fill {{ $capClass }}" style="width: {{ min($pct ?? 0, 100) }}%"></div>
             </div>
             <p class="kpi-note">
-                {{ $pct === null ? 'Capacity not configured' : ($pct > 100 ? 'Overcapacity — coordinate transfers with CDRRMO' : ($pct >= 90 ? 'Full' : ($pct >= 70 ? 'Nearing capacity' : 'Space available'))) }}
+                {{ $pct === null ? 'Capacity not configured' : ($pct > 100 ? 'Overcapacity - coordinate transfers with CDRRMO' : ($pct >= 90 ? 'Full' : ($pct >= 70 ? 'Nearing capacity' : 'Space available'))) }}
             </p>
         </article>
 
         <form method="GET" class="filter-bar" role="search">
-            <input type="search" name="q" value="{{ request('q') }}" placeholder="Search household head…" aria-label="Search household head name">
+            <input type="search" name="q" value="{{ request('q') }}" placeholder="Search household head"¦" aria-label="Search household head name">
             <select name="status" aria-label="Filter status">
                 <option value="">All statuses</option>
                 <option value="checked_in" @selected(request('status') === 'checked_in')>Checked in</option>
@@ -43,7 +47,7 @@
             </select>
             <select name="sort" aria-label="Sort">
                 <option value="recent" @selected(request('sort', 'recent') === 'recent')>Most recent</option>
-                <option value="name" @selected(request('sort') === 'name')>Name (A–Z)</option>
+                <option value="name" @selected(request('sort') === 'name')>Name (A-Z)</option>
             </select>
             <button type="submit" class="btn-secondary">Apply</button>
         </form>
@@ -62,9 +66,9 @@
                 <tbody>
                     @forelse($households as $h)
                         <tr>
-                            <td>{{ $h->headMember?->full_name ?? '—' }}</td>
+                            <td>{{ $h->headMember?->full_name ?? '-' }}</td>
                             <td data-numeric>{{ $h->members_present }} / {{ $h->number_of_members }}</td>
-                            <td data-numeric>{{ $h->checked_in_at?->format('M d, Y · h:i A') ?? '—' }}</td>
+                            <td data-numeric>{{ $h->checked_in_at?->format('M d, Y Â· h:i A') ?? '-' }}</td>
                             <td>
                                 <span class="badge {{ $h->status === 'checked_in' ? 'badge-success' : ($h->status === 'checked_out' ? 'badge-warning' : 'badge-info') }}">
                                     {{ ucfirst(str_replace('_', ' ', $h->status)) }}
@@ -119,7 +123,7 @@
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="checkinTitle">
         <div class="modal-head">
             <h2 id="checkinTitle">Check-in Family</h2>
-            <button type="button" class="icon-btn" data-close-modal aria-label="Close">✕</button>
+            <button type="button" class="icon-btn" data-close-modal aria-label="Close">&times;</button>
         </div>
 
         <div class="field search-inline">
@@ -134,7 +138,7 @@
         <form method="POST" id="checkinForm" hidden>
             @csrf
             <div class="ci-profile">
-                <p><strong id="ci-code"></strong> · <span id="ci-head"></span></p>
+                <p><strong id="ci-code"></strong> Â· <span id="ci-head"></span></p>
                 <p class="kpi-note">Tick everyone who is present at the shelter right now:</p>
                 <div id="ci-members" class="checkbox-list"></div>
             </div>
@@ -153,7 +157,7 @@
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="transferTitle">
         <div class="modal-head">
             <h2 id="transferTitle">Select New Family Head</h2>
-            <button type="button" class="icon-btn" data-close-modal aria-label="Close">✕</button>
+            <button type="button" class="icon-btn" data-close-modal aria-label="Close">&times;</button>
         </div>
         <p>Current head: <strong id="th-current"></strong></p>
         <div id="th-options" class="radio-list" role="radiogroup" aria-label="Select the new household head"></div>
@@ -169,7 +173,7 @@
     <div class="modal modal-narrow" role="dialog" aria-modal="true" aria-labelledby="confirmTransferTitle">
         <div class="modal-head">
             <h2 id="confirmTransferTitle">Confirm Transfer</h2>
-            <button type="button" class="icon-btn" data-close-modal aria-label="Close">✕</button>
+            <button type="button" class="icon-btn" data-close-modal aria-label="Close">&times;</button>
         </div>
         <p>You are about to transfer the family head role to <strong id="ct-name"></strong>. This is recorded permanently.</p>
         <form method="POST" id="confirmTransferForm">

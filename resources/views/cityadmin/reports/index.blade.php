@@ -1,14 +1,14 @@
-@extends('layouts.staff')
+@extends('layouts.cityadmin')
 
 @section('title', 'Report Generation')
 @section('page-title', 'Report Generation')
-@section('page-subtitle', 'Generate downloadable reports for your barangay\'s evacuation center.')
+@section('page-subtitle', 'Generate reports across any shelter or the whole city.')
 
 @section('content')
 <section class="dash-columns">
     <div class="card panel">
         <h2 class="panel-title">Generate a Report</h2>
-        <form method="POST" action="{{ route('barangay.reports.generate') }}">
+        <form method="POST" action="{{ route('city.reports.generate') }}">
             @csrf
             <div class="field">
                 <label for="rep-type">Report type</label>
@@ -20,18 +20,17 @@
                     <option value="occupancy">Shelter Occupancy Summary</option>
                 </select>
             </div>
-
-            <div class="member-grid">
-                <div class="field">
-                    <label for="rep-from">Date from <small>(optional)</small></label>
-                    <input type="date" id="rep-from" name="date_from" max="{{ now()->toDateString() }}">
-                </div>
-                <div class="field">
-                    <label for="rep-to">Date to <small>(optional)</small></label>
-                    <input type="date" id="rep-to" name="date_to" max="{{ now()->toDateString() }}">
-                </div>
+            <div class="field">
+                <label for="rep-center">Shelter <small>(leave blank for all shelters)</small></label>
+                <select id="rep-center" name="center">
+                    <option value="">All shelters (city-wide)</option>
+                    @foreach($shelters ?? [] as $s)<option value="{{ $s->id }}">{{ $s->name }}</option>@endforeach
+                </select>
             </div>
-
+            <div class="member-grid">
+                <div class="field"><label for="rep-from">Date from <small>(optional)</small></label><input type="date" id="rep-from" name="date_from" max="{{ now()->toDateString() }}"></div>
+                <div class="field"><label for="rep-to">Date to <small>(optional)</small></label><input type="date" id="rep-to" name="date_to" max="{{ now()->toDateString() }}"></div>
+            </div>
             <div class="field">
                 <label>File format</label>
                 <div class="radio-list">
@@ -39,7 +38,6 @@
                     <label class="radio-row"><input type="radio" name="format" value="xlsx"> Excel (.xlsx)</label>
                 </div>
             </div>
-
             <button type="submit" class="btn-primary">&darr; Generate &amp; Download</button>
         </form>
     </div>
@@ -47,10 +45,9 @@
     <div class="dash-side">
         <h2 class="panel-title">Recently Generated</h2>
         <div class="card panel activity-panel">
-            @forelse($recent as $r)
+            @forelse($recent ?? [] as $r)
                 <div class="activity-row">
-                    <span class="activity-name">{{ \App\Models\GeneratedReport::typeLabel($r->report_type) }}
-                        <small class="text-muted">.{{ $r->format }}</small></span>
+                    <span class="activity-name">{{ \App\Models\GeneratedReport::typeLabel($r->report_type) }} <small class="text-muted">.{{ $r->format }}</small></span>
                     <time class="activity-time">{{ $r->created_at->diffForHumans() }}</time>
                 </div>
             @empty

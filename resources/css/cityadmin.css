@@ -1,0 +1,42 @@
+/* =========================================================================
+   EvacTech City Admin additions — heat maps & stock matrix.
+   Import AFTER design-system.css and staff.css. Uses only design tokens.
+   ========================================================================= */
+
+.heatmap-head { display: flex; justify-content: space-between; align-items: center; gap: var(--space-4); flex-wrap: wrap; margin-bottom: var(--space-4); }
+.legend { display: flex; gap: var(--space-4); flex-wrap: wrap; font-size: var(--text-sm); color: var(--color-text-secondary); }
+.legend span { display: inline-flex; align-items: center; gap: var(--space-2); }
+.legend .dot { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+
+/* ---- Heat grid (risk + shelter-status maps) ---- */
+.heat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: var(--space-2); }
+.heat-cell {
+    aspect-ratio: 1 / 0.72; border-radius: var(--radius-md); padding: var(--space-2);
+    display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center;
+    color: #fff; border: 2px solid var(--color-bg); box-shadow: var(--shadow-sm);
+}
+.heat-cell-name { font-size: var(--text-xs); font-weight: var(--weight-semibold); line-height: 1.15; }
+.heat-cell-sub { font-size: var(--text-xs); font-family: var(--font-mono); opacity: 0.95; margin-top: 2px; }
+
+/* Barangay risk tiers */
+.risk-high, .dot.risk-high { background: var(--color-danger); }
+.risk-moderate, .dot.risk-moderate { background: var(--color-warning); }
+.risk-low, .dot.risk-low { background: var(--color-success); }
+
+/* Shelter occupancy tiers */
+.tier-ok, .dot.cap-ok-bg { background: var(--color-success); }
+.tier-warn, .dot.cap-warn-bg { background: var(--color-warning); }
+.tier-full, .dot.cap-full-bg { background: var(--color-danger); }
+.tier-over, .dot.cap-over-bg { background: #7f1d1d; }
+.tier-inactive, .dot.tier-inactive { background: var(--color-text-muted); opacity: 0.55; }
+.tier-unknown { background: var(--color-surface-alt); color: var(--color-text-secondary); }
+
+/* ---- Relief stock matrix ---- */
+.heat-matrix { min-width: 640px; }
+.heat-matrix .matrix-good { writing-mode: horizontal-tb; font-size: var(--text-xs); }
+.matrix-cell { text-align: center; font-family: var(--font-mono); font-weight: var(--weight-semibold); color: #fff; }
+.stock-none, .dot.stock-none { background: var(--color-text-muted); opacity: 0.5; }
+.stock-low, .dot.stock-low { background: var(--color-danger); }
+.stock-med, .dot.stock-med { background: var(--color-warning); }
+.stock-high, .dot.stock-high { background: var(--color-success); }
+td.matrix-cell.stock-none { color: var(--color-text-secondary); }

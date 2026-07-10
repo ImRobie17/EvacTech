@@ -10,9 +10,9 @@ use Illuminate\Support\Facades\DB;
 
 class ShelterController extends BarangayController
 {
-    public function index(Request $request)
+    public function index(Request $request, ?\App\Models\EvacuationCenter $center = null)
     {
-        $center = $this->center();
+        $center = $this->center($center);
 
         $households = collect();
         if ($center) {
@@ -46,7 +46,10 @@ class ShelterController extends BarangayController
 
         $recent = $this->recentActivity($center);
 
-        return view('barangay.shelter.index', compact('center', 'households', 'recent'));
+        return view('barangay.shelter.index', array_merge(
+            compact('center', 'households', 'recent'),
+            $this->cityChrome($center)
+        ));
     }
 
     /** Check in an existing (already registered) household. */

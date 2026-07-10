@@ -1,16 +1,20 @@
-@extends('layouts.staff')
+@extends($layout ?? 'layouts.staff')
 
 @section('title', 'Evacuee Profiling')
 @section('page-title', 'Evacuee Profiling')
 @section('page-subtitle', 'Register households and manage evacuee records.')
 
 @section('page-actions')
-    <button type="button" class="btn-primary" data-open-modal="evacueeModal" data-mode="create">＋ Register Household</button>
+    <button type="button" class="btn-primary" data-open-modal="evacueeModal" data-mode="create">+ Register Household</button>
 @endsection
 
 @section('content')
+@isset($backLink)
+    <a href="{{ $backLink }}" class="btn-link" style="display:inline-block;margin-bottom:var(--space-4);">&larr; Back to all shelters</a>
+    @if($viewingCenter ?? null)<p class="page-subtitle" style="margin-bottom:var(--space-4);">Managing: <strong>{{ $viewingCenter->name }}</strong></p>@endif
+@endisset
 <form method="GET" class="filter-bar" role="search">
-    <input type="search" name="q" value="{{ request('q') }}" placeholder="Search household head…" aria-label="Search household head">
+    <input type="search" name="q" value="{{ request('q') }}" placeholder="Search household head"¦" aria-label="Search household head">
     <select name="status" aria-label="Filter by status">
         <option value="">All statuses</option>
         @foreach(['registered' => 'Registered', 'checked_in' => 'Checked in', 'checked_out' => 'Checked out', 'transferred' => 'Transferred'] as $val => $label)
@@ -43,10 +47,10 @@
             @forelse($households as $h)
                 <tr>
                     <td data-numeric>{{ $h->household_code }}</td>
-                    <td>{{ $h->headMember?->full_name ?? '—' }}</td>
+                    <td>{{ $h->headMember?->full_name ?? '-' }}</td>
                     <td data-numeric>{{ $h->number_of_members }}</td>
                     <td>{{ $h->origin_address }}</td>
-                    <td>{{ $h->evacuationCenter?->name ?? '—' }}</td>
+                    <td>{{ $h->evacuationCenter?->name ?? '-' }}</td>
                     <td>
                         @php
                             $tags = $h->members->flatMap->vulnerableClassifications->unique('id');
@@ -66,7 +70,7 @@
                     </td>
                 </tr>
             @empty
-                <tr><td colspan="7" class="empty-note">No households registered yet. Select “Register Household” to add the first family.</td></tr>
+                <tr><td colspan="7" class="empty-note">No households registered yet. Select "Register Household" to add the first family.</td></tr>
             @endforelse
         </tbody>
     </table>
@@ -80,7 +84,7 @@
     <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="evacueeModalTitle">
         <div class="modal-head">
             <h2 id="evacueeModalTitle">Add New Evacuee Profile</h2>
-            <button type="button" class="icon-btn" data-close-modal aria-label="Close">✕</button>
+            <button type="button" class="icon-btn" data-close-modal aria-label="Close">&times;</button>
         </div>
 
         <form method="POST" id="evacueeForm" action="{{ route('barangay.evacuees.store') }}">
@@ -100,11 +104,11 @@
             <fieldset class="member-fieldset">
                 <legend>Family Members</legend>
                 <div id="memberRows"></div>
-                <button type="button" class="btn-secondary" id="addMemberBtn">＋ Add family member</button>
+                <button type="button" class="btn-secondary" id="addMemberBtn">+ Add family member</button>
             </fieldset>
 
             <div class="modal-actions">
-                <button type="button" class="btn-link" id="transferHeadBtn" hidden>Transfer Head…</button>
+                <button type="button" class="btn-link" id="transferHeadBtn" hidden>Transfer Head"¦</button>
                 <span class="spacer"></span>
                 <button type="button" class="btn-secondary" data-close-modal>Cancel</button>
                 <button type="submit" class="btn-secondary" name="checkin" value="0">Save</button>
@@ -119,7 +123,7 @@
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="transferTitle">
         <div class="modal-head">
             <h2 id="transferTitle">Select New Family Head</h2>
-            <button type="button" class="icon-btn" data-close-modal aria-label="Close">✕</button>
+            <button type="button" class="icon-btn" data-close-modal aria-label="Close">&times;</button>
         </div>
         <p>Current head: <strong id="th-current"></strong></p>
         <div id="th-options" class="radio-list" role="radiogroup" aria-label="Select the new household head"></div>
@@ -135,7 +139,7 @@
     <div class="modal modal-narrow" role="dialog" aria-modal="true" aria-labelledby="confirmTransferTitle">
         <div class="modal-head">
             <h2 id="confirmTransferTitle">Confirm Transfer</h2>
-            <button type="button" class="icon-btn" data-close-modal aria-label="Close">✕</button>
+            <button type="button" class="icon-btn" data-close-modal aria-label="Close">&times;</button>
         </div>
         <p>You are about to transfer the family head role to <strong id="ct-name"></strong>. This is recorded permanently.</p>
         <form method="POST" id="confirmTransferForm">
@@ -164,7 +168,7 @@
             <div class="field"><label>Date of birth</label><input type="date" data-field="birthdate" required max="{{ now()->toDateString() }}"></div>
             <div class="field"><label>Sex</label>
                 <select data-field="sex" required>
-                    <option value="">Select…</option>
+                    <option value="">Select"¦</option>
                     <option value="male">Male</option>
                     <option value="female">Female</option>
                 </select>

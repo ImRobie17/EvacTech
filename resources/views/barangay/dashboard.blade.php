@@ -66,7 +66,7 @@
             <span class="kpi-title">Relief Packs Available</span>
         </div>
         <p class="kpi-value {{ $kpis['low_stock'] ? 'cap-warn' : '' }}" data-numeric>{{ number_format($kpis['relief_packs']) }}</p>
-        <p class="kpi-note">{{ $kpis['low_stock'] ? '⚠ Some items at or below reorder level' : 'Ready for distribution' }}</p>
+        <p class="kpi-note">{{ $kpis['low_stock'] ? '&#9888; Some items at or below reorder level' : 'Ready for distribution' }}</p>
     </article>
 
     <article class="card kpi-card">
@@ -90,19 +90,19 @@
     <div class="dash-side">
         <h2 class="panel-title">Quick Actions</h2>
         <a class="card action-card" href="{{ route('barangay.evacuees.index') }}?open=register">
-            <span class="action-icon" aria-hidden="true">➕</span>
+            <span class="action-icon" aria-hidden="true">+</span>
             <span><strong>Register Evacuee</strong><br><small>Add a new family to the system</small></span>
         </a>
         <a class="card action-card" href="{{ route('barangay.shelter.index') }}?open=checkin">
-            <span class="action-icon" aria-hidden="true">✓</span>
+            <span class="action-icon" aria-hidden="true">&check;</span>
             <span><strong>Check-in Household</strong><br><small>Existing family arriving at the center</small></span>
         </a>
         <a class="card action-card" href="{{ route('barangay.shelter.index') }}">
-            <span class="action-icon" aria-hidden="true">⇥</span>
+            <span class="action-icon" aria-hidden="true">&#8677;</span>
             <span><strong>Check-out Household</strong><br><small>Family leaving the center</small></span>
         </a>
         <a class="card action-card" href="{{ route('barangay.relief.index') }}?open=distribute">
-            <span class="action-icon" aria-hidden="true">📦</span>
+            <span class="action-icon" aria-hidden="true"></span>
             <span><strong>Distribute Relief</strong><br><small>Log goods given to families</small></span>
         </a>
 

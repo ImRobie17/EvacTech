@@ -3,6 +3,7 @@
 @import './staff.css';
 @import './cityadmin.css';
 @import './public.css';
+@import './superadmin.css';
 
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
 @source '../../storage/framework/views/*.php';

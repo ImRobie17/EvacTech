@@ -61,8 +61,7 @@ class LoginController extends Controller
         return match ($user->role?->name) {
             Role::BARANGAY_PERSONNEL => route('barangay.dashboard'),
             Role::CITY_ADMIN => route('city.dashboard'),
-            // Super Admin lands on city dashboard as a placeholder until built:
-            Role::SUPER_ADMIN => route('city.dashboard'),
+            Role::SUPER_ADMIN => route('super.dashboard'),
             default => route('login'),
         };
     }

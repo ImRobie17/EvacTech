@@ -18,6 +18,12 @@
         <h1 id="login-title" class="login-title">Staff Sign In</h1>
         <p class="login-subtitle">Evacuation management portal for the City of Cabuyao.</p>
 
+        @if (cache()->get('evactech_maintenance', false))
+            <div class="alert alert-warning" role="status">
+                <strong>System under maintenance.</strong> Only system administrators can sign in right now. Please try again later.
+            </div>
+        @endif
+
         @if ($errors->any())
             <div class="alert alert-danger" role="alert">{{ $errors->first() }}</div>
         @endif

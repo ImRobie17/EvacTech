@@ -39,6 +39,19 @@ class LoginController extends Controller
             return back()->withErrors(['email' => 'This account has been deactivated.'])->onlyInput('email');
         }
 
+        // During maintenance only Super Admins may sign in. Rejecting here (rather
+        // than letting the request through and bouncing later) gives the user a clear
+        // message instead of a confusing redirect or CSRF "Page Expired" error.
+        if (cache()->get('evactech_maintenance', false) && $user->role?->name !== Role::SUPER_ADMIN) {
+            auth()->logout();
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+
+            return back()
+                ->withErrors(['email' => 'EvacTech is currently under maintenance. Only system administrators can sign in right now. Please try again later.'])
+                ->onlyInput('email');
+        }
+
         $user->forceFill(['last_login_at' => now()])->save();
         AuditLogger::log('login', $user, 'User signed in');
 

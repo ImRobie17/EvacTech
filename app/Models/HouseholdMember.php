@@ -9,9 +9,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class HouseholdMember extends Model
 {
+    // 'is_present' was added by the Barangay Personnel migration and must be
+    // fillable, otherwise Eloquent create()/update() silently drops it and every
+    // member is stored as not-present (breaking the headcount).
     protected $fillable = [
         'household_id', 'full_name', 'age', 'birthdate', 'sex',
-        'family_role', 'is_household_head', 'contact_number',
+        'family_role', 'is_household_head', 'is_present', 'contact_number',
     ];
 
     protected function casts(): array
@@ -19,6 +22,7 @@ class HouseholdMember extends Model
         return [
             'birthdate' => 'date',
             'is_household_head' => 'boolean',
+            'is_present' => 'boolean',
         ];
     }
 

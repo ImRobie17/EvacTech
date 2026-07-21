@@ -230,7 +230,13 @@ class EvacueeProfilingController extends BarangayController
             ];
 
             if ($checkin) {
-                $attrs['is_present'] = ! empty($m['is_present']);
+                // The Add Evacuee form has no per-member "present" checkbox: when a
+                // family is registered and checked in at the same time, everyone
+                // entered is present by definition. If a form DOES send is_present
+                // (the Check-in Family modal does), honour that instead.
+                $attrs['is_present'] = array_key_exists('is_present', $m)
+                    ? ! empty($m['is_present'])
+                    : true;
             } elseif (! $keepPresence) {
                 $attrs['is_present'] = false;
             }

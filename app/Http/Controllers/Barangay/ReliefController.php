@@ -68,7 +68,7 @@ class ReliefController extends BarangayController
                     $h->last_received = $last?->transaction_date;
                     return $h;
                 })
-                ->sortBy(fn ($h) => $h->last_received ?? Carbon::minValue());
+                ->sortBy(fn ($h) => $h->last_received ?? \Illuminate\Support\Carbon::createFromTimestamp(0));
 
             $inventory = ReliefInventory::with('reliefGood')
                 ->where('evacuation_center_id', $center->id)

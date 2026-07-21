@@ -129,7 +129,7 @@ class EvacueeProfilingController extends Controller
                 'sex' => $m['sex'],
                 'is_household_head' => $isHead,
                 'family_role' => $isHead ? 'head' : 'member',
-                'is_present' => $checkin ? ! empty($m['is_present']) : false,
+                'is_present' => $checkin ? (array_key_exists('is_present', $m) ? ! empty($m['is_present']) : true) : false,
             ]);
             $keptIds[] = $member->id;
 

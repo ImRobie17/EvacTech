@@ -1,0 +1,91 @@
+/* =========================================================================
+   EvacTech Public Citizen pages.
+   Import AFTER design-system.css (and staff.css, which provides .card,
+   .badge, .btn-*, .capacity-bar, .legend primitives reused here).
+   ========================================================================= */
+
+.public-body { margin: 0; background: var(--color-bg); display: flex; flex-direction: column; min-height: 100vh; }
+
+/* ---- Header ---- */
+.public-header { border-bottom: 1px solid var(--color-border); background: var(--color-bg); position: sticky; top: 0; z-index: 50; }
+.public-header-inner {
+    max-width: 1200px; margin: 0 auto; padding: var(--space-3) var(--space-4);
+    display: flex; align-items: center; gap: var(--space-6); flex-wrap: wrap;
+}
+.public-brand { display: flex; align-items: center; gap: var(--space-2); text-decoration: none; color: var(--color-text-primary); }
+.public-brand-sub { font-size: var(--text-xs); color: var(--color-text-muted); border-left: 1px solid var(--color-border); padding-left: var(--space-2); }
+.public-nav { display: flex; gap: var(--space-2); flex: 1; flex-wrap: wrap; }
+.public-nav-item {
+    text-decoration: none; color: var(--color-text-secondary); font-weight: var(--weight-medium);
+    padding: var(--space-2) var(--space-4); border-radius: var(--radius-md); min-height: var(--tap-target-min);
+    display: inline-flex; align-items: center;
+}
+.public-nav-item:hover { background: var(--color-surface); }
+.public-nav-item.active { background: var(--color-primary); color: var(--color-primary-contrast); }
+.public-header-right { display: flex; align-items: center; gap: var(--space-3); }
+.staff-login-link { color: var(--color-text-muted); font-size: var(--text-sm); text-decoration: none; }
+.staff-login-link:hover { color: var(--color-primary); text-decoration: underline; }
+
+/* ---- Main / hero ---- */
+.public-main { flex: 1; max-width: 1200px; width: 100%; margin: 0 auto; padding: var(--space-6) var(--space-4) var(--space-12); }
+.public-hero { margin-bottom: var(--space-6); }
+.public-hero h1 { font-size: var(--text-2xl); margin: 0 0 var(--space-2); }
+.public-hero p { color: var(--color-text-secondary); max-width: 640px; margin: 0; }
+
+/* ---- Map ---- */
+.map-toolbar { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; margin-bottom: var(--space-3); }
+.map-hint { color: var(--color-text-secondary); font-size: var(--text-sm); }
+.map-layout { display: grid; grid-template-columns: 1fr 300px; gap: var(--space-4); align-items: start; }
+.shelter-map { height: 480px; border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); z-index: 1; }
+.nearest-panel { padding: var(--space-4); max-height: 480px; overflow-y: auto; }
+.nearest-list { list-style: decimal inside; margin: 0; padding: 0; }
+.nearest-list li { padding: var(--space-3) var(--space-2); border-bottom: 1px solid var(--color-border); cursor: pointer; font-size: var(--text-sm); }
+.nearest-list li:hover { background: var(--color-surface); }
+.nearest-list li:last-child { border-bottom: none; }
+
+/* ---- Shelter cards ---- */
+.shelters-section { margin-top: var(--space-8); }
+.shelters-section h2 { font-size: var(--text-xl); margin-bottom: var(--space-4); }
+.shelter-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--space-4); }
+.shelter-card { padding: var(--space-5); }
+.shelter-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-2); }
+.shelter-card-head h3 { margin: 0; font-size: var(--text-lg); }
+.shelter-card-brgy { color: var(--color-primary); font-weight: var(--weight-semibold); font-size: var(--text-sm); margin: var(--space-1) 0 0; }
+.shelter-card-addr { color: var(--color-text-secondary); font-size: var(--text-sm); margin: var(--space-1) 0 var(--space-3); }
+.shelter-card-contact { margin-top: var(--space-3); border-top: 1px solid var(--color-border); padding-top: var(--space-3); font-size: var(--text-sm); }
+.shelter-card-contact p { margin: var(--space-1) 0; }
+.shelter-card-contact a { color: var(--color-primary); text-decoration: none; }
+.shelter-card-contact a:hover { text-decoration: underline; }
+.contact-label { color: var(--color-text-muted); }
+
+/* ---- Find Family ---- */
+.find-form-card { max-width: 760px; }
+.find-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); }
+.privacy-note { color: var(--color-text-muted); font-size: var(--text-sm); margin-top: var(--space-4); border-left: 3px solid var(--color-primary-400); padding-left: var(--space-3); }
+.results-card, .verify-card { max-width: 760px; }
+.result-row { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; padding: var(--space-3) 0; border-bottom: 1px solid var(--color-border); }
+.result-row:last-child { border-bottom: none; }
+.result-name { font-weight: var(--weight-semibold); }
+.result-time { color: var(--color-text-muted); font-size: var(--text-sm); }
+
+/* ---- Hotlines ---- */
+.hotline-group { margin-bottom: var(--space-8); }
+.hotline-category { font-size: var(--text-xl); border-bottom: 2px solid var(--color-primary); display: inline-block; padding-bottom: var(--space-1); margin-bottom: var(--space-4); }
+.hotline-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--space-4); }
+.hotline-card { padding: var(--space-5); }
+.hotline-card h3 { margin: 0 0 var(--space-2); font-size: var(--text-base); }
+.hotline-number { font-family: var(--font-mono); font-size: var(--text-xl); font-weight: var(--weight-semibold); color: var(--color-primary); text-decoration: none; }
+.hotline-number:hover { text-decoration: underline; }
+.hotline-desc { color: var(--color-text-muted); font-size: var(--text-sm); margin: var(--space-2) 0 0; }
+
+/* ---- Footer ---- */
+.public-footer { border-top: 1px solid var(--color-border); padding: var(--space-6) var(--space-4); text-align: center; font-size: var(--text-sm); color: var(--color-text-secondary); }
+.public-footer p { margin: var(--space-1) 0; }
+
+/* ---- Responsive ---- */
+@media (max-width: 900px) {
+    .map-layout { grid-template-columns: 1fr; }
+    .nearest-panel { max-height: none; }
+    .find-grid { grid-template-columns: 1fr; }
+    .shelter-map { height: 380px; }
+}

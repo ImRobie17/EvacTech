@@ -15,6 +15,9 @@ class DatabaseSeeder extends Seeder
             ReliefGoodSeeder::class,
             DepartmentSeeder::class,
             SuperAdminSeeder::class,
+            BarangayPersonnelDemoSeeder::class, 
+            CityAdminDemoSeeder::class, 
+            PublicSiteSeeder::class,
         ]);
     }
 }

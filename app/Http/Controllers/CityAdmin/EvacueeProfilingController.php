@@ -85,12 +85,13 @@ class EvacueeProfilingController extends Controller
                     'evacuation_center_id' => $center->id,
                     'status' => 'checked_in',
                     'checked_in_at' => now(),
+                    'checked_out_at' => null,
                     'members_present' => $present,
                 ]);
-                $center->increment('current_occupancy', $present);
-                if ($center->capacity > 0 && $center->current_occupancy >= $center->capacity) {
-                    $center->update(['status' => 'full']);
-                }
+                // Derived, not incremented -- and never flips the shelter to
+                // 'full'/inactive: an overcapacity shelter stays active so it can
+                // keep accepting and tracking evacuees.
+                $center->recalcOccupancy();
             }
 
             return $household;

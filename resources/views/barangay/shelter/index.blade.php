@@ -1,4 +1,4 @@
-@extends($layout ?? 'layouts.staff')
+@extends('layouts.staff')
 
 @section('title', 'Evacuation Shelter')
 @section('page-title', 'Evacuation Shelter')
@@ -9,36 +9,21 @@
 @endsection
 
 @section('content')
-@isset($backLink)
-    <a href="{{ $backLink }}" class="btn-link" style="display:inline-block;margin-bottom:var(--space-4);">&larr; Back to all shelters</a>
-    @if($viewingCenter ?? null)<p class="page-subtitle" style="margin-bottom:var(--space-4);">Managing: <strong>{{ $viewingCenter->name }}</strong></p>@endif
-@endisset
 @php
     $pct = $center && $center->capacity > 0 ? round($center->current_occupancy / $center->capacity * 100) : null;
-    $capClass = $pct === null ? '' : ($pct > 100 ? 'cap-over' : ($pct >= 90 ? 'cap-full' : ($pct >= 70 ? 'cap-warn' : 'cap-ok')));
+    // Band comes from the model so the thresholds live in one place.
+    $capClass = $center ? 'cap-' . $center->capacityBand() : '';
 @endphp
 
 @unless($center)
-    <div class="alert alert-warning">No evacuation center is registered for your barangay yet. Ask the City Admin to add one.</div>
+    <div class="alert alert-warning">No shelter selected. Choose one from the switcher above, or ask your Evacuation Administrator to assign you to a shelter.</div>
 @else
 <section class="dash-columns">
     <div>
-        <article class="card panel capacity-panel">
-            <h2 class="panel-title">Shelter Capacity</h2>
-            <p class="capacity-figure {{ $capClass }}" data-numeric>
-                {{ $center->current_occupancy }} <span class="capacity-sep">/</span> {{ $center->capacity }}
-                @if($pct !== null)<span class="capacity-pct">({{ $pct }}%)</span>@endif
-            </p>
-            <div class="capacity-bar" role="progressbar" aria-valuenow="{{ $pct ?? 0 }}" aria-valuemin="0" aria-valuemax="100" aria-label="Shelter occupancy">
-                <div class="capacity-bar-fill {{ $capClass }}" style="width: {{ min($pct ?? 0, 100) }}%"></div>
-            </div>
-            <p class="kpi-note">
-                {{ $pct === null ? 'Capacity not configured' : ($pct > 100 ? 'Overcapacity - coordinate transfers with CDRRMO' : ($pct >= 90 ? 'Full' : ($pct >= 70 ? 'Nearing capacity' : 'Space available'))) }}
-            </p>
-        </article>
+        @include('partials.capacity-panel', ['center' => $center])
 
         <form method="GET" class="filter-bar" role="search">
-            <input type="search" name="q" value="{{ request('q') }}" placeholder="Search household head"¦" aria-label="Search household head name">
+            <input type="search" name="q" value="{{ request('q') }}" placeholder="Search household head&hellip;" aria-label="Search household head name">
             <select name="status" aria-label="Filter status">
                 <option value="">All statuses</option>
                 <option value="checked_in" @selected(request('status') === 'checked_in')>Checked in</option>
@@ -68,7 +53,7 @@
                         <tr>
                             <td>{{ $h->headMember?->full_name ?? '-' }}</td>
                             <td data-numeric>{{ $h->members_present }} / {{ $h->number_of_members }}</td>
-                            <td data-numeric>{{ $h->checked_in_at?->format('M d, Y Â· h:i A') ?? '-' }}</td>
+                            <td data-numeric>{{ $h->checked_in_at?->format('M d, Y - h:i A') ?? '-' }}</td>
                             <td>
                                 <span class="badge {{ $h->status === 'checked_in' ? 'badge-success' : ($h->status === 'checked_out' ? 'badge-warning' : 'badge-info') }}">
                                     {{ ucfirst(str_replace('_', ' ', $h->status)) }}
@@ -138,7 +123,7 @@
         <form method="POST" id="checkinForm" hidden>
             @csrf
             <div class="ci-profile">
-                <p><strong id="ci-code"></strong> Â· <span id="ci-head"></span></p>
+                <p><strong id="ci-code"></strong> &middot; <span id="ci-head"></span></p>
                 <p class="kpi-note">Tick everyone who is present at the shelter right now:</p>
                 <div id="ci-members" class="checkbox-list"></div>
             </div>

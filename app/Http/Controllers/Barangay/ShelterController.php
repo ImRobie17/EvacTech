@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers\Barangay;
 
+use App\Models\EvacuationCenter;
 use App\Models\Household;
+use App\Models\HouseholdMember;
 use App\Models\HouseholdTransfer;
 use App\Services\AuditLogger;
 use Illuminate\Http\Request;
@@ -10,13 +12,13 @@ use Illuminate\Support\Facades\DB;
 
 class ShelterController extends BarangayController
 {
-    public function index(Request $request, ?\App\Models\EvacuationCenter $center = null)
+    public function index(Request $request, ?EvacuationCenter $center = null)
     {
         $center = $this->center($center);
 
         $households = collect();
         if ($center) {
-            $query = Household::with(['headMember'])
+            $query = Household::with(['headMember', 'originBarangay'])
                 ->where('evacuation_center_id', $center->id);
 
             if ($search = trim((string) $request->input('q'))) {
@@ -32,7 +34,7 @@ class ShelterController extends BarangayController
             $sort = $request->input('sort', 'recent');
             if ($sort === 'name') {
                 $query->orderBy(
-                    \App\Models\HouseholdMember::select('full_name')
+                    HouseholdMember::select('full_name')
                         ->whereColumn('household_members.household_id', 'households.id')
                         ->where('is_household_head', true)
                         ->limit(1)
@@ -46,16 +48,20 @@ class ShelterController extends BarangayController
 
         $recent = $this->recentActivity($center);
 
-        return view('barangay.shelter.index', array_merge(
-            compact('center', 'households', 'recent'),
-            $this->cityChrome($center)
-        ));
+        return view('barangay.shelter.index', compact('center', 'households', 'recent'));
     }
 
-    /** Check in an existing (already registered) household. */
+    /**
+     * Check in an existing (already registered) household.
+     *
+     * The household is placed in whichever shelter the actor is operating: the
+     * barangay staff member's active shelter, or (for City Admin) the shelter
+     * passed as ?center=. Authorisation follows the shelter, not the staff
+     * member's barangay -- see ResolvesCenter::canManageHousehold.
+     */
     public function checkIn(Request $request, Household $household)
     {
-        abort_if($household->origin_barangay_id !== auth()->user()->barangay_id, 403);
+        $this->authorizeHousehold($household);
         $center = $this->centerOrFail();
 
         $data = $request->validate([
@@ -64,13 +70,17 @@ class ShelterController extends BarangayController
         ]);
 
         if ($household->status === 'checked_in') {
-            return back()->withErrors(['household' => "This household is already checked in at {$household->evacuationCenter?->name}. Use Transfer instead."]);
+            return back()->withErrors([
+                'household' => "This household is already checked in at {$household->evacuationCenter?->name}. Use Transfer instead.",
+            ]);
         }
 
-        DB::transaction(function () use ($household, $center, $data) {
+        $previousCenter = $household->evacuationCenter;
+
+        DB::transaction(function () use ($household, $center, $previousCenter, $data) {
             $household->members()->update(['is_present' => false]);
             $household->members()->whereIn('id', $data['present'])->update(['is_present' => true]);
-            $present = count($data['present']);
+            $present = $household->members()->where('is_present', true)->count();
 
             $household->update([
                 'evacuation_center_id' => $center->id,
@@ -80,18 +90,28 @@ class ShelterController extends BarangayController
                 'members_present' => $present,
             ]);
 
-            $center->increment('current_occupancy', $present);
-            $this->refreshCenterStatus($center);
+            // Derived, not incremented. If the household came from another
+            // shelter, that shelter's count is corrected too.
+            $center->recalcOccupancy();
+            if ($previousCenter && $previousCenter->id !== $center->id) {
+                $previousCenter->recalcOccupancy();
+            }
         });
 
-        AuditLogger::log('updated', $household, "Checked in household {$household->household_code} ({$household->members_present} present)");
+        $household->refresh();
 
-        return redirect()->route('barangay.shelter.index')->with('success', "Household {$household->household_code} checked in.");
+        AuditLogger::log('updated', $household,
+            "Checked in household {$household->household_code} at {$center->name} ({$household->members_present} present)");
+
+        return $this->backToShelter($center, "Household {$household->household_code} checked in.");
     }
 
     public function checkOut(Household $household)
     {
-        abort_if($household->origin_barangay_id !== auth()->user()->barangay_id, 403);
+        // FIX: previously compared $household->origin_barangay_id against
+        // auth()->user()->barangay_id. City Admin has no barangay_id, so this
+        // always aborted 403 -- the "City Admin check-out gives 403" bug.
+        $this->authorizeHousehold($household);
 
         if ($household->status !== 'checked_in') {
             return back()->withErrors(['household' => 'This household is not currently checked in.']);
@@ -100,16 +120,13 @@ class ShelterController extends BarangayController
         $center = $household->evacuationCenter;
 
         DB::transaction(function () use ($household, $center) {
-            $center?->decrement('current_occupancy', min($household->members_present, $center->current_occupancy));
             $household->members()->update(['is_present' => false]);
             $household->update([
                 'status' => 'checked_out',
                 'checked_out_at' => now(),
                 'members_present' => 0,
             ]);
-            if ($center) {
-                $this->refreshCenterStatus($center);
-            }
+            $center?->recalcOccupancy();
         });
 
         AuditLogger::log('updated', $household, "Checked out household {$household->household_code}");
@@ -123,7 +140,7 @@ class ShelterController extends BarangayController
      */
     public function transferHead(Request $request, Household $household)
     {
-        abort_if($household->origin_barangay_id !== auth()->user()->barangay_id, 403);
+        $this->authorizeHousehold($household);
 
         $data = $request->validate([
             'new_head_member_id' => ['required', 'integer'],
@@ -134,15 +151,19 @@ class ShelterController extends BarangayController
 
         $newHead = $household->members()->whereKey($data['new_head_member_id'])->firstOrFail();
 
-        DB::transaction(function () use ($household, $newHead) {
+        // A head transfer is not a shelter move: from and to are the same place.
+        // Shelter-to-shelter movement gets its own OUT/IN record in Phase 2 #8.
+        $centerId = $household->evacuation_center_id ?? $this->centerOrFail()->id;
+
+        DB::transaction(function () use ($household, $newHead, $centerId) {
             $household->members()->update(['is_household_head' => false, 'family_role' => 'member']);
             $newHead->update(['is_household_head' => true, 'family_role' => 'head']);
             $household->update(['head_member_id' => $newHead->id]);
 
             HouseholdTransfer::create([
                 'household_id' => $household->id,
-                'from_center_id' => $household->evacuation_center_id,
-                'to_center_id' => $household->evacuation_center_id ?? $this->centerOrFail()->id,
+                'from_center_id' => $centerId,
+                'to_center_id' => $centerId,
                 'new_head_member_id' => $newHead->id,
                 'reason' => 'Family head transfer',
                 'transferred_by' => auth()->id(),
@@ -150,21 +171,22 @@ class ShelterController extends BarangayController
             ]);
         });
 
-        AuditLogger::log('updated', $household, "Transferred head of {$household->household_code} to {$newHead->full_name}");
+        AuditLogger::log('updated', $household,
+            "Transferred head of {$household->household_code} to {$newHead->full_name}");
 
         return back()->with('success', "Family head transferred to {$newHead->full_name}.");
     }
 
-    protected function refreshCenterStatus($center): void
+    /**
+     * Barangay-only screen, so there is exactly one destination. City Admin has
+     * its own detail page and never reaches this controller.
+     */
+    private function backToShelter(EvacuationCenter $center, string $message)
     {
-        if ($center->capacity > 0 && $center->current_occupancy >= $center->capacity) {
-            $center->update(['status' => 'full']);
-        } elseif ($center->status === 'full') {
-            $center->update(['status' => 'active']);
-        }
+        return redirect()->route('barangay.shelter.index')->with('success', $message);
     }
 
-    private function recentActivity($center)
+    private function recentActivity(?EvacuationCenter $center)
     {
         if (! $center) {
             return collect();
@@ -182,6 +204,7 @@ class ShelterController extends BarangayController
                 if ($h->checked_out_at) {
                     $events[] = ['type' => 'check_out', 'household' => $h, 'at' => $h->checked_out_at];
                 }
+
                 return $events;
             })
             ->sortByDesc('at')

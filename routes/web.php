@@ -16,11 +16,25 @@ Route::middleware('guest')->group(function () {
 Route::post('/logout', [LoginController::class, 'logout'])->middleware('auth')->name('logout');
 
 // ---- Barangay Personnel ----
-Route::middleware(['auth', 'verified'])
+//
+// PHASE 1 ITEM 1 middleware changes:
+//   - Added `role:barangay_personnel`. This group previously had NO role check,
+//     so any authenticated user (including a citizen-less city_admin session)
+//     could reach barangay screens.
+//   - Removed `verified`. Seeded accounts are not email-verified, which caused
+//     the redirect loop noted in the handoff gotchas.
+//   - Added `shelter.assigned`, which stops staff with an empty shelter roster
+//     at a "contact your Evacuation Administrator" screen instead of letting
+//     every screen render blank.
+Route::middleware(['auth', 'role:barangay_personnel', 'shelter.assigned'])
     ->prefix('barangay')
     ->name('barangay.')
     ->group(function () {
         Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+
+        // Active shelter switcher (header dropdown). Persists the choice in the
+        // session so every screen agrees on which shelter is being operated.
+        Route::post('/active-shelter', [DashboardController::class, 'switchCenter'])->name('shelter.switch');
 
         // Evacuee Profiling
         Route::get('/evacuees', [EvacueeProfilingController::class, 'index'])->name('evacuees.index');

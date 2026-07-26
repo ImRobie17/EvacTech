@@ -81,17 +81,23 @@ class ReportController extends BarangayController
 
         return match ($type) {
             'household_registry' => [
-                ['Household ID', 'Household Head', 'Family Size', 'Address', 'Status', 'Shelter', 'Registered On'],
-                $range(Household::with(['headMember', 'evacuationCenter'])
-                    ->where('origin_barangay_id', auth()->user()->barangay_id))
+                ['Household ID', 'Household Head', 'Family Size', 'Origin Barangay', 'Address', 'Status', 'Shelter', 'Registered On'],
+                // RESCOPED from origin_barangay_id to the shelter being operated:
+                // staff are assigned to shelters, not barangays. Households not yet
+                // placed in a shelter are included so the registry stays complete.
+                $range(Household::with(['headMember', 'evacuationCenter', 'originBarangay'])
+                    ->where(fn ($q) => $q
+                        ->where('evacuation_center_id', $center->id)
+                        ->orWhereNull('evacuation_center_id')))
                     ->get()
                     ->map(fn ($h) => [
                         $h->household_code,
-                        $h->headMember?->full_name ?? '—',
+                        $h->headMember?->full_name ?? '-',
                         $h->number_of_members,
+                        $h->originBarangay?->name ?? '-',
                         $h->origin_address,
                         ucfirst(str_replace('_', ' ', $h->status)),
-                        $h->evacuationCenter?->name ?? '—',
+                        $h->evacuationCenter?->name ?? '-',
                         $h->created_at->format('M d, Y'),
                     ])->all(),
                 'Household Registry',
@@ -104,11 +110,11 @@ class ReportController extends BarangayController
                     ->get()
                     ->map(fn ($h) => [
                         $h->household_code,
-                        $h->headMember?->full_name ?? '—',
+                        $h->headMember?->full_name ?? '-',
                         $h->members_present,
                         ucfirst(str_replace('_', ' ', $h->status)),
                         $h->checked_in_at?->format('M d, Y h:i A'),
-                        $h->checked_out_at?->format('M d, Y h:i A') ?? '—',
+                        $h->checked_out_at?->format('M d, Y h:i A') ?? '-',
                     ])->all(),
                 'Attendance Headcount',
             ],
@@ -121,10 +127,10 @@ class ReportController extends BarangayController
                     ->get()
                     ->map(fn ($t) => [
                         $t->transaction_date->format('M d, Y'),
-                        $t->household?->headMember?->full_name ?? '—',
+                        $t->household?->headMember?->full_name ?? '-',
                         $t->reliefGood->name,
                         $t->quantity . ' ' . $t->reliefGood->unit,
-                        $t->recordedBy?->name ?? '—',
+                        $t->recordedBy?->name ?? '-',
                         $t->remarks ?? '',
                     ])->all(),
                 'Relief Distribution',
@@ -132,7 +138,7 @@ class ReportController extends BarangayController
             'vulnerable' => [
                 ['Name', 'Age', 'Sex', 'Household', 'Classifications', 'Currently Present'],
                 HouseholdMember::with(['household', 'vulnerableClassifications'])
-                    ->whereHas('household', fn ($q) => $q->where('origin_barangay_id', auth()->user()->barangay_id))
+                    ->whereHas('household', fn ($q) => $q->where('evacuation_center_id', $center->id))
                     ->whereHas('vulnerabilities')
                     ->get()
                     ->map(fn ($m) => [
@@ -153,7 +159,7 @@ class ReportController extends BarangayController
                     $center->current_occupancy,
                     ($center->capacity > 0 ? round($center->current_occupancy / $center->capacity * 100) : 0) . '%',
                     Household::where('evacuation_center_id', $center->id)->where('status', 'checked_in')->count(),
-                    ucfirst($center->status),
+                    $center->statusLabel(),
                 ]],
                 'Shelter Occupancy Summary',
             ],

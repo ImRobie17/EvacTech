@@ -2,52 +2,80 @@
 
 @section('title', 'User Management')
 @section('page-title', 'User Management')
-@section('page-subtitle', 'Manage barangay personnel accounts and shelter assignments.')
+@section('page-subtitle', 'Manage barangay personnel accounts and their shelter assignments.')
 @section('page-actions')
     <button type="button" class="btn-primary" data-open-modal="userModal" data-mode="create">+ Add Personnel</button>
 @endsection
 
 @section('content')
 <form method="GET" class="filter-bar" role="search">
-    <input type="search" name="q" value="{{ request('q') }}" placeholder="Search name or email…" aria-label="Search user">
-    <select name="barangay" aria-label="Filter barangay">
-        <option value="">All barangays</option>
-        @foreach($barangays as $b)<option value="{{ $b->id }}" @selected(request('barangay') == $b->id)>{{ $b->name }}</option>@endforeach
+    <input type="search" name="q" value="{{ request('q') }}" placeholder="Search name or email" aria-label="Search user">
+    <select name="shelter" aria-label="Filter by assigned shelter">
+        <option value="">All shelters</option>
+        @foreach($shelters as $s)
+            <option value="{{ $s->id }}" @selected(request('shelter') == $s->id)>{{ $s->name }}</option>
+        @endforeach
     </select>
     <select name="status" aria-label="Filter status">
         <option value="">All statuses</option>
         <option value="active" @selected(request('status') === 'active')>Active</option>
         <option value="inactive" @selected(request('status') === 'inactive')>Inactive</option>
     </select>
+    <label class="checkbox-row filter-check">
+        <input type="checkbox" name="unassigned" value="1" @checked(request('unassigned'))>
+        Unassigned only
+    </label>
     <button type="submit" class="btn-secondary">Filter</button>
 </form>
 
 <div class="card panel table-panel">
     <table class="data-table">
         <thead>
-            <tr><th scope="col">Name</th><th scope="col">Email</th><th scope="col">Barangay</th><th scope="col">Last Login</th><th scope="col">Status</th><th scope="col">Actions</th></tr>
+            <tr>
+                <th scope="col">Name</th>
+                <th scope="col">Email</th>
+                <th scope="col">Assigned Shelters</th>
+                <th scope="col">Last Login</th>
+                <th scope="col">Status</th>
+                <th scope="col">Actions</th>
+            </tr>
         </thead>
         <tbody>
             @forelse($users as $u)
                 @php
+                    $shelterIds = $u->assignedCenters->pluck('id')->values()->all();
                     $editUser = [
                         'id' => $u->id,
                         'name' => $u->name,
                         'email' => $u->email,
                         'contact_number' => $u->contact_number,
-                        'barangay_id' => $u->barangay_id,
+                        'shelters' => $shelterIds,
                         'status' => $u->status,
                         'update_url' => route('city.users.update', $u),
                     ];
+                    $editUserJson = json_encode($editUser);
                 @endphp
                 <tr>
                     <td>{{ $u->name }}</td>
                     <td>{{ $u->email }}</td>
-                    <td>{{ $u->barangay?->name ?? '—' }}</td>
+                    <td>
+                        @if ($u->assignedCenters->isEmpty())
+                            <span class="badge badge-danger">No shelter assigned</span>
+                        @else
+                            <details class="staff-list">
+                                <summary>{{ $u->assignedCenters->count() }} shelter{{ $u->assignedCenters->count() === 1 ? '' : 's' }}</summary>
+                                <ul>
+                                    @foreach ($u->assignedCenters as $c)
+                                        <li>{{ $c->name }}@if($c->barangay) <small>Brgy. {{ $c->barangay->name }}</small>@endif</li>
+                                    @endforeach
+                                </ul>
+                            </details>
+                        @endif
+                    </td>
                     <td data-numeric>{{ $u->last_login_at?->diffForHumans() ?? 'Never' }}</td>
                     <td><span class="badge {{ $u->status === 'active' ? 'badge-success' : 'badge-warning' }}">{{ ucfirst($u->status) }}</span></td>
                     <td class="actions-cell">
-                        <button type="button" class="btn-link" data-edit-user="{{ json_encode($editUser) }}">Edit</button>
+                        <button type="button" class="btn-link" data-edit-user="{{ $editUserJson }}">Edit</button>
                         <form method="POST" action="{{ route('city.users.toggle', $u) }}" class="inline-form"
                               data-confirm="Set {{ $u->name }} to {{ $u->status === 'active' ? 'inactive' : 'active' }}?">
                             @csrf
@@ -66,7 +94,7 @@
 
 @push('modals')
 <div class="modal-backdrop" id="userModal" hidden>
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="userModalTitle">
+    <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="userModalTitle">
         <div class="modal-head">
             <h2 id="userModalTitle">Add Barangay Personnel</h2>
             <button type="button" class="icon-btn" data-close-modal aria-label="Close">&times;</button>
@@ -77,13 +105,36 @@
             <div class="field"><label for="u-name">Full name</label><input type="text" id="u-name" name="name" required maxlength="255"></div>
             <div class="field"><label for="u-email">Email</label><input type="email" id="u-email" name="email" required></div>
             <div class="field"><label for="u-contact">Contact number <small>(optional)</small></label><input type="text" id="u-contact" name="contact_number" maxlength="20"></div>
-            <div class="field">
-                <label for="u-barangay">Assigned barangay</label>
-                <select id="u-barangay" name="barangay_id" required>
-                    <option value="">Select barangay…</option>
-                    @foreach($barangays as $b)<option value="{{ $b->id }}">{{ $b->name }}</option>@endforeach
-                </select>
-            </div>
+
+            {{-- Shelter assignment REPLACES the old "Assigned barangay" dropdown.
+                 Access follows the shelter roster, not the barangay. Editing this
+                 list is how reassignment happens: unticking a shelter revokes it. --}}
+            <fieldset class="member-fieldset">
+                <legend>Assigned shelters</legend>
+                <p class="field-hint">
+                    This staff member can operate every shelter ticked below, with equal
+                    rights, across any barangay. At least one is required.
+                </p>
+                <div class="roster-toolbar">
+                    <input type="search" id="u-shelter-search" class="roster-search" placeholder="Filter shelters" aria-label="Filter shelter list">
+                    <span class="roster-count" id="u-shelter-count">0 selected</span>
+                </div>
+                <div class="roster-list" id="u-shelter-list" role="group" aria-label="Assigned shelters">
+                    @forelse($shelters as $s)
+                        <label class="checkbox-row roster-row" data-shelter-name="{{ strtolower($s->name . ' ' . ($s->barangay?->name ?? '')) }}">
+                            <input type="checkbox" name="shelters[]" value="{{ $s->id }}">
+                            <span class="roster-name">{{ $s->name }}</span>
+                            <span class="roster-meta">
+                                {{ $s->barangay?->name ? 'Brgy. ' . $s->barangay->name : '' }}
+                                @if ($s->status !== 'active') &middot; Inactive @endif
+                            </span>
+                        </label>
+                    @empty
+                        <p class="empty-note">No shelters exist yet. Add one in Evacuation Shelters first.</p>
+                    @endforelse
+                </div>
+            </fieldset>
+
             <div class="field" id="u-status-field" hidden>
                 <label for="u-status">Status</label>
                 <select id="u-status" name="status"><option value="active">Active</option><option value="inactive">Inactive</option></select>

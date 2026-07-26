@@ -1,19 +1,15 @@
-@extends($layout ?? 'layouts.staff')
+@extends('layouts.staff')
 
 @section('title', 'Relief Distribution')
 @section('page-title', 'Relief Distribution')
 @section('page-subtitle', 'Monitor stock and log relief packs given to evacuees.')
 
 @section('page-actions')
-    <button type="button" class="btn-secondary" data-open-modal="receiveModal">"¬ Receive Stock</button>
-    <button type="button" class="btn-primary" data-open-modal="distributeModal">ð¦ Distribute Relief</button>
+    <button type="button" class="btn-secondary" data-open-modal="receiveModal">&#11015; Receive Stock</button>
+    <button type="button" class="btn-primary" data-open-modal="distributeModal">&#128230; Distribute Relief</button>
 @endsection
 
 @section('content')
-@isset($backLink)
-    <a href="{{ $backLink }}" class="btn-link" style="display:inline-block;margin-bottom:var(--space-4);">&larr; Back to all shelters</a>
-    @if($viewingCenter ?? null)<p class="page-subtitle" style="margin-bottom:var(--space-4);">Managing: <strong>{{ $viewingCenter->name }}</strong></p>@endif
-@endisset
 @unless($center)
     <div class="alert alert-warning">No evacuation center is registered for your barangay yet.</div>
 @else
@@ -43,7 +39,7 @@
 <section class="dash-columns">
     <div>
         <form method="GET" class="filter-bar" role="search">
-            <input type="search" name="q" value="{{ request('q') }}" placeholder="Search household head's relief history"¦" aria-label="Search household head">
+            <input type="search" name="q" value="{{ request('q') }}" placeholder="Search household head's relief history&hellip;" aria-label="Search household head">
             <button type="submit" class="btn-secondary">Search</button>
         </form>
 
@@ -62,7 +58,7 @@
                 <tbody>
                     @forelse($log as $t)
                         <tr>
-                            <td data-numeric>{{ $t->created_at->format('M d, Y Â· h:i A') }}</td>
+                            <td data-numeric>{{ $t->created_at->format('M d, Y &middot; h:i A') }}</td>
                             <td>{{ $t->household?->headMember?->full_name ?? '-' }}</td>
                             <td data-numeric>{{ $t->household?->number_of_members ?? '-' }}</td>
                             <td>{{ $t->quantity }} {{ $t->reliefGood->unit }} - {{ $t->reliefGood->name }}
@@ -115,13 +111,13 @@
             @forelse($priority as $h)
                 <div class="activity-row">
                     <span class="activity-name">{{ $h->headMember?->full_name ?? $h->household_code }}
-                        <small class="text-muted">Â· {{ $h->number_of_members }} members</small></span>
+                        <small class="text-muted">&middot; {{ $h->number_of_members }} members</small></span>
                     <span class="activity-time">
                         {{ $h->last_received ? 'Last: ' . $h->last_received->format('M d') : 'Never received' }}
                     </span>
                 </div>
             @empty
-                <p class="empty-note">Every checked-in household has received relief since the selected date. ð</p>
+                <p class="empty-note">Every checked-in household has received relief since the selected date. &#127881;</p>
             @endforelse
         </div>
     </div>
@@ -141,7 +137,7 @@
         <div class="field search-inline">
             <label for="dist-search">Household head name</label>
             <div class="search-inline-row">
-                <input type="search" id="dist-search" placeholder="Search household"¦" autocomplete="off">
+                <input type="search" id="dist-search" placeholder="Search household&hellip;" autocomplete="off">
             </div>
             <ul class="search-results" id="dist-results" hidden></ul>
         </div>
@@ -150,14 +146,14 @@
             @csrf
             <input type="hidden" name="household_id" id="dist-household-id">
             <div class="ci-profile">
-                <p><strong id="dist-code"></strong> Â· <span id="dist-head"></span></p>
+                <p><strong id="dist-code"></strong> &middot; <span id="dist-head"></span></p>
                 <p class="kpi-note" id="dist-tags-note"></p>
             </div>
 
             <div id="dist-items">
                 <div class="dist-item-row">
                     <select name="items[0][relief_good_id]" required aria-label="Relief good">
-                        <option value="">Select item"¦</option>
+                        <option value="">Select item&hellip;</option>
                         @foreach($goods as $g)
                             <option value="{{ $g->id }}">{{ $g->name }} ({{ $g->unit }})</option>
                         @endforeach
@@ -192,7 +188,7 @@
             <div class="field">
                 <label for="recv-good">Relief good</label>
                 <select id="recv-good" name="relief_good_id" required>
-                    <option value="">Select item"¦</option>
+                    <option value="">Select item&hellip;</option>
                     @foreach($goods as $g)
                         <option value="{{ $g->id }}">{{ $g->name }} ({{ $g->unit }})</option>
                     @endforeach
@@ -215,13 +211,19 @@
 </div>
 @endpush
 
+@php
+    $goodsJson = json_encode($goods->map(function ($g) {
+        return ['id' => $g->id, 'label' => $g->name . ' (' . $g->unit . ')'];
+    })->values());
+@endphp
+
 @push('scripts')
 <script>
     window.ReliefConfig = {
         searchUrl: "{{ route('barangay.evacuees.search') }}",
         showUrlTemplate: "{{ route('barangay.evacuees.show', ':id') }}",
-        goods: @json($goods->map(fn ($g) => ['id' => $g->id, 'label' => $g->name . ' (' . $g->unit . ')'])),
-        autoOpen: @json(request('open') === 'distribute'),
+        goods: {!! $goodsJson !!},
+        autoOpen: {{ request('open') === 'distribute' ? 'true' : 'false' }},
     };
 </script>
 @endpush

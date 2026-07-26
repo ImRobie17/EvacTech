@@ -25,78 +25,110 @@ function ageTagLabelCA(age) {
 }
 
 // ---------------------------------------------------------------------
+// Reusable roster picker (checkbox list + filter + live count)
+// ---------------------------------------------------------------------
+// Used by both the shelter staff roster and the user shelter assignment. Flat
+// list, no lead radio and no shift select: every assignment carries identical,
+// always-on rights.
+function initRoster(listId, searchId, countId, nameAttr) {
+    const list = document.getElementById(listId);
+    if (!list) return null;
+
+    const search = document.getElementById(searchId);
+    const count = document.getElementById(countId);
+    const boxes = () => Array.from(list.querySelectorAll('input[type="checkbox"]'));
+
+    function refreshCount() {
+        if (!count) return;
+        const n = boxes().filter((b) => b.checked).length;
+        count.textContent = `${n} selected`;
+        count.classList.toggle('roster-count-empty', n === 0);
+    }
+
+    list.addEventListener('change', refreshCount);
+
+    search?.addEventListener('input', () => {
+        const term = search.value.trim().toLowerCase();
+        list.querySelectorAll('.roster-row').forEach((row) => {
+            const hay = row.dataset[nameAttr] || '';
+            row.hidden = term.length > 0 && !hay.includes(term);
+        });
+    });
+
+    return {
+        clear() {
+            boxes().forEach((b) => { b.checked = false; });
+            if (search) search.value = '';
+            list.querySelectorAll('.roster-row').forEach((r) => { r.hidden = false; });
+            refreshCount();
+        },
+        set(ids) {
+            const wanted = (ids || []).map(String);
+            boxes().forEach((b) => { b.checked = wanted.includes(String(b.value)); });
+            refreshCount();
+        },
+        refreshCount,
+    };
+}
+
+// ---------------------------------------------------------------------
 // Shelter add/edit
 // ---------------------------------------------------------------------
 function initShelterAdmin() {
     const modal = document.getElementById('addShelterModal');
-    if (!modal || !window.ShelterAdminConfig) return;
-    const cfg = window.ShelterAdminConfig;
+    if (!modal) return;
+    const cfg = window.ShelterAdminConfig || {};
 
     const form = document.getElementById('shelterForm');
     const title = document.getElementById('addShelterTitle');
     const submit = document.getElementById('shelterSubmit');
     const methodInput = document.getElementById('shelterMethod');
-    const barangayField = document.getElementById('sh-barangay-field');
     const statusField = document.getElementById('sh-status-field');
     const barangaySelect = document.getElementById('sh-barangay');
-    const managerSelect = document.getElementById('sh-manager');
 
-    async function loadManagers(barangayId, selected = '') {
-        managerSelect.innerHTML = '<option value="">— None —</option>';
-        if (!barangayId) return;
-        try {
-            const res = await fetch(cfg.managersUrlTemplate.replace(':id', barangayId), { headers: { Accept: 'application/json' } });
-            const users = await res.json();
-            users.forEach((u) => {
-                const opt = document.createElement('option');
-                opt.value = u.id; opt.textContent = u.name;
-                if (String(u.id) === String(selected)) opt.selected = true;
-                managerSelect.appendChild(opt);
-            });
-        } catch (e) { /* leave as None */ }
-    }
+    // Barangay stays EDITABLE on edit now. With many shelters per barangay there
+    // is nothing structurally special about a shelter's barangay, and a
+    // mis-keyed one previously needed a database fix.
+    const roster = initRoster('sh-staff-list', 'sh-staff-search', 'sh-staff-count', 'staffName');
 
-    barangaySelect?.addEventListener('change', () => loadManagers(barangaySelect.value));
-
-    // Create mode (default)
     document.querySelectorAll('[data-open-modal="addShelterModal"]').forEach((btn) => {
         btn.addEventListener('click', () => {
             form.reset();
-            form.action = cfg.storeUrl;
+            form.action = cfg.storeUrl || form.action;
             methodInput.value = 'POST';
             title.textContent = 'Add Evacuation Shelter';
             submit.textContent = 'Add Shelter';
-            barangayField.hidden = false;
             statusField.hidden = true;
-            managerSelect.innerHTML = '<option value="">— None —</option>';
+            roster?.clear();
         });
     });
 
-    // Edit mode
     document.querySelectorAll('[data-edit-shelter]').forEach((btn) => {
-        btn.addEventListener('click', async () => {
+        btn.addEventListener('click', () => {
             const d = JSON.parse(btn.dataset.editShelter);
             form.reset();
             form.action = d.update_url;
             methodInput.value = 'PUT';
             title.textContent = 'Edit Evacuation Shelter';
             submit.textContent = 'Save Changes';
-            barangayField.hidden = true;   // barangay is fixed after creation
             statusField.hidden = false;
 
             document.getElementById('sh-name').value = d.name;
             document.getElementById('sh-address').value = d.address;
             document.getElementById('sh-capacity').value = d.capacity;
-            document.getElementById('sh-status').value = d.status;
+            document.getElementById('sh-lat').value = d.latitude ?? '';
+            document.getElementById('sh-lng').value = d.longitude ?? '';
+            if (barangaySelect) barangaySelect.value = d.barangay_id ?? '';
+            // 'full' no longer exists as a status; overcapacity is derived.
+            document.getElementById('sh-status').value = d.status === 'inactive' ? 'inactive' : 'active';
+
             form.querySelector('[name="has_water_supply"]').checked = !!d.has_water_supply;
             form.querySelector('[name="has_medical_desk"]').checked = !!d.has_medical_desk;
             form.querySelector('[name="has_power"]').checked = !!d.has_power;
             form.querySelector('[name="has_communal_kitchen"]').checked = !!d.has_communal_kitchen;
 
+            roster?.set(d.staff);
             openModal('addShelterModal');
-            // manager list needs the barangay; in edit we don't change barangay,
-            // so fetch by the shelter's existing barangay via a data attribute if present.
-            if (d.barangay_id) await loadManagers(d.barangay_id, d.managed_by);
         });
     });
 }
@@ -117,6 +149,10 @@ function initUserAdmin() {
     const pw = document.getElementById('u-password');
     const storeUrl = form.getAttribute('action');
 
+    // Shelter assignment replaces the old single "Assigned barangay" select.
+    // Editing this roster is the reassignment path: unticking revokes access.
+    const roster = initRoster('u-shelter-list', 'u-shelter-search', 'u-shelter-count', 'shelterName');
+
     document.querySelectorAll('[data-open-modal="userModal"]').forEach((btn) => {
         btn.addEventListener('click', () => {
             form.reset();
@@ -127,6 +163,7 @@ function initUserAdmin() {
             statusField.hidden = true;
             pwHint.textContent = '(min 8 characters)';
             pw.required = true;
+            roster?.clear();
         });
     });
 
@@ -145,8 +182,8 @@ function initUserAdmin() {
             document.getElementById('u-name').value = d.name;
             document.getElementById('u-email').value = d.email;
             document.getElementById('u-contact').value = d.contact_number || '';
-            document.getElementById('u-barangay').value = d.barangay_id || '';
             document.getElementById('u-status').value = d.status;
+            roster?.set(d.shelters);
             openModal('userModal');
         });
     });

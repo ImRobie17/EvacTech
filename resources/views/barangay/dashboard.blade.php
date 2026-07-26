@@ -17,7 +17,7 @@
 
 @unless($center)
     <div class="alert alert-warning" role="alert">
-        No evacuation center is registered for your barangay yet. Ask the City Admin to add one — the numbers below will stay at zero until then.
+        No shelter selected. Pick one from the switcher above, or ask your Evacuation Administrator to assign you to a shelter &mdash; the numbers below will stay at zero until then.
     </div>
 @endunless
 
@@ -51,10 +51,10 @@
             </span>
             <span class="kpi-title">Center Capacity</span>
         </div>
-        <p class="kpi-value {{ $capClass }}" data-numeric>{{ $pct !== null ? $pct . '%' : '—' }}</p>
+        <p class="kpi-value {{ $capClass }}" data-numeric>{{ $pct !== null ? $pct . '%' : '-' }}</p>
         <p class="kpi-note">
             <span class="{{ $capClass }}">{{ $capLabel }}</span>
-            @if($center) · {{ number_format($kpis['occupancy']) }} / {{ number_format($kpis['capacity']) }} · {{ $center->name }} @endif
+            @if($center) &middot; {{ number_format($kpis['occupancy']) }} / {{ number_format($kpis['capacity']) }} &middot; {{ $center->name }} @endif
         </p>
     </article>
 

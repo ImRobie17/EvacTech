@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Barangay;
 
+use App\Models\EvacuationCenter;
 use App\Models\Household;
 use App\Models\ReliefGood;
 use App\Models\ReliefInventory;
@@ -13,7 +14,7 @@ use Illuminate\Support\Facades\DB;
 
 class ReliefController extends BarangayController
 {
-    public function index(Request $request, ?\App\Models\EvacuationCenter $center = null)
+    public function index(Request $request, ?EvacuationCenter $center = null)
     {
         $center = $this->center($center);
 
@@ -75,10 +76,7 @@ class ReliefController extends BarangayController
                 ->get();
         }
 
-        return view('barangay.relief.index', array_merge(
-            compact('center', 'stats', 'log', 'priority', 'inventory', 'goods'),
-            $this->cityChrome($center)
-        ));
+        return view('barangay.relief.index', compact('center', 'stats', 'log', 'priority', 'inventory', 'goods'));
     }
 
     /** Distribute relief to a household. Auto-decrements inventory (PB-09). */
@@ -95,7 +93,8 @@ class ReliefController extends BarangayController
         ]);
 
         $household = Household::findOrFail($data['household_id']);
-        abort_if($household->origin_barangay_id !== auth()->user()->barangay_id, 403);
+        // Shelter-based authorisation (was: origin_barangay_id vs user barangay_id).
+        $this->authorizeHousehold($household);
 
         DB::transaction(function () use ($data, $center, $household) {
             foreach ($data['items'] as $item) {
@@ -165,7 +164,7 @@ class ReliefController extends BarangayController
     /** Relief history for one household (search function in the spec). */
     public function history(Household $household)
     {
-        abort_if($household->origin_barangay_id !== auth()->user()->barangay_id, 403);
+        $this->authorizeHousehold($household);
 
         $rows = ReliefTransaction::with('reliefGood', 'recordedBy')
             ->where('household_id', $household->id)
@@ -219,7 +218,7 @@ class ReliefController extends BarangayController
         ]);
 
         $household = \App\Models\Household::findOrFail($data['household_id']);
-        abort_if($household->origin_barangay_id !== auth()->user()->barangay_id, 403);
+        $this->authorizeHousehold($household);
 
         $special = \App\Models\SpecialReliefRequest::create([
             'household_id' => $household->id,

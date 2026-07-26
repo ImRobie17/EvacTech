@@ -19,6 +19,8 @@ class DashboardController extends BarangayController
             'capacity_pct' => null,
             'capacity' => 0,
             'occupancy' => 0,
+            'over_by' => 0,
+            'band' => 'unknown',
             'relief_packs' => 0,
             'low_stock' => false,
             'vulnerable' => 0,
@@ -37,6 +39,9 @@ class DashboardController extends BarangayController
             $kpis['capacity_pct'] = $center->capacity > 0
                 ? round(($center->current_occupancy / $center->capacity) * 100)
                 : null;
+            // Overcapacity is reported, never used to deactivate the shelter.
+            $kpis['over_by'] = $center->overBy();
+            $kpis['band'] = $center->capacityBand();
 
             $kpis['relief_packs'] = ReliefInventory::where('evacuation_center_id', $center->id)->sum('quantity_on_hand');
             $kpis['low_stock'] = ReliefInventory::where('evacuation_center_id', $center->id)
@@ -51,9 +56,12 @@ class DashboardController extends BarangayController
                 ->whereHas('vulnerabilities')
                 ->count();
 
-            // Daily registrations, past 7 days
+            // Daily registrations, past 7 days.
+            // RESCOPED: was origin_barangay_id = auth()->user()->barangay_id. Staff
+            // are no longer tied to a barangay, so this now counts households
+            // registered AT THIS SHELTER, which is what the operator cares about.
             $from = Carbon::today()->subDays(6);
-            $counts = Household::where('origin_barangay_id', auth()->user()->barangay_id)
+            $counts = Household::where('evacuation_center_id', $center->id)
                 ->where('created_at', '>=', $from)
                 ->get()
                 ->groupBy(fn ($h) => $h->created_at->format('Y-m-d'))
@@ -78,6 +86,7 @@ class DashboardController extends BarangayController
                     if ($h->checked_out_at) {
                         $events[] = ['type' => 'check_out', 'household' => $h, 'at' => $h->checked_out_at];
                     }
+
                     return $events;
                 })
                 ->sortByDesc('at')

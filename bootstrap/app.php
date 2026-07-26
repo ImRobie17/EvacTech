@@ -19,6 +19,8 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
             'role' => \App\Http\Middleware\EnsureRole::class,
+            // PHASE 1 ITEM 1: blocks barangay staff with an empty shelter roster.
+            'shelter.assigned' => \App\Http\Middleware\EnsureShelterAssignment::class,
         ]);
         $middleware->encryptCookies(except: ['theme']);
         $middleware->web(append: [

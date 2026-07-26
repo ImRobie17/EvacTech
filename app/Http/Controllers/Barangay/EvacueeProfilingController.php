@@ -2,8 +2,9 @@
 
 namespace App\Http\Controllers\Barangay;
 
+use App\Models\Barangay;
+use App\Models\EvacuationCenter;
 use App\Models\Household;
-use App\Models\HouseholdMember;
 use App\Models\VulnerableClassification;
 use App\Services\AuditLogger;
 use Illuminate\Http\Request;
@@ -12,18 +13,21 @@ use Illuminate\Support\Facades\DB;
 
 class EvacueeProfilingController extends BarangayController
 {
-    public function index(Request $request, ?\App\Models\EvacuationCenter $routeCenter = null)
+    public function index(Request $request, ?EvacuationCenter $routeCenter = null)
     {
         $center = $this->center($routeCenter);
 
         $query = Household::with(['headMember', 'originBarangay', 'evacuationCenter', 'members.vulnerableClassifications']);
 
-        // Barangay Personnel: their own barangay's households.
-        // City Admin viewing a specific shelter: that shelter's households.
-        if ($this->isCityLevel() && $center) {
-            $query->where('evacuation_center_id', $center->id);
+        // Scope by SHELTER, not by the staff member's barangay. Households not yet
+        // placed in a shelter (registered, awaiting check-in) stay visible so the
+        // record can be completed.
+        if ($center) {
+            $query->where(fn ($q) => $q
+                ->where('evacuation_center_id', $center->id)
+                ->orWhereNull('evacuation_center_id'));
         } else {
-            $query->where('origin_barangay_id', auth()->user()->barangay_id);
+            $query->whereIn('evacuation_center_id', auth()->user()->assignedCenterIds());
         }
 
         if ($search = trim((string) $request->input('q'))) {
@@ -36,6 +40,10 @@ class EvacueeProfilingController extends BarangayController
             $query->where('status', $status);
         }
 
+        if ($barangayId = $request->input('barangay')) {
+            $query->where('origin_barangay_id', $barangayId);
+        }
+
         if ($vuln = $request->input('vulnerable')) {
             $query->whereHas('members.vulnerableClassifications', fn ($q) => $q
                 ->where('vulnerable_classifications.id', $vuln));
@@ -44,10 +52,13 @@ class EvacueeProfilingController extends BarangayController
         $households = $query->latest()->paginate(15)->withQueryString();
         $classifications = VulnerableClassification::orderBy('name')->get();
 
-        return view('barangay.evacuees.index', array_merge(
-            compact('households', 'classifications', 'center'),
-            $this->cityChrome($center)
-        ));
+        // Origin barangay is now an explicit field on the Add Evacuee form:
+        // staff are no longer tied to a barangay, so it can no longer be
+        // inferred from the account.
+        $barangays = Barangay::orderBy('name')->get();
+        $defaultBarangayId = $center?->barangay_id;
+
+        return view('barangay.evacuees.index', compact('households', 'classifications', 'center', 'barangays', 'defaultBarangayId'));
     }
 
     /** Register a new household (Add Evacuee modal). checkin=1 also checks them in. */
@@ -60,7 +71,7 @@ class EvacueeProfilingController extends BarangayController
         $household = DB::transaction(function () use ($data, $checkin, $center) {
             $household = Household::create([
                 'household_code' => $this->nextCode(),
-                'origin_barangay_id' => auth()->user()->barangay_id,
+                'origin_barangay_id' => $data['origin_barangay_id'],
                 'origin_address' => $data['address'],
                 'number_of_members' => count($data['members']),
                 'status' => 'registered',
@@ -78,14 +89,14 @@ class EvacueeProfilingController extends BarangayController
                     'checked_out_at' => null,
                     'members_present' => $present,
                 ]);
-                $center->increment('current_occupancy', $present);
-                $this->refreshCenterStatus($center);
+                $center->recalcOccupancy();
             }
 
             return $household;
         });
 
-        AuditLogger::log('created', $household, "Registered household {$household->household_code}" . ($checkin ? ' and checked in' : ''));
+        AuditLogger::log('created', $household,
+            "Registered household {$household->household_code}" . ($checkin ? " and checked in at {$center->name}" : ''));
 
         return redirect()->route('barangay.evacuees.index')
             ->with('success', "Household {$household->household_code} registered" . ($checkin ? ' and checked in.' : '.'));
@@ -94,16 +105,19 @@ class EvacueeProfilingController extends BarangayController
     /** Load one household with members + tags (JSON, used by Edit Family Group / Check-in modals). */
     public function show(Household $household)
     {
-        $this->authorizeBarangay($household);
+        $this->authorizeHousehold($household);
 
-        $household->load(['members.vulnerableClassifications', 'headMember', 'evacuationCenter']);
+        $household->load(['members.vulnerableClassifications', 'headMember', 'evacuationCenter', 'originBarangay']);
 
         return response()->json([
             'id' => $household->id,
             'code' => $household->household_code,
             'address' => $household->origin_address,
+            'origin_barangay_id' => $household->origin_barangay_id,
+            'origin_barangay' => $household->originBarangay?->name,
             'status' => $household->status,
             'center' => $household->evacuationCenter?->name,
+            'center_id' => $household->evacuation_center_id,
             'head_member_id' => $household->head_member_id,
             'members' => $household->members->map(fn ($m) => [
                 'id' => $m->id,
@@ -120,13 +134,24 @@ class EvacueeProfilingController extends BarangayController
     /** Edit Family Group: update address/members, add new members, retag. */
     public function update(Request $request, Household $household)
     {
-        $this->authorizeBarangay($household);
+        $this->authorizeHousehold($household);
         $data = $this->validateHousehold($request);
 
         DB::transaction(function () use ($household, $data) {
-            $household->update(['origin_address' => $data['address']]);
+            $household->update([
+                'origin_address' => $data['address'],
+                'origin_barangay_id' => $data['origin_barangay_id'],
+            ]);
             $this->syncMembers($household, $data['members'], keepPresence: true);
-            $household->update(['number_of_members' => $household->members()->count()]);
+            $household->update([
+                'number_of_members' => $household->members()->count(),
+                'members_present' => $household->status === 'checked_in'
+                    ? $household->members()->where('is_present', true)->count()
+                    : 0,
+            ]);
+
+            // Member counts can change during an edit, so the shelter total moves.
+            $household->evacuationCenter?->recalcOccupancy();
         });
 
         AuditLogger::log('updated', $household, "Updated family group {$household->household_code}");
@@ -134,17 +159,19 @@ class EvacueeProfilingController extends BarangayController
         return redirect()->back()->with('success', 'Family group updated.');
     }
 
-    /** Remove household (soft business rule: only when not currently checked in). */
+    /** Remove household (business rule: only when not currently checked in). */
     public function destroy(Household $household)
     {
-        $this->authorizeBarangay($household);
+        $this->authorizeHousehold($household);
 
         if ($household->status === 'checked_in') {
             return back()->withErrors(['household' => 'Check the household out before removing it.']);
         }
 
         $code = $household->household_code;
+        $center = $household->evacuationCenter;
         $household->delete();
+        $center?->recalcOccupancy();
 
         AuditLogger::log('deleted', $household, "Removed household {$code}");
 
@@ -155,9 +182,14 @@ class EvacueeProfilingController extends BarangayController
     public function search(Request $request)
     {
         $term = trim((string) $request->input('q'));
+        $user = auth()->user();
 
-        $results = Household::with(['headMember', 'evacuationCenter'])
-            ->where('origin_barangay_id', auth()->user()->barangay_id)
+        // Households at any shelter on this staff member's roster, plus any not yet
+        // placed in a shelter (so they can be checked in for the first time).
+        $results = Household::with(['headMember', 'evacuationCenter', 'originBarangay'])
+            ->where(fn ($q) => $q
+                ->whereIn('evacuation_center_id', $user->assignedCenterIds())
+                ->orWhereNull('evacuation_center_id'))
             ->when($term, fn ($q) => $q->whereHas('members', fn ($m) => $m
                 ->where('is_household_head', true)
                 ->where('full_name', 'like', "%{$term}%")))
@@ -166,10 +198,11 @@ class EvacueeProfilingController extends BarangayController
             ->map(fn ($h) => [
                 'id' => $h->id,
                 'code' => $h->household_code,
-                'head' => $h->headMember?->full_name ?? '—',
+                'head' => $h->headMember?->full_name ?? '-',
                 'size' => $h->number_of_members,
                 'status' => $h->status,
                 'center' => $h->evacuationCenter?->name,
+                'origin_barangay' => $h->originBarangay?->name,
             ]);
 
         return response()->json($results);
@@ -180,6 +213,7 @@ class EvacueeProfilingController extends BarangayController
     private function validateHousehold(Request $request): array
     {
         return $request->validate([
+            'origin_barangay_id' => ['required', 'exists:barangays,id'],
             'address' => ['required', 'string', 'max:255'],
             'members' => ['required', 'array', 'min:1'],
             'members.*.id' => ['nullable', 'integer'],
@@ -192,12 +226,18 @@ class EvacueeProfilingController extends BarangayController
             'members.*.is_present' => ['nullable'],
             'members.*.tags' => ['nullable', 'array'],
             'members.*.tags.*' => ['integer', 'exists:vulnerable_classifications,id'],
+        ], [
+            'origin_barangay_id.required' => 'Select the barangay this family came from.',
         ]);
     }
 
     /**
      * Create/update members, mark exactly one head, apply manual tags,
      * and AUTO-TAG Senior (60+) / Infant-Young Child (0-5) from birthdate.
+     *
+     * NOTE: the age-tag rules here are replaced in Phase 2 (#5/#6) by the seven
+     * age tiers and the revised category list. Left as-is deliberately so this
+     * item changes shelter architecture only.
      */
     private function syncMembers(Household $household, array $members, bool $checkin = false, bool $keepPresence = false): void
     {
@@ -230,10 +270,6 @@ class EvacueeProfilingController extends BarangayController
             ];
 
             if ($checkin) {
-                // The Add Evacuee form has no per-member "present" checkbox: when a
-                // family is registered and checked in at the same time, everyone
-                // entered is present by definition. If a form DOES send is_present
-                // (the Check-in Family modal does), honour that instead.
                 $attrs['is_present'] = array_key_exists('is_present', $m)
                     ? ! empty($m['is_present'])
                     : true;
@@ -250,7 +286,6 @@ class EvacueeProfilingController extends BarangayController
             }
             $keptIds[] = $member->id;
 
-            // Manual tags + auto age tags (never removing manual ones we didn't set)
             $tagIds = collect($m['tags'] ?? [])->map(fn ($t) => (int) $t);
             if ($age >= 60 && $senior) {
                 $tagIds->push($senior->id);
@@ -267,7 +302,6 @@ class EvacueeProfilingController extends BarangayController
             }
         }
 
-        // Members removed in the edit form
         $household->members()->whereNotIn('id', $keptIds)->delete();
     }
 
@@ -275,20 +309,7 @@ class EvacueeProfilingController extends BarangayController
     {
         $year = now()->year;
         $count = Household::whereYear('created_at', $year)->count();
+
         return sprintf('HH-%d-%05d', $year, $count + 1);
-    }
-
-    private function authorizeBarangay(Household $household): void
-    {
-        abort_if($household->origin_barangay_id !== auth()->user()->barangay_id, 403);
-    }
-
-    protected function refreshCenterStatus($center): void
-    {
-        if ($center->capacity > 0 && $center->current_occupancy >= $center->capacity) {
-            $center->update(['status' => 'full']);
-        } elseif ($center->status === 'full') {
-            $center->update(['status' => 'active']);
-        }
     }
 }

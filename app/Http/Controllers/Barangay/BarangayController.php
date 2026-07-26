@@ -5,47 +5,54 @@ namespace App\Http\Controllers\Barangay;
 use App\Http\Controllers\Concerns\ResolvesCenter;
 use App\Http\Controllers\Controller;
 use App\Models\EvacuationCenter;
+use Illuminate\Http\Request;
 
+/**
+ * Base for the Barangay Personnel screens.
+ *
+ * These controllers are reached ONLY through the barangay route group, which is
+ * gated by role:barangay_personnel. City Admin has its own controllers and views
+ * (CityAdmin\ShelterDetailController), so nothing here branches on role.
+ *
+ * The old cityChrome() helper -- which swapped the layout, injected a back link
+ * and let City Admin render these views -- is gone. That mechanism is what caused
+ * the shelter routing bugs.
+ */
 abstract class BarangayController extends Controller
 {
     use ResolvesCenter;
 
     /**
-     * The evacuation center this request operates on.
-     *
-     * Barangay Personnel: their own barangay's center (route arg ignored/validated).
-     * City Admin: the center bound in the route, if any.
-     *
-     * NOTE: this signature now accepts an optional route-bound center so the
-     * same feature controllers can be reused by City Admin's "View Details"
-     * flow. Existing Barangay Personnel routes pass nothing and behave exactly
-     * as before.
+     * The shelter this request operates on: the staff member's active shelter,
+     * chosen from their roster via the header switcher and persisted in session.
      */
-    protected function center(?EvacuationCenter $routeCenter = null): ?EvacuationCenter
+    protected function center(): ?EvacuationCenter
     {
-        return $this->resolveCenter($routeCenter);
+        return $this->resolveCenter();
     }
 
-    protected function centerOrFail(?EvacuationCenter $routeCenter = null): EvacuationCenter
+    protected function centerOrFail(): EvacuationCenter
     {
-        return $this->resolveCenterOrFail($routeCenter);
+        return $this->resolveCenterOrFail();
     }
 
     /**
-     * When a City Admin is viewing a specific shelter's screens (the "View
-     * Details" flow), the reused Blade views should render inside the City
-     * Admin layout and show a "back to shelters" link. Returns view data that
-     * every reused index() merges into its compact().
+     * Switch the active shelter, then return to where the user came from. Lives on
+     * the base controller so every barangay screen shares one endpoint.
      */
-    protected function cityChrome(?EvacuationCenter $center): array
+    public function switchCenter(Request $request)
     {
-        if ($this->isCityLevel() && $center) {
-            return [
-                'layout' => 'layouts.cityadmin',
-                'backLink' => route('city.shelters.index'),
-                'viewingCenter' => $center,
-            ];
-        }
-        return ['layout' => 'layouts.staff', 'backLink' => null, 'viewingCenter' => null];
+        $data = $request->validate([
+            'center_id' => ['required', 'integer'],
+        ]);
+
+        $user = $request->user();
+        abort_if(! $user->canAccessCenter($data['center_id']), 403,
+            'You are not assigned to this evacuation shelter.');
+
+        $this->setActiveCenterId((int) $data['center_id']);
+        $center = EvacuationCenter::find($data['center_id']);
+
+        return back()->with('success', 'Now working in ' . ($center?->name ?? 'the selected shelter') . '.');
     }
 }

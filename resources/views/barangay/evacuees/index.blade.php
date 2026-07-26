@@ -1,4 +1,4 @@
-@extends($layout ?? 'layouts.staff')
+@extends('layouts.staff')
 
 @section('title', 'Evacuee Profiling')
 @section('page-title', 'Evacuee Profiling')
@@ -9,16 +9,20 @@
 @endsection
 
 @section('content')
-@isset($backLink)
-    <a href="{{ $backLink }}" class="btn-link" style="display:inline-block;margin-bottom:var(--space-4);">&larr; Back to all shelters</a>
-    @if($viewingCenter ?? null)<p class="page-subtitle" style="margin-bottom:var(--space-4);">Managing: <strong>{{ $viewingCenter->name }}</strong></p>@endif
-@endisset
 <form method="GET" class="filter-bar" role="search">
-    <input type="search" name="q" value="{{ request('q') }}" placeholder="Search household head"¦" aria-label="Search household head">
+    <input type="search" name="q" value="{{ request('q') }}" placeholder="Search household head&hellip;" aria-label="Search household head">
     <select name="status" aria-label="Filter by status">
         <option value="">All statuses</option>
         @foreach(['registered' => 'Registered', 'checked_in' => 'Checked in', 'checked_out' => 'Checked out', 'transferred' => 'Transferred'] as $val => $label)
             <option value="{{ $val }}" @selected(request('status') === $val)>{{ $label }}</option>
+        @endforeach
+    </select>
+    {{-- One shelter can hold families from several barangays, so origin
+         barangay is now a filter too. --}}
+    <select name="barangay" aria-label="Filter by origin barangay">
+        <option value="">All origin barangays</option>
+        @foreach($barangays as $b)
+            <option value="{{ $b->id }}" @selected(request('barangay') == $b->id)>{{ $b->name }}</option>
         @endforeach
     </select>
     <select name="vulnerable" aria-label="Filter by vulnerability tag">
@@ -91,9 +95,26 @@
             @csrf
             <input type="hidden" name="_method" value="POST" id="evacueeFormMethod">
 
-            <div class="field">
-                <label for="ev-address">Family address (house no., street, purok)</label>
-                <input type="text" id="ev-address" name="address" required maxlength="255">
+            {{-- Origin barangay is now EXPLICIT. It used to be inferred from
+                 auth()->user()->barangay_id, but staff are assigned to shelters
+                 rather than barangays, and one shelter routinely holds families
+                 from several barangays. Defaults to the barangay of the active shelter,
+                 which covers the common case in one click. --}}
+            <div class="member-grid">
+                <div class="field">
+                    <label for="ev-barangay">Origin barangay</label>
+                    <select id="ev-barangay" name="origin_barangay_id" required>
+                        <option value="">Select barangay</option>
+                        @foreach($barangays as $b)
+                            <option value="{{ $b->id }}" @selected(($defaultBarangayId ?? null) == $b->id)>{{ $b->name }}</option>
+                        @endforeach
+                    </select>
+                    <small class="field-hint">Where the family came from, not where they are sheltering.</small>
+                </div>
+                <div class="field">
+                    <label for="ev-address">Family address (house no., street, purok)</label>
+                    <input type="text" id="ev-address" name="address" required maxlength="255">
+                </div>
             </div>
 
             <fieldset class="member-fieldset" id="headFieldset">
@@ -108,7 +129,7 @@
             </fieldset>
 
             <div class="modal-actions">
-                <button type="button" class="btn-link" id="transferHeadBtn" hidden>Transfer Head"¦</button>
+                <button type="button" class="btn-link" id="transferHeadBtn" hidden>Transfer Head&hellip;</button>
                 <span class="spacer"></span>
                 <button type="button" class="btn-secondary" data-close-modal>Cancel</button>
                 <button type="submit" class="btn-secondary" name="checkin" value="0">Save</button>
@@ -168,7 +189,7 @@
             <div class="field"><label>Date of birth</label><input type="date" data-field="birthdate" required max="{{ now()->toDateString() }}"></div>
             <div class="field"><label>Sex</label>
                 <select data-field="sex" required>
-                    <option value="">Select"¦</option>
+                    <option value="">Select&hellip;</option>
                     <option value="male">Male</option>
                     <option value="female">Female</option>
                 </select>
@@ -194,6 +215,7 @@
         showUrlTemplate: "{{ route('barangay.evacuees.show', ':id') }}",
         updateUrlTemplate: "{{ route('barangay.evacuees.update', ':id') }}",
         storeUrl: "{{ route('barangay.evacuees.store') }}",
+        defaultBarangayId: {{ (int) ($defaultBarangayId ?? 0) }},
         autoOpen: @json(request('open') === 'register'),
     };
     // Reuses the same transfer-flow modals/JS as the Shelter page.

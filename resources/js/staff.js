@@ -3,6 +3,7 @@
 document.addEventListener('DOMContentLoaded', () => {
     initTheme();
     initSidebarCollapse();
+    initShelterSwitcher();
     initModals();
     initConfirmForms();
     initEvacueeForm();
@@ -30,7 +31,27 @@ function initSidebarCollapse() {
     if (!btn || !shell) return;
     btn.addEventListener('click', () => {
         shell.classList.toggle('sidebar-collapsed');
-        btn.textContent = shell.classList.contains('sidebar-collapsed') ? '⟩' : '⟨';
+        btn.textContent = shell.classList.contains('sidebar-collapsed') ? '\u27E9' : '\u27E8';
+    });
+}
+
+// ---------------------------------------------------------------------
+// Active shelter switcher
+// ---------------------------------------------------------------------
+// One barangay can hold many shelters and a staff member can be rostered to
+// several, so the header states which shelter every screen is acting on.
+// Changing the dropdown submits immediately -- an extra "Switch" click is one
+// more thing to forget mid-emergency. The button stays for keyboard/no-JS use.
+function initShelterSwitcher() {
+    const form = document.getElementById('shelterSwitchForm');
+    const select = document.getElementById('activeShelter');
+    if (!form || !select) return;
+
+    let current = select.value;
+    select.addEventListener('change', () => {
+        if (select.value === current) return;
+        current = select.value;
+        form.submit();
     });
 }
 
@@ -155,6 +176,12 @@ function initEvacueeForm() {
         memberIndex = 1;
         headRow.appendChild(makeRow(0, true));
         title.textContent = 'Add New Evacuee Profile';
+        // Origin barangay defaults to the barangay of the active shelter (the common
+        // case) but stays editable -- one shelter takes families from several.
+        const brgy = document.getElementById('ev-barangay');
+        if (brgy && window.EvacueeConfig.defaultBarangayId) {
+            brgy.value = String(window.EvacueeConfig.defaultBarangayId);
+        }
         form.action = window.EvacueeConfig.storeUrl;
         document.getElementById('evacueeFormMethod').value = 'POST';
         const transferBtn = document.getElementById('transferHeadBtn');
@@ -184,6 +211,10 @@ function initEvacueeForm() {
         const data = await res.json();
 
         document.getElementById('ev-address').value = data.address || '';
+        const brgySelect = document.getElementById('ev-barangay');
+        if (brgySelect && data.origin_barangay_id) {
+            brgySelect.value = String(data.origin_barangay_id);
+        }
         headRow.innerHTML = '';
         memberRows.innerHTML = '';
         memberIndex = 1;
@@ -258,7 +289,7 @@ function initShelterModals() {
         resultsList.innerHTML = '';
         items.forEach((item) => {
             const li = document.createElement('li');
-            li.textContent = `${item.head} · ${item.size} members · ${item.status.replace('_', ' ')}`;
+            li.textContent = `${item.head} \u00B7 ${item.size} members \u00B7 ${item.status.replace('_', ' ')}`;
             li.addEventListener('click', () => loadHousehold(item.id));
             resultsList.appendChild(li);
         });
@@ -282,14 +313,14 @@ function initShelterModals() {
         resultsList.hidden = true;
 
         document.getElementById('ci-code').textContent = data.code;
-        document.getElementById('ci-head').textContent = data.members.find((m) => m.is_head)?.full_name || '—';
+        document.getElementById('ci-head').textContent = data.members.find((m) => m.is_head)?.full_name || '\u2014';
 
         const membersEl = document.getElementById('ci-members');
         membersEl.innerHTML = '';
         data.members.forEach((m) => {
             const label = document.createElement('label');
             label.className = 'checkbox-row';
-            label.innerHTML = `<input type="checkbox" name="present[]" value="${m.id}" checked> ${m.full_name}${m.tags.length ? ' — ' + m.tags.map(t => t.name).join(', ') : ''}`;
+            label.innerHTML = `<input type="checkbox" name="present[]" value="${m.id}" checked> ${m.full_name}${m.tags.length ? ' \u2014 ' + m.tags.map(t => t.name).join(', ') : ''}`;
             membersEl.appendChild(label);
         });
 
@@ -305,11 +336,11 @@ function initShelterModals() {
     }
 
     // Transfer head chain, triggered from Edit Family Group screen (evacuees page) via a
-    // "Transfer Head" button there — this file exposes the two modals globally so that
+    // "Transfer Head" button there -- this file exposes the two modals globally so that
     // page can call window.EvacTech.openTransferFlow(household).
     window.EvacTech = window.EvacTech || {};
     window.EvacTech.openTransferFlow = function (household) {
-        document.getElementById('th-current').textContent = household.members.find((m) => m.is_head)?.full_name || '—';
+        document.getElementById('th-current').textContent = household.members.find((m) => m.is_head)?.full_name || '\u2014';
         const optionsEl = document.getElementById('th-options');
         optionsEl.innerHTML = '';
         household.members.filter((m) => !m.is_head).forEach((m) => {
@@ -360,7 +391,7 @@ function initReliefModals() {
                 resultsList.innerHTML = '';
                 items.forEach((item) => {
                     const li = document.createElement('li');
-                    li.textContent = `${item.head} · ${item.size} members`;
+                    li.textContent = `${item.head} \u00B7 ${item.size} members`;
                     li.addEventListener('click', () => selectHousehold(item.id));
                     resultsList.appendChild(li);
                 });
@@ -377,11 +408,11 @@ function initReliefModals() {
 
         document.getElementById('dist-household-id').value = data.id;
         document.getElementById('dist-code').textContent = data.code;
-        document.getElementById('dist-head').textContent = data.members.find((m) => m.is_head)?.full_name || '—';
+        document.getElementById('dist-head').textContent = data.members.find((m) => m.is_head)?.full_name || '\u2014';
 
         const tags = [...new Set(data.members.flatMap((m) => m.tags.map((t) => t.name)))];
         document.getElementById('dist-tags-note').textContent = tags.length
-            ? `Household tags: ${tags.join(', ')} — consider matching special items below.`
+            ? `Household tags: ${tags.join(', ')} \u2014 consider matching special items below.`
             : 'No special tags on this household.';
 
         distForm.hidden = false;

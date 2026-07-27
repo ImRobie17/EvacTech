@@ -1,177 +1,174 @@
 /* =========================================================================
-   EvacTech Design System
-   White + Cyan government color scheme, light & dark mode, accessible type.
-   Import this file once (e.g. in resources/css/app.css via @import, or as a
-   <link> in your main Blade layout) and use the CSS variables everywhere
-   instead of hardcoded hex values.
+   EvacTech Design System -- BASE layer.
+
+   Token VALUES no longer live here. They live in the @theme block in app.css,
+   which is what turns them into Tailwind utilities. This file now holds only
+   the three things @theme structurally cannot express:
+
+     1. the dark-mode overrides (@theme cannot be scoped to a selector)
+     2. the accessibility baseline (17px root, focus rings, 44px targets)
+     3. compatibility aliases for the older component CSS
+
+   Imported by app.css as `layer(base)`, so everything here beats the @theme
+   defaults and loses to any Tailwind utility written in markup. Do not wrap
+   the contents in @layer -- the import already does that.
    ========================================================================= */
 
-/* Google Fonts are loaded via <link> tags in the HTML <head> (see layouts/staff.blade.php
-   and auth/login.blade.php) instead of @import here. An @import for an external font
-   MUST be the very first statement in the final bundled stylesheet -- once Vite inlines
-   this file into app.css (which already starts with @import 'tailwindcss'), an @import
-   here would land after other rules and break the build ("@import must precede all
-   other statements"). A <link> tag has no such ordering constraint and loads in
-   parallel besides. */
-
+/* ---- Compatibility aliases ----
+   The component sheets were written against these names. Keeping them as
+   aliases means the token rename to `ink` did not require touching every
+   selector, and dark mode still flows through automatically because the
+   alias points at the variable, not at a literal colour. */
 :root {
-  color-scheme: light;
+    color-scheme: light;
 
-  /* ---- Typography ---- */
-  --font-sans: 'Public Sans', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
+    --color-text-primary: var(--color-ink);
+    --color-text-secondary: var(--color-ink-soft);
+    --color-text-muted: var(--color-ink-muted);
 
-  /* Base is intentionally 17px (via 106.25% on <html>) instead of the usual
-     16px -- many end users (barangay staff, senior officials) are not young,
-     so body copy starts slightly larger. Everything else is in rem so a
-     user's own browser zoom / OS text-size setting still works normally. */
-  --text-xs: 0.8125rem;   /* 13.8px  captions, timestamps */
-  --text-sm: 0.9375rem;   /* 15.9px  secondary text, table cells */
-  --text-base: 1rem;      /* 17px    body copy (root is 106.25%) */
-  --text-lg: 1.1875rem;   /* 20.2px  emphasized body / card titles */
-  --text-xl: 1.5rem;      /* 25.5px  section headings */
-  --text-2xl: 1.875rem;   /* 31.9px  page titles */
-  --text-3xl: 2.375rem;   /* 40.4px  hero / dashboard KPI numbers */
+    --tap-target-min: var(--spacing-tap);
 
-  --leading-tight: 1.25;
-  --leading-normal: 1.5;
-  --leading-relaxed: 1.65; /* default for paragraphs -- easier for older readers */
+    --weight-regular: 400;
+    --weight-medium: 500;
+    --weight-semibold: 600;
+    --weight-bold: 700;
 
-  --weight-regular: 400;
-  --weight-medium: 500;
-  --weight-semibold: 600;
-  --weight-bold: 700;
+    --space-1: 0.25rem;
+    --space-2: 0.5rem;
+    --space-3: 0.75rem;
+    --space-4: 1rem;
+    --space-5: 1.25rem;
+    --space-6: 1.5rem;
+    --space-8: 2rem;
+    --space-12: 3rem;
 
-  /* ---- Spacing & shape ---- */
-  --space-1: 0.25rem;
-  --space-2: 0.5rem;
-  --space-3: 0.75rem;
-  --space-4: 1rem;
-  --space-6: 1.5rem;
-  --space-8: 2rem;
-  --space-12: 3rem;
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 16px;
-
-  /* Minimum interactive target -- important for older / motor-impaired users */
-  --tap-target-min: 44px;
-
-  /* ---- Color: neutrals ---- */
-  --color-bg: #FFFFFF;
-  --color-surface: #F1F5F9;       /* cards, table headers */
-  --color-surface-alt: #E2E8F0;   /* hover states, subtle dividers */
-  --color-border: #CBD5E1;
-  --color-text-primary: #0F172A;
-  --color-text-secondary: #475569;
-  --color-text-muted: #64748B;
-
-  /* ---- Color: brand (cyan) ----
-     600/700 are used for text and solid buttons so contrast against white
-     clears WCAG AA (4.5:1) for normal text. 400/100/50 are for decorative
-     use only (badges, icon backgrounds, chart fills) -- never for text on
-     a white background. */
-  --color-primary-50:  #ECFEFF;
-  --color-primary-100: #CFFAFE;
-  --color-primary-400: #22D3EE;  /* decorative / chart accents only */
-  --color-primary-600: #0891B2;  /* icons, borders, secondary buttons */
-  --color-primary-700: #0E7490;  /* PRIMARY -- solid buttons, links, active nav */
-  --color-primary-800: #155E75;  /* hover/pressed state of primary-700 */
-  --color-primary-900: #164E63;  /* sidebar / header background (staff portals) */
-
-  --color-primary: var(--color-primary-700);
-  --color-primary-hover: var(--color-primary-800);
-  --color-primary-contrast: #FFFFFF;
-
-  /* ---- Color: semantic status ----
-     Red is kept as the "critical / danger" accent, which also keeps a link
-     back to the red accent named in the Bagong Cabuyao theme -- see note
-     below about reconciling the two color directions. */
-  --color-success: #15803D;
-  --color-success-bg: #F0FDF4;
-  --color-warning: #B45309;
-  --color-warning-bg: #FFFBEB;
-  --color-danger: #B91C1C;
-  --color-danger-bg: #FEF2F2;
-  --color-info: var(--color-primary-700);
-  --color-info-bg: var(--color-primary-50);
-
-  /* ---- Shadows ---- */
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
-  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.10);
-  --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.14);
+    --leading-tight: 1.25;
+    --leading-normal: 1.5;
+    --leading-relaxed: 1.65;
 }
 
 /* =========================================================================
    Dark mode
-   Toggle by adding data-theme="dark" to <html> (persist the choice server
-   side per-user or in a cookie -- do NOT rely on localStorage inside
-   Blade-rendered pages if you also reuse these tokens in Claude-artifact
-   previews, but it's perfectly fine in your actual Laravel app).
+   Toggled by adding data-theme="dark" to <html>. Persisted in a `theme`
+   cookie that is excluded from encryptCookies in bootstrap/app.php and set by
+   staff.js. Do NOT switch this to a class strategy or to prefers-color-scheme.
+
+   Because Tailwind compiles `bg-surface` to `background-color:
+   var(--color-surface)`, redefining the variables here re-themes every colour
+   utility in the app at once. That is why almost no `dark:` variants are
+   needed anywhere in the markup.
    ========================================================================= */
 [data-theme='dark'] {
-  color-scheme: dark;
+    color-scheme: dark;
 
-  --color-bg: #0B1220;
-  --color-surface: #111A2C;
-  --color-surface-alt: #1B2740;
-  --color-border: #2A3A57;
-  --color-text-primary: #F1F5F9;
-  --color-text-secondary: #94A3B8;
-  --color-text-muted: #7C8BA6;
+    --color-bg: #0b1220;
+    --color-surface: #111a2c;
+    --color-surface-alt: #1b2740;
+    --color-border: #2a3a57;
 
-  --color-primary-50:  #083344;
-  --color-primary-100: #0E4A5C;
-  --color-primary-400: #22D3EE;  /* brighter cyan reads well on dark bg */
-  --color-primary-600: #22D3EE;
-  --color-primary-700: #38BDF8;  /* PRIMARY on dark: lighter for contrast */
-  --color-primary-800: #67E8F9;
-  --color-primary-900: #E0F2FE;
+    --color-ink: #f1f5f9;
+    --color-ink-soft: #94a3b8;
+    --color-ink-muted: #7c8ba6;
 
-  --color-primary: var(--color-primary-700);
-  --color-primary-hover: var(--color-primary-800);
-  --color-primary-contrast: #0B1220;
+    /* The brand ramp inverts: lighter values carry the contrast on a dark bg. */
+    --color-primary-50: #083344;
+    --color-primary-100: #0e4a5c;
+    --color-primary-400: #22d3ee;
+    --color-primary-600: #22d3ee;
+    --color-primary-700: #38bdf8;
+    --color-primary-800: #67e8f9;
+    --color-primary-900: #e0f2fe;
+    --color-primary: #38bdf8;
+    --color-primary-hover: #67e8f9;
+    --color-primary-contrast: #0b1220;
 
-  --color-success: #4ADE80;
-  --color-success-bg: #052e1a;
-  --color-warning: #FBBF24;
-  --color-warning-bg: #3a2405;
-  --color-danger: #F87171;
-  --color-danger-bg: #3a0a0a;
-  --color-info: var(--color-primary-700);
-  --color-info-bg: #0c2230;
+    --color-success: #4ade80;
+    --color-success-bg: #052e1a;
+    --color-warning: #fbbf24;
+    --color-warning-bg: #3a2405;
+    --color-danger: #f87171;
+    --color-danger-bg: #3a0a0a;
+    --color-info: #38bdf8;
+    --color-info-bg: #0c2230;
 
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45);
-  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.55);
+    /* Overcapacity inverts so it stays the highest-contrast badge on the page. */
+    --color-over: #f9fafb;
+    --color-over-contrast: #111827;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45);
+    --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.55);
 }
 
-/* ---- Base ---- */
+/* =========================================================================
+   Base
+   ========================================================================= */
+
+/* 17px base, deliberately. Many end users are older barangay staff and senior
+   officials. Everything else is in rem so browser zoom and OS text-size
+   settings still work normally. */
 html {
-  font-size: 106.25%; /* 17px base */
+    font-size: 106.25%;
 }
 
 body {
-  margin: 0;
-  font-family: var(--font-sans);
-  font-size: var(--text-base);
-  line-height: var(--leading-relaxed);
-  color: var(--color-text-primary);
-  background: var(--color-bg);
-  -webkit-font-smoothing: antialiased;
+    margin: 0;
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
+    line-height: var(--leading-relaxed);
+    color: var(--color-ink);
+    background: var(--color-bg);
+    -webkit-font-smoothing: antialiased;
 }
 
-.font-mono,
+/* Tabular figures for anything numeric, so columns of counts line up. */
+.font-numeric,
 [data-numeric] {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
 }
 
-/* ---- Accessibility baseline ---- */
+/* =========================================================================
+   Preflight reconciliation
+   ========================================================================= */
+
+/* Tailwind v4's Preflight already emits `[hidden] { display: none !important }`.
+   It is repeated here on purpose. Every modal in this app is toggled with the
+   HTML `hidden` attribute from JS (`el.hidden = false`) while `.modal-backdrop`
+   carries `display: flex`. If a future Tailwind release ever softened that
+   Preflight rule, the flex declaration would win and EVERY modal in the system
+   would render permanently open. This one line makes that impossible. */
+[hidden] {
+    display: none !important;
+}
+
+/* Preflight strips heading sizes and list styles. Restore them for prose
+   contexts only -- utilities still override on a per-element basis. */
+h1,
+h2,
+h3,
+h4 {
+    font-weight: var(--weight-bold);
+    line-height: var(--leading-tight);
+}
+
+/* Leaflet injects its own DOM and stylesheet. Preflight's `img { max-width:
+   100% }` breaks tile rendering, so tiles are exempted. Leaflet's own controls
+   must keep their intrinsic sizing too. */
+.leaflet-container img,
+.leaflet-container svg {
+    max-width: none;
+    height: auto;
+}
+
+/* =========================================================================
+   Accessibility baseline -- non-negotiable
+   ========================================================================= */
+
 :focus-visible {
-  outline: 3px solid var(--color-primary-600);
-  outline-offset: 2px;
-  border-radius: 4px;
+    outline: 3px solid var(--color-primary-600);
+    outline-offset: 2px;
+    border-radius: 4px;
 }
 
 button,
@@ -179,54 +176,56 @@ a,
 input,
 select,
 textarea {
-  font: inherit;
+    font: inherit;
 }
 
+/* 44px minimum tap target. Enforced here rather than left to utilities, so a
+   forgotten class in some future view cannot quietly break it. */
 button,
-.btn,
-input[type='checkbox'],
-input[type='radio'] {
-  min-height: var(--tap-target-min);
+[type='button'],
+[type='submit'],
+[type='reset'] {
+    min-height: var(--spacing-tap);
 }
 
 input,
 select,
 textarea {
-  min-height: var(--tap-target-min);
-  font-size: 1rem; /* never below 16px -- prevents iOS auto-zoom on focus */
+    min-height: var(--spacing-tap);
+    /* Never below 16px: iOS auto-zooms the viewport on focus otherwise, which
+       on a phone throws the whole layout sideways mid-form. */
+    font-size: 1rem;
+}
+
+/* Checkboxes and radios are sized by their own box, so the 44px belongs to the
+   label wrapping them instead. */
+input[type='checkbox'],
+input[type='radio'] {
+    min-height: 0;
+    width: 1.25rem;
+    height: 1.25rem;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
-  }
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
 }
 
-/* ---- Example primitives (adapt/extend per screen) ---- */
-.btn-primary {
-  background: var(--color-primary);
-  color: var(--color-primary-contrast);
-  border: none;
-  border-radius: var(--radius-md);
-  padding: var(--space-3) var(--space-6);
-  font-weight: var(--weight-semibold);
-  cursor: pointer;
+/* Screen-reader-only. Used by the shelter switcher label and the mobile nav. */
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
 }
-.btn-primary:hover { background: var(--color-primary-hover); }
-
-.card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
-}
-
-.badge-danger { background: var(--color-danger-bg); color: var(--color-danger); }
-.badge-warning { background: var(--color-warning-bg); color: var(--color-warning); }
-.badge-success { background: var(--color-success-bg); color: var(--color-success); }
-.badge-info { background: var(--color-info-bg); color: var(--color-info); }

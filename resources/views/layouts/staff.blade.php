@@ -1,13 +1,32 @@
 <!DOCTYPE html>
+{{--
+    Barangay Personnel layout.
+
+    Deliberately NOT shared with the City Admin or Super Admin layouts even
+    though the three are similar. Cross-role view reuse is what produced the
+    routing and check-out bugs that Phase 1 item 1b removed; duplicated markup
+    is the cheaper problem.
+
+    Roadmap item 13 is implemented here: the sidebar is sticky and full height
+    with Sign out outside the scrolling region, its collapsed state is read from
+    a cookie server side (so it never flashes open on navigation), and below
+    1024px it becomes an off-canvas drawer. The previous layout had no mobile
+    navigation whatsoever -- the stylesheet simply hid the sidebar under 720px.
+--}}
+@php
+    // Read server side rather than in JS: applying the class during render is
+    // what prevents the expanded-then-collapsed flash on every page load.
+    $sidebarCollapsed = request()->cookie('sidebar') === 'collapsed';
+@endphp
 <html lang="en" data-theme="{{ request()->cookie('theme', 'light') }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>@yield('title', 'EvacTech') &mdash; EvacTech</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+    {{-- Fonts are bundled by Vite from node_modules (roadmap item 3). The
+         Google Fonts <link> tags are gone from every layout: the app must work
+         with no internet connection. --}}
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="staff-body">
@@ -17,8 +36,26 @@
     $navCenters = $navCenters ?? collect();
     $navActiveCenter = $navCenters->firstWhere('id', $navActiveCenterId ?? null);
 @endphp
-<div class="staff-shell">
-    {{-- ============ Sidebar ============ --}}
+<div class="staff-shell {{ $sidebarCollapsed ? 'sidebar-collapsed' : '' }}">
+
+    {{-- ============ Mobile top bar (hidden at 1024px and up) ============ --}}
+    <header class="mobile-bar">
+        {{-- Labelled "Menu", not a bare hamburger. A naked icon is the most
+             reliable way to lose a non-technical user. --}}
+        <button type="button" class="mobile-menu-btn" id="mobileNavToggle"
+                aria-controls="sidebar" aria-expanded="false">
+            <span aria-hidden="true">&#9776;</span>
+            <span>Menu</span>
+        </button>
+        <span class="mobile-bar-brand">
+            <span class="brand-mark" aria-hidden="true">&#10010;</span>
+            <span class="brand-name"><span class="brand-evac">Evac</span><span class="brand-tech">Tech</span></span>
+        </span>
+    </header>
+
+    <div class="sidebar-backdrop" id="sidebarBackdrop" hidden></div>
+
+    {{-- ============ Sidebar / mobile drawer ============ --}}
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-brand">
             <span class="brand-mark" aria-hidden="true">&#10010;</span>
@@ -52,10 +89,13 @@
             </a>
         </nav>
 
+        {{-- Outside .sidebar-nav on purpose. The nav scrolls; this does not, so
+             Sign out is reachable at any window height without scrolling. --}}
         <div class="sidebar-footer">
             <div class="sidebar-controls">
                 <button type="button" class="icon-btn" id="themeToggle" aria-label="Toggle dark mode">&#9680;</button>
                 <button type="button" class="icon-btn" id="collapseToggle" aria-label="Collapse sidebar">&#10216;</button>
+                <button type="button" class="icon-btn" id="mobileNavClose" aria-label="Close menu">&times;</button>
             </div>
             <form method="POST" action="{{ route('logout') }}">
                 @csrf
@@ -69,7 +109,8 @@
         {{-- ---- Active shelter switcher ----
              One barangay can now hold many shelters and staff can be rostered to
              several, so every screen states which shelter it is acting on. The
-             choice persists in the session until changed. --}}
+             choice persists in the session until changed. Sticky, so it stays
+             reachable at 380px without scrolling. --}}
         @if ($navCenters->count() > 0)
             <div class="shelter-context {{ $navCenters->count() > 1 ? '' : 'shelter-context-single' }}">
                 <span class="shelter-context-label">Working in</span>

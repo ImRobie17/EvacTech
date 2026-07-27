@@ -22,7 +22,11 @@ return Application::configure(basePath: dirname(__DIR__))
             // PHASE 1 ITEM 1: blocks barangay staff with an empty shelter roster.
             'shelter.assigned' => \App\Http\Middleware\EnsureShelterAssignment::class,
         ]);
-        $middleware->encryptCookies(except: ['theme']);
+        // Both cookies are read from Blade during render -- `theme` sets the
+        // data-theme attribute and `sidebar` applies the collapsed class before
+        // paint. An encrypted cookie cannot be read that way, so neither is
+        // encrypted. Neither carries anything sensitive.
+        $middleware->encryptCookies(except: ['theme', 'sidebar']);
         $middleware->web(append: [
             \App\Http\Middleware\HandleMaintenance::class,
         ]);

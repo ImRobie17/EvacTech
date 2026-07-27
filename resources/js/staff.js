@@ -3,6 +3,7 @@
 document.addEventListener('DOMContentLoaded', () => {
     initTheme();
     initSidebarCollapse();
+    initMobileNav();
     initShelterSwitcher();
     initModals();
     initConfirmForms();
@@ -25,13 +26,96 @@ function initTheme() {
     });
 }
 
+// ---------------------------------------------------------------------
+// Sidebar collapse (roadmap item 13)
+// ---------------------------------------------------------------------
+// The collapsed state persists in a `sidebar` cookie and is applied SERVER
+// SIDE in the layout, so a collapsed sidebar never flashes open on navigation.
+// The cookie is excluded from encryptCookies in bootstrap/app.php, same as
+// `theme` -- an encrypted value cannot be read from Blade.
 function initSidebarCollapse() {
     const btn = document.getElementById('collapseToggle');
     const shell = document.querySelector('.staff-shell');
     if (!btn || !shell) return;
+
+    const sync = () => {
+        const collapsed = shell.classList.contains('sidebar-collapsed');
+        btn.textContent = collapsed ? '\u27E9' : '\u27E8';
+        btn.setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
+        btn.setAttribute('aria-pressed', collapsed ? 'true' : 'false');
+    };
+
+    sync();
+
     btn.addEventListener('click', () => {
         shell.classList.toggle('sidebar-collapsed');
-        btn.textContent = shell.classList.contains('sidebar-collapsed') ? '\u27E9' : '\u27E8';
+        const collapsed = shell.classList.contains('sidebar-collapsed');
+        document.cookie = `sidebar=${collapsed ? 'collapsed' : 'expanded'};path=/;max-age=31536000;samesite=lax`;
+        sync();
+    });
+}
+
+// ---------------------------------------------------------------------
+// Mobile navigation drawer (roadmap item 13)
+// ---------------------------------------------------------------------
+// Below 1024px the sidebar becomes an off-canvas drawer. Barangay staff work
+// from phones, so this is the primary navigation path, not a fallback -- the
+// previous stylesheet simply hid the sidebar under 720px and left a phone with
+// no navigation at all.
+//
+// The drawer is inert while closed so keyboard focus cannot wander into an
+// invisible menu, and focus moves to the first link on open.
+function initMobileNav() {
+    const toggle = document.getElementById('mobileNavToggle');
+    const sidebar = document.getElementById('sidebar');
+    const backdrop = document.getElementById('sidebarBackdrop');
+    if (!toggle || !sidebar) return;
+
+    const setState = (open) => {
+        document.body.classList.toggle('mobile-nav-open', open);
+        toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        sidebar.setAttribute('aria-hidden', open ? 'false' : 'true');
+        if (backdrop) backdrop.hidden = !open;
+        // Stop the page behind the drawer scrolling under the user's thumb.
+        document.body.style.overflow = open ? 'hidden' : '';
+        if (open) sidebar.querySelector('a, button')?.focus();
+    };
+
+    // Desktop shows the sidebar permanently, so the drawer state and its
+    // aria-hidden must be cleared above the breakpoint or the sidebar would be
+    // announced as hidden while plainly visible.
+    const desktop = window.matchMedia('(min-width: 1024px)');
+    const applyBreakpoint = () => {
+        if (desktop.matches) {
+            document.body.classList.remove('mobile-nav-open');
+            document.body.style.overflow = '';
+            sidebar.removeAttribute('aria-hidden');
+            if (backdrop) backdrop.hidden = true;
+            toggle.setAttribute('aria-expanded', 'false');
+        } else {
+            sidebar.setAttribute('aria-hidden', document.body.classList.contains('mobile-nav-open') ? 'false' : 'true');
+        }
+    };
+
+    applyBreakpoint();
+    desktop.addEventListener('change', applyBreakpoint);
+
+    toggle.addEventListener('click', () => {
+        setState(!document.body.classList.contains('mobile-nav-open'));
+    });
+
+    backdrop?.addEventListener('click', () => setState(false));
+
+    document.getElementById('mobileNavClose')?.addEventListener('click', () => {
+        setState(false);
+        toggle.focus();
+    });
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && document.body.classList.contains('mobile-nav-open')) {
+            setState(false);
+            toggle.focus();
+        }
     });
 }
 

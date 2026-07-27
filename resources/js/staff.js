@@ -5,12 +5,47 @@ document.addEventListener('DOMContentLoaded', () => {
     initSidebarCollapse();
     initMobileNav();
     initShelterSwitcher();
+    initConnectivity();
     initModals();
     initConfirmForms();
     initEvacueeForm();
     initShelterModals();
     initReliefModals();
 });
+
+// ---------------------------------------------------------------------
+// Connectivity indicator
+// ---------------------------------------------------------------------
+// Replaces a "Live Updates Active" badge that was decoration: there is no
+// setInterval, no EventSource and no websocket anywhere in this codebase, so
+// nothing on any page updates itself. Telling barangay staff that an occupancy
+// figure is live when it is a page-load snapshot is the kind of claim that gets
+// relied on during a flood.
+//
+// navigator.onLine is honest about what it knows and no more -- it reports that
+// the device has a network interface, not that the server is reachable. So
+// "Connected" makes no promise about the figures, and going offline surfaces the
+// time the page was rendered, which is the fact that actually matters when the
+// numbers on screen have stopped being current.
+function initConnectivity() {
+    const pill = document.getElementById('connectivityPill');
+    const text = document.getElementById('connectivityText');
+    if (!pill || !text) return;
+
+    const renderedAt = pill.dataset.renderedAt || '';
+
+    const render = () => {
+        const online = navigator.onLine;
+        pill.dataset.conn = online ? 'online' : 'offline';
+        text.textContent = online
+            ? 'Connected'
+            : `Offline${renderedAt ? ` \u00B7 last updated ${renderedAt}` : ''}`;
+    };
+
+    render();
+    window.addEventListener('online', render);
+    window.addEventListener('offline', render);
+}
 
 // ---------------------------------------------------------------------
 // Theme toggle (server-persisted via cookie, no localStorage)
@@ -462,6 +497,9 @@ function initReliefModals() {
     const itemsWrap = document.getElementById('dist-items');
     const addItemBtn = document.getElementById('addItemBtn');
     let itemIndex = 1;
+    /* Held so "Request a special item for this family" can carry the loaded
+       household across instead of making staff search for it a second time. */
+    let currentDistHousehold = null;
 
     let debounce;
     if (searchInput) {
@@ -489,6 +527,7 @@ function initReliefModals() {
         const res = await fetch(url, { headers: { Accept: 'application/json' } });
         const data = await res.json();
         resultsList.hidden = true;
+        currentDistHousehold = data;
 
         document.getElementById('dist-household-id').value = data.id;
         document.getElementById('dist-code').textContent = data.code;
@@ -502,15 +541,154 @@ function initReliefModals() {
         distForm.hidden = false;
     }
 
-    if (addItemBtn) {
+    // ---- Distribution item rows ----
+    // Previously: `row.innerHTML = itemsWrap.children[0].innerHTML.replace(...)`.
+    // Cloning row 0's innerHTML meant every added row was a copy of whatever
+    // markup row 0 happened to have, and since row 0 had no Remove control,
+    // neither did any of its copies -- an accidental extra item could not be
+    // taken back without closing the modal and starting over. Now both the first
+    // row and the template carry the control, and removal is delegated so it
+    // works for rows that did not exist at page load.
+    //
+    // Indices deliberately are NOT renumbered after a removal. Laravel validates
+    // with `items.*`, and the controller iterates $data['items'], so a sparse
+    // items[0], items[2] is handled correctly -- and renumbering live inputs is
+    // how a quantity ends up attached to the wrong item.
+    const itemTemplate = document.getElementById('distItemTemplate');
+
+    const syncRemoveButtons = () => {
+        const rows = itemsWrap.querySelectorAll('[data-item-row]');
+        rows.forEach((row) => {
+            const btn = row.querySelector('[data-remove-item]');
+            if (btn) btn.disabled = rows.length <= 1;
+        });
+    };
+
+    if (addItemBtn && itemTemplate) {
         addItemBtn.addEventListener('click', () => {
-            const row = document.createElement('div');
-            row.className = 'dist-item-row';
-            row.innerHTML = itemsWrap.children[0].innerHTML.replace(/items\[0\]/g, `items[${itemIndex}]`);
+            const html = itemTemplate.innerHTML.replace(/__INDEX__/g, String(itemIndex));
+            const holder = document.createElement('div');
+            holder.innerHTML = html;
+            const row = holder.querySelector('[data-item-row]');
+            if (!row) return;
             itemsWrap.appendChild(row);
             itemIndex++;
+            syncRemoveButtons();
+            row.querySelector('select')?.focus();
         });
     }
 
+    if (itemsWrap) {
+        itemsWrap.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-remove-item]');
+            if (!btn) return;
+            /* Never remove the last row: an empty items list fails validation
+               server side with a message that would not explain itself. */
+            if (itemsWrap.querySelectorAll('[data-item-row]').length <= 1) return;
+            btn.closest('[data-item-row]')?.remove();
+            syncRemoveButtons();
+        });
+        syncRemoveButtons();
+    }
+
+    // ---- Request Stock prefill ----
+    // Opened either from the toolbar (nothing selected) or from an inventory row
+    // (that item preselected). initModals() already opened the modal on click;
+    // this only fills it in.
+    const restockGoodSelect = document.getElementById('req-good');
+    if (restockGoodSelect) {
+        document.querySelectorAll('[data-request-good]').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                restockGoodSelect.value = btn.dataset.requestGood;
+                document.getElementById('req-qty')?.focus();
+            });
+        });
+    }
+
+    // ---- Special item request ----
+    // Reachable two ways: on its own, searching for the family; or from the
+    // Distribute modal, where a household is already loaded and carrying it over
+    // saves searching for the same family twice.
+    initSpecialRequest(cfg, () => currentDistHousehold);
+
     if (cfg.autoOpen) openModal('distributeModal');
+}
+
+// ---------------------------------------------------------------------
+// Special item request (per household)
+// ---------------------------------------------------------------------
+// A deliberately separate search rather than a refactor of the two existing ones
+// in this file. Check-in and Distribute both work; folding three call sites into
+// one helper in the same pass that introduces a feature is how a working screen
+// breaks. Consolidating all three is noted as follow-up.
+function initSpecialRequest(cfg, getCurrentHousehold) {
+    const modal = document.getElementById('specialModal');
+    if (!modal) return;
+
+    const searchInput = document.getElementById('sp-search');
+    const resultsList = document.getElementById('sp-results');
+    const form = document.getElementById('specialForm');
+
+    async function fillFrom(household) {
+        document.getElementById('sp-household-id').value = household.id;
+        document.getElementById('sp-code').textContent = household.code;
+        document.getElementById('sp-head').textContent =
+            household.members.find((m) => m.is_head)?.full_name || '\u2014';
+
+        /* The tags are why this request usually exists -- a PWD or Pregnant tag
+           is what prompts asking for a wheelchair or maternity supplies -- so
+           they are shown while the item is being typed. */
+        const tags = [...new Set(household.members.flatMap((m) => m.tags.map((t) => t.name)))];
+        document.getElementById('sp-tags-note').textContent = tags.length
+            ? `Household tags: ${tags.join(', ')}`
+            : 'No special tags recorded on this household.';
+
+        if (resultsList) resultsList.hidden = true;
+        form.hidden = false;
+    }
+
+    async function loadHousehold(id) {
+        const res = await fetch(cfg.showUrlTemplate.replace(':id', id), {
+            headers: { Accept: 'application/json' },
+        });
+        if (!res.ok) return;
+        await fillFrom(await res.json());
+    }
+
+    let debounce;
+    if (searchInput) {
+        searchInput.addEventListener('input', () => {
+            clearTimeout(debounce);
+            debounce = setTimeout(async () => {
+                const term = searchInput.value.trim();
+                if (!term) { resultsList.hidden = true; return; }
+                const res = await fetch(`${cfg.searchUrl}?q=${encodeURIComponent(term)}`, {
+                    headers: { Accept: 'application/json' },
+                });
+                const items = await res.json();
+                resultsList.innerHTML = '';
+                items.forEach((item) => {
+                    const li = document.createElement('li');
+                    li.textContent = `${item.head} \u00B7 ${item.size} members`;
+                    li.addEventListener('click', () => loadHousehold(item.id));
+                    resultsList.appendChild(li);
+                });
+                resultsList.hidden = items.length === 0;
+            }, 250);
+        });
+    }
+
+    /* Hand-off from the Distribute modal. Closing it first prevents two stacked
+       backdrops, where Escape or a backdrop click dismisses only the top one and
+       the modal underneath is left open behind it. */
+    document.getElementById('dist-special-link')?.addEventListener('click', () => {
+        const household = getCurrentHousehold();
+        closeModal('distributeModal');
+        openModal('specialModal');
+        if (household) {
+            fillFrom(household);
+        } else {
+            searchInput?.focus();
+        }
+    });
 }

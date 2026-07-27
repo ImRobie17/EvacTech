@@ -24,6 +24,11 @@ class ReliefController extends BarangayController
         $inventory = collect();
         $goods = ReliefGood::orderBy('name')->get();
 
+        // Initialised outside the $center branch, like the collections above,
+        // because compact() at the end of this method runs either way.
+        $restockRequests = collect();
+        $specialRequests = collect();
+
         if ($center) {
             $stats['received'] = ReliefTransaction::where('evacuation_center_id', $center->id)
                 ->whereIn('type', ['received', 'allocated_in'])->sum('quantity');
@@ -74,9 +79,35 @@ class ReliefController extends BarangayController
             $inventory = ReliefInventory::with('reliefGood')
                 ->where('evacuation_center_id', $center->id)
                 ->get();
+
+            // ---- Request queues, this shelter only ----
+            // Pending PLUS anything resolved in the last week, deliberately. A
+            // request that disappears the moment it is answered is the same
+            // silent channel the missing Request button already produced: staff
+            // submit, see nothing, and assume it failed. Keeping resolved
+            // requests visible for a few days is what makes an approval or a
+            // rejection land with the person who asked.
+            $restockRequests = \App\Models\ReliefAllocationRequest::with(['reliefGood', 'requestedBy'])
+                ->where('evacuation_center_id', $center->id)
+                ->where(fn ($q) => $q
+                    ->where('status', 'pending')
+                    ->orWhere('resolved_at', '>=', Carbon::now()->subDays(7)))
+                ->latest('requested_at')
+                ->get();
+
+            $specialRequests = \App\Models\SpecialReliefRequest::with(['household.headMember', 'requestedBy'])
+                ->where('evacuation_center_id', $center->id)
+                ->where(fn ($q) => $q
+                    ->where('status', 'pending')
+                    ->orWhere('reviewed_at', '>=', Carbon::now()->subDays(7)))
+                ->latest()
+                ->get();
         }
 
-        return view('barangay.relief.index', compact('center', 'stats', 'log', 'priority', 'inventory', 'goods'));
+        return view('barangay.relief.index', compact(
+            'center', 'stats', 'log', 'priority', 'inventory', 'goods',
+            'restockRequests', 'specialRequests'
+        ));
     }
 
     /** Distribute relief to a household. Auto-decrements inventory (PB-09). */

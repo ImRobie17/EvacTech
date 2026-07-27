@@ -13,7 +13,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>@yield('title', 'EvacTech') &mdash; City of Cabuyao</title>
-    @vite(['resources/css/app.css', 'resources/js/app.js'])
+    {{-- $viteEntries lets a view opt into an extra bundle (map.js on the
+         evacuation map) without shipping Leaflet to every citizen page. A view
+         sets it in a PHP block at its top. One @vite() call only: a second call
+         in a head stack would re-inject the HMR client under `npm run dev`.
+
+         Harmless here only because this layout has no PHP block of its own --
+         naming that directive inside a Blade comment opens a real one, since
+         storeUncompiledBlocks() runs before compileComments(). It broke
+         layouts/staff exactly that way. Do not reintroduce it. --}}
+    @vite(array_merge(['resources/css/app.css', 'resources/js/app.js'], (array) ($viteEntries ?? [])))
     @stack('head')
 </head>
 <body class="public-body">

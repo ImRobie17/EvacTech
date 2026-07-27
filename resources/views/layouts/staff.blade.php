@@ -26,8 +26,23 @@
     <title>@yield('title', 'EvacTech') &mdash; EvacTech</title>
     {{-- Fonts are bundled by Vite from node_modules (roadmap item 3). The
          Google Fonts <link> tags are gone from every layout: the app must work
-         with no internet connection. --}}
-    @vite(['resources/css/app.css', 'resources/js/app.js'])
+         with no internet connection.
+
+         $viteEntries lets a view opt into an extra bundle (charts.js, map.js)
+         without shipping it to every page. A view sets it in a PHP block at its
+         top; because Blade renders the child before the layout and passes the
+         child's variables up, the value is in scope here.
+
+         ONE @vite() call, deliberately. A second call in a head stack would
+         re-inject the HMR client during `npm run dev`.
+
+         NOTE: do not write the PHP-block directive by name in a Blade comment.
+         BladeCompiler::compileString calls storeUncompiledBlocks() BEFORE
+         compileComments(), so that directive is extracted from comments too --
+         a mention of it here opened a block that swallowed everything down to
+         the real closer below, including the $navCenters assignment, and the
+         sidebar died with "Undefined variable $navActiveCenter". --}}
+    @vite(array_merge(['resources/css/app.css', 'resources/js/app.js'], (array) ($viteEntries ?? [])))
 </head>
 <body class="staff-body">
 @php

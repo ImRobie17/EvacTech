@@ -5,11 +5,13 @@
 @section('page-subtitle', 'Register households and manage evacuee records.')
 
 @section('page-actions')
-    <button type="button" class="btn-primary" data-open-modal="evacueeModal" data-mode="create">+ Register Household</button>
+    <button type="button" class="btn-primary w-full sm:w-auto" data-open-modal="evacueeModal" data-mode="create">+ Register Household</button>
 @endsection
 
 @section('content')
-<form method="GET" class="filter-bar" role="search">
+{{-- Four filters. Stacked on a phone, two up from 640px, four across from
+     1024px -- four side by side at 380px would make every control unusable. --}}
+<form method="GET" class="filter-bar sm:grid sm:grid-cols-2 sm:items-end lg:grid-cols-5" role="search">
     <input type="search" name="q" value="{{ request('q') }}" placeholder="Search household head&hellip;" aria-label="Search household head">
     <select name="status" aria-label="Filter by status">
         <option value="">All statuses</option>
@@ -35,7 +37,10 @@
 </form>
 
 <div class="card panel table-panel">
-    <table class="data-table">
+    {{-- data-stack + a data-label on every <td>: one change, never one without
+         the other. Seven columns is the widest table in the barangay screens and
+         the one that most needed to stop scrolling sideways on a phone. --}}
+    <table class="data-table" data-stack>
         <thead>
             <tr>
                 <th scope="col">Household ID</th>
@@ -50,22 +55,26 @@
         <tbody>
             @forelse($households as $h)
                 <tr>
-                    <td data-numeric>{{ $h->household_code }}</td>
-                    <td>{{ $h->headMember?->full_name ?? '-' }}</td>
-                    <td data-numeric>{{ $h->number_of_members }}</td>
-                    <td>{{ $h->origin_address }}</td>
-                    <td>{{ $h->evacuationCenter?->name ?? '-' }}</td>
-                    <td>
+                    <td data-label="Household ID" data-numeric>{{ $h->household_code }}</td>
+                    <td data-label="Household Head">{{ $h->headMember?->full_name ?? '-' }}</td>
+                    <td data-label="Family Size" data-numeric>{{ $h->number_of_members }}</td>
+                    <td data-label="Address">{{ $h->origin_address }}</td>
+                    <td data-label="Shelter">{{ $h->evacuationCenter?->name ?? '-' }}</td>
+                    <td data-label="Vulnerable Tags">
                         @php
                             $tags = $h->members->flatMap->vulnerableClassifications->unique('id');
                         @endphp
-                        @forelse($tags as $tag)
-                            <span class="badge badge-info">{{ $tag->name }}</span>
-                        @empty
-                            <span class="text-muted">None</span>
-                        @endforelse
+                        {{-- Wraps: a household with four tags must not force the
+                             stacked card wider than the screen. --}}
+                        <span class="flex flex-wrap justify-end gap-1">
+                            @forelse($tags as $tag)
+                                <span class="badge badge-info">{{ $tag->name }}</span>
+                            @empty
+                                <span class="text-ink-muted">None</span>
+                            @endforelse
+                        </span>
                     </td>
-                    <td class="actions-cell">
+                    <td class="actions-cell" data-label="Actions">
                         <button type="button" class="btn-link" data-open-modal="evacueeModal" data-mode="edit" data-household="{{ $h->id }}">Edit Family Group</button>
                         <form method="POST" action="{{ route('barangay.evacuees.destroy', $h) }}" class="inline-form" data-confirm="Remove household {{ $h->household_code }}? This cannot be undone.">
                             @csrf @method('DELETE')
@@ -99,8 +108,13 @@
                  auth()->user()->barangay_id, but staff are assigned to shelters
                  rather than barangays, and one shelter routinely holds families
                  from several barangays. Defaults to the barangay of the active shelter,
-                 which covers the common case in one click. --}}
-            <div class="member-grid">
+                 which covers the common case in one click.
+
+                 NOT .member-grid: that class goes to FIVE columns at 1280px
+                 because it is tuned for the five-field member row below. Two
+                 fields in a five-track grid gave a squeezed pair and three empty
+                 columns. Two fields get a two-column grid. --}}
+            <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <div class="field">
                     <label for="ev-barangay">Origin barangay</label>
                     <select id="ev-barangay" name="origin_barangay_id" required>
@@ -125,12 +139,12 @@
             <fieldset class="member-fieldset">
                 <legend>Family Members</legend>
                 <div id="memberRows"></div>
-                <button type="button" class="btn-secondary" id="addMemberBtn">+ Add family member</button>
+                <button type="button" class="btn-secondary w-full sm:w-auto" id="addMemberBtn">+ Add family member</button>
             </fieldset>
 
-            <div class="modal-actions">
+            <div class="modal-actions flex flex-col gap-2 sm:flex-row sm:items-center">
                 <button type="button" class="btn-link" id="transferHeadBtn" hidden>Transfer Head&hellip;</button>
-                <span class="spacer"></span>
+                <span class="hidden sm:block sm:flex-1"></span>
                 <button type="button" class="btn-secondary" data-close-modal>Cancel</button>
                 <button type="submit" class="btn-secondary" name="checkin" value="0">Save</button>
                 <button type="submit" class="btn-primary" name="checkin" value="1" id="saveCheckinBtn">Save &amp; Check-in</button>
@@ -148,7 +162,7 @@
         </div>
         <p>Current head: <strong id="th-current"></strong></p>
         <div id="th-options" class="radio-list" role="radiogroup" aria-label="Select the new household head"></div>
-        <div class="modal-actions">
+        <div class="modal-actions flex flex-col gap-2 sm:flex-row sm:justify-end">
             <button type="button" class="btn-secondary" data-close-modal>Cancel</button>
             <button type="button" class="btn-primary" id="th-next">Continue</button>
         </div>
@@ -170,7 +184,7 @@
                 <label for="ct-confirmation">Type <strong>transfer</strong> to confirm</label>
                 <input type="text" id="ct-confirmation" name="confirmation" autocomplete="off" required>
             </div>
-            <div class="modal-actions">
+            <div class="modal-actions flex flex-col gap-2 sm:flex-row sm:justify-end">
                 <button type="button" class="btn-secondary" data-close-modal>Cancel</button>
                 <button type="submit" class="btn-danger">Confirm Transfer</button>
             </div>
@@ -178,7 +192,10 @@
     </div>
 </div>
 
-{{-- Row template used by JS for both head and members --}}
+{{-- Row template used by JS for both head and members.
+     Keeps .member-grid: five fields is exactly what that class is tuned for
+     (1 column, 2 at 768px, 5 at 1280px), and it is shared with the City Admin
+     views that Chat C has not converted. --}}
 <template id="memberRowTemplate">
     <div class="member-row" data-row>
         <input type="hidden" data-field="id" name="">

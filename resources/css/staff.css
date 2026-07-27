@@ -860,6 +860,30 @@
         border-radius: var(--radius-sm);
         font-size: var(--text-base);
     }
+
+    /* The empty-state row is a single colspan cell -- there is no column for it
+       to be labelled with. Without this it inherits the 40% label gutter and
+       renders "No households match your search" squeezed into the right-hand 60%
+       of a card, next to a blank space where a heading should be. Every other
+       <td> in a data-stack table carries a data-label; this cell is the one
+       deliberate exception, so it opts out of the mechanism instead. */
+    .data-table[data-stack] td.empty-note {
+        display: block;
+        text-align: center;
+        border-bottom: none;
+    }
+
+    .data-table[data-stack] td.empty-note::before {
+        content: none;
+    }
+
+    /* Stacked cards are already bordered rows; the empty state is not a card. */
+    .data-table[data-stack] tr:has(td.empty-note) {
+        border: none;
+        box-shadow: none;
+        background: none;
+        padding: 0;
+    }
 }
 
 /* =========================================================================
@@ -1200,6 +1224,22 @@
     background: var(--color-success);
 }
 
+/* Offline is a stated condition, not an alarm: the app still works, the figures
+   on screen have simply stopped being current. Amber, and the dot changes SHAPE
+   as well as colour -- squared off via border-radius -- because status is never
+   carried by colour alone in this system. */
+.sync-pill[data-conn='offline'] {
+    background: var(--color-warning-bg);
+    border-color: var(--color-warning);
+    color: var(--color-warning);
+    font-weight: var(--weight-medium);
+}
+
+.sync-pill[data-conn='offline'] .sync-dot {
+    background: var(--color-warning);
+    border-radius: 2px;
+}
+
 /* Moved here from superadmin.css, which held nothing else and is now deleted. */
 .status-list {
     list-style: none;
@@ -1306,9 +1346,24 @@
 }
 
 @media (min-width: 640px) {
+    /* Third track for the per-row Remove control. Item, quantity, remove. */
     .dist-item-row {
-        grid-template-columns: 2fr 1fr;
+        grid-template-columns: 2fr 1fr auto;
+        align-items: end;
     }
+}
+
+/* Disabled rather than hidden while only one row remains, so the control does
+   not appear and vanish as rows are added -- a button that moves is a button
+   that gets mis-tapped. */
+.dist-item-row [data-remove-item] {
+    min-height: var(--spacing-tap);
+}
+
+.dist-item-row [data-remove-item]:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    text-decoration: none;
 }
 
 /* =========================================================================

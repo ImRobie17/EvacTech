@@ -4,24 +4,58 @@
 @section('page-title', 'Dashboard')
 @section('page-subtitle', 'Overview of evacuation operations and shelter status.')
 
-@section('page-actions')
-    <span class="sync-pill"><span class="sync-dot" aria-hidden="true"></span> Live Updates Active</span>
-@endsection
-
-@section('content')
 @php
+    // Opts this page into the bundled Chart.js entry (roadmap item 3). The cdnjs
+    // <script> tag is gone. Read by the single @vite() call in layouts/staff.
+    $viteEntries = ['resources/js/charts.js'];
+
     $pct = $kpis['capacity_pct'];
     $capClass = $pct === null ? '' : ($pct > 100 ? 'cap-over' : ($pct >= 90 ? 'cap-full' : ($pct >= 70 ? 'cap-warn' : 'cap-ok')));
     $capLabel = $pct === null ? 'No capacity set' : ($pct > 100 ? 'Overcapacity' : ($pct >= 90 ? 'Full' : ($pct >= 70 ? 'Nearing capacity' : 'Space available')));
+
+    // Chart payload for resources/js/charts.js. Built here in a @php block, not
+    // inline in a @json expression: the gotcha list is explicit that @json with
+    // => arrows or across lines fails to parse.
+    $chartPayload = [
+        'labels' => $chart['labels'],
+        'datasets' => [[
+            'label' => 'Households registered',
+            'data' => $chart['data'],
+            'colorToken' => '--color-primary-400',
+        ]],
+    ];
+    $chartJson = json_encode($chartPayload, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
 @endphp
 
+@section('page-actions')
+    {{-- This used to read "Live Updates Active" beside a pulsing green dot.
+         Nothing on this page polls -- there is no setInterval, no EventSource,
+         no websocket anywhere in the codebase -- so the badge was telling staff
+         that an occupancy figure refreshes itself when it does not. During a
+         flood that is the kind of reassurance that gets acted on.
+
+         It now reports what the browser actually knows: whether there is a
+         connection, and when this page was loaded. Wired in staff.js. --}}
+    <span class="sync-pill" id="connectivityPill" data-conn="online"
+          data-rendered-at="{{ now()->format('g:i A') }}"
+          role="status" aria-live="polite"
+          title="Figures on this page were loaded at {{ now()->format('g:i A') }}. Reload to refresh them.">
+        <span class="sync-dot" aria-hidden="true"></span>
+        <span id="connectivityText">Connected</span>
+    </span>
+@endsection
+
+@section('content')
 @unless($center)
     <div class="alert alert-warning" role="alert">
         No shelter selected. Pick one from the switcher above, or ask your Evacuation Administrator to assign you to a shelter &mdash; the numbers below will stay at zero until then.
     </div>
 @endunless
 
-<section class="kpi-grid" aria-label="Key metrics">
+{{-- Five KPI cards. One column on a phone, two from 640px, then three and five.
+     Five across only above 1280px: below that a fifth column squeezes the
+     numbers, and these are the figures the whole screen exists to show. --}}
+<section class="mb-4 grid grid-cols-1 items-stretch gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5" aria-label="Key metrics">
     <article class="card kpi-card">
         <div class="kpi-head">
             <span class="kpi-icon-wrap" aria-hidden="true">
@@ -81,13 +115,40 @@
     </article>
 </section>
 
-<section class="dash-columns">
-    <article class="card panel">
+<section class="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
+    <article class="card panel lg:col-span-2">
         <h2 class="panel-title">Daily Registrations (Past 7 Days)</h2>
-        <canvas id="registrationsChart" height="240" role="img" aria-label="Bar chart of daily household registrations for the past 7 days"></canvas>
+        {{-- .chart-wrap owns the height (240px, 300px from 768px) and the canvas
+             carries NO height attribute. Chart.js sizes from its parent, and a
+             height attribute fights the wrapper into either a zero-height or an
+             unbounded canvas. maintainAspectRatio is false in charts.js. --}}
+        <div class="chart-wrap">
+            <canvas id="registrationsChart"
+                    data-chart="bar"
+                    data-chart-data="registrationsChartData"
+                    role="img"
+                    aria-label="Bar chart of daily household registrations for the past 7 days"></canvas>
+        </div>
+        {{-- The chart is an image to a screen reader, so the same figures are
+             available as text. Also the fallback when JS or the bundle fails. --}}
+        <details class="mt-3 text-sm text-ink-soft">
+            <summary class="min-h-tap cursor-pointer py-2">View these figures as a table</summary>
+            <table class="data-table mt-2">
+                <caption class="visually-hidden">Households registered per day, past 7 days</caption>
+                <thead><tr><th scope="col">Day</th><th scope="col">Households registered</th></tr></thead>
+                <tbody>
+                    @foreach($chart['labels'] as $i => $label)
+                        <tr>
+                            <td>{{ $label }}</td>
+                            <td data-numeric>{{ $chart['data'][$i] ?? 0 }}</td>
+                        </tr>
+                    @endforeach
+                </tbody>
+            </table>
+        </details>
     </article>
 
-    <div class="dash-side">
+    <div class="flex flex-col">
         <h2 class="panel-title">Quick Actions</h2>
         <a class="card action-card" href="{{ route('barangay.evacuees.index') }}?open=register">
             <span class="action-icon" aria-hidden="true">+</span>
@@ -101,20 +162,25 @@
             <span class="action-icon" aria-hidden="true">&#8677;</span>
             <span><strong>Check-out Household</strong><br><small>Family leaving the center</small></span>
         </a>
+        {{-- This icon span was EMPTY: a raw glyph had been stripped out of it at
+             some point, leaving the one quick action on the page with no mark
+             beside it. Now an entity, like every other icon in the codebase. --}}
         <a class="card action-card" href="{{ route('barangay.relief.index') }}?open=distribute">
-            <span class="action-icon" aria-hidden="true"></span>
+            <span class="action-icon" aria-hidden="true">&#128230;</span>
             <span><strong>Distribute Relief</strong><br><small>Log goods given to families</small></span>
         </a>
 
-        <h2 class="panel-title" style="margin-top: var(--space-6);">Recent Activity</h2>
+        <h2 class="panel-title mt-6">Recent Activity</h2>
         <div class="card panel activity-panel">
             @forelse($recent as $event)
-                <div class="activity-row">
+                {{-- Wraps rather than overflowing at 380px: the name and the time
+                     are both needed, so neither may be pushed off-screen. --}}
+                <div class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border p-3 text-sm last:border-b-0">
                     <span class="badge {{ $event['type'] === 'check_in' ? 'badge-success' : 'badge-warning' }}">
                         {{ $event['type'] === 'check_in' ? 'Check-in' : 'Check-out' }}
                     </span>
-                    <span class="activity-name">{{ $event['household']->headMember?->full_name ?? $event['household']->household_code }}</span>
-                    <time class="activity-time" datetime="{{ $event['at']->toIso8601String() }}">{{ $event['at']->diffForHumans() }}</time>
+                    <span class="min-w-0 flex-1 font-medium">{{ $event['household']->headMember?->full_name ?? $event['household']->household_code }}</span>
+                    <time class="text-ink-muted" datetime="{{ $event['at']->toIso8601String() }}">{{ $event['at']->diffForHumans() }}</time>
                 </div>
             @empty
                 <p class="empty-note">No check-ins or check-outs yet. Activity will appear here as families arrive.</p>
@@ -125,26 +191,6 @@
 @endsection
 
 @push('scripts')
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-<script>
-    const ctx = document.getElementById('registrationsChart');
-    const styles = getComputedStyle(document.documentElement);
-    new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: @json($chart['labels']),
-            datasets: [{
-                label: 'Households registered',
-                data: @json($chart['data']),
-                backgroundColor: styles.getPropertyValue('--color-primary-400').trim() || '#22D3EE',
-                borderRadius: 6,
-            }]
-        },
-        options: {
-            responsive: true,
-            plugins: { legend: { display: false } },
-            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
-        }
-    });
-</script>
+{{-- Data island read by resources/js/charts.js. Inert to the HTML parser. --}}
+<script type="application/json" id="registrationsChartData">{!! $chartJson !!}</script>
 @endpush

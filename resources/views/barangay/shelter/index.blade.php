@@ -5,7 +5,7 @@
 @section('page-subtitle', $center?->name ?? 'No assigned shelter')
 
 @section('page-actions')
-    <button type="button" class="btn-primary" data-open-modal="checkinModal">&check; Check-in Existing Family</button>
+    <button type="button" class="btn-primary w-full sm:w-auto" data-open-modal="checkinModal">&check; Check-in Existing Family</button>
 @endsection
 
 @section('content')
@@ -18,11 +18,15 @@
 @unless($center)
     <div class="alert alert-warning">No shelter selected. Choose one from the switcher above, or ask your Evacuation Administrator to assign you to a shelter.</div>
 @else
-<section class="dash-columns">
-    <div>
+<section class="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
+    <div class="lg:col-span-2">
+        {{-- Left unconverted on purpose: partials/capacity-panel is also included
+             by cityadmin/shelters/show, which Chat C has not converted. It is
+             styled entirely by staff.css classes, so it renders exactly as
+             before. Chat C owns its conversion. --}}
         @include('partials.capacity-panel', ['center' => $center])
 
-        <form method="GET" class="filter-bar" role="search">
+        <form method="GET" class="filter-bar sm:grid sm:grid-cols-2 sm:items-end lg:grid-cols-4" role="search">
             <input type="search" name="q" value="{{ request('q') }}" placeholder="Search household head&hellip;" aria-label="Search household head name">
             <select name="status" aria-label="Filter status">
                 <option value="">All statuses</option>
@@ -38,7 +42,12 @@
         </form>
 
         <div class="card panel table-panel">
-            <table class="data-table">
+            {{-- data-stack: below 768px this table becomes labelled cards rather
+                 than a horizontally scrolling grid. Every <td> below therefore
+                 carries a data-label -- adding the attribute without the labels
+                 would print a 40% blank gutter down the left of every card.
+                 The two go together, always. --}}
+            <table class="data-table" data-stack>
                 <thead>
                     <tr>
                         <th scope="col">Household Head</th>
@@ -51,17 +60,37 @@
                 <tbody>
                     @forelse($households as $h)
                         <tr>
-                            <td>{{ $h->headMember?->full_name ?? '-' }}</td>
-                            <td data-numeric>{{ $h->members_present }} / {{ $h->number_of_members }}</td>
-                            <td data-numeric>{{ $h->checked_in_at?->format('M d, Y - h:i A') ?? '-' }}</td>
-                            <td>
+                            <td data-label="Household Head">{{ $h->headMember?->full_name ?? '-' }}</td>
+                            <td data-label="Family Size" data-numeric>{{ $h->members_present }} / {{ $h->number_of_members }}</td>
+                            <td data-label="Check-in" data-numeric>{{ $h->checked_in_at?->format('M d, Y - h:i A') ?? '-' }}</td>
+                            <td data-label="Status">
                                 <span class="badge {{ $h->status === 'checked_in' ? 'badge-success' : ($h->status === 'checked_out' ? 'badge-warning' : 'badge-info') }}">
                                     {{ ucfirst(str_replace('_', ' ', $h->status)) }}
                                 </span>
                             </td>
-                            <td class="actions-cell">
-                                <button type="button" class="btn-link" data-open-modal="evacueeEditRedirect" data-household="{{ $h->id }}"
-                                        onclick="window.location='{{ route('barangay.evacuees.index') }}?edit={{ $h->id }}'">Edit Family Group</button>
+                            <td class="actions-cell" data-label="Actions">
+                                {{-- Was a <button data-open-modal="evacueeEditRedirect">
+                                     with an inline onclick doing the actual work.
+                                     No modal with that id exists anywhere, so the
+                                     data attribute registered a listener that
+                                     opened nothing, and the navigation happened
+                                     only because of the onclick beside it. It is
+                                     a link, so it is written as a link: keyboard
+                                     reachable, middle-clickable, and honest about
+                                     leaving the page.
+
+                                     It still navigates to Evacuee Profiling rather
+                                     than editing in place. Bringing the evacuee
+                                     modal here needs $classifications, $barangays
+                                     and $defaultBarangayId from ShelterController
+                                     plus a duplicate of the member-row template --
+                                     deliberately deferred to Phase 1 item 1, which
+                                     reshapes shelter routing anyway. --}}
+                                {{-- inline-flex + min-h-tap because the 44px floor
+                                     in design-system.css is applied to button and
+                                     input elements, not to anchors. --}}
+                                <a class="btn-link inline-flex min-h-tap items-center"
+                                   href="{{ route('barangay.evacuees.index') }}?edit={{ $h->id }}">Edit Family Group</a>
                                 @if($h->status === 'checked_in')
                                     <form method="POST" action="{{ route('barangay.shelter.checkout', $h) }}" class="inline-form"
                                           data-confirm="Check out {{ $h->headMember?->full_name }}'s household?">
@@ -72,6 +101,9 @@
                             </td>
                         </tr>
                     @empty
+                        {{-- No data-label: a colspan cell has no column to name.
+                             staff.css exempts td.empty-note from the stacked
+                             label treatment for exactly this row. --}}
                         <tr><td colspan="5" class="empty-note">No households at this shelter match your search.</td></tr>
                     @endforelse
                 </tbody>
@@ -82,16 +114,16 @@
         </div>
     </div>
 
-    <div class="dash-side">
+    <div class="flex flex-col">
         <h2 class="panel-title">Recent Activity</h2>
         <div class="card panel activity-panel">
             @forelse($recent as $event)
-                <div class="activity-row">
+                <div class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border p-3 text-sm last:border-b-0">
                     <span class="badge {{ $event['type'] === 'check_in' ? 'badge-success' : 'badge-warning' }}">
                         {{ $event['type'] === 'check_in' ? 'Check-in' : 'Check-out' }}
                     </span>
-                    <span class="activity-name">{{ $event['household']->headMember?->full_name ?? $event['household']->household_code }}</span>
-                    <time class="activity-time" datetime="{{ $event['at']->toIso8601String() }}">{{ $event['at']->diffForHumans() }}</time>
+                    <span class="min-w-0 flex-1 font-medium">{{ $event['household']->headMember?->full_name ?? $event['household']->household_code }}</span>
+                    <time class="text-ink-muted" datetime="{{ $event['at']->toIso8601String() }}">{{ $event['at']->diffForHumans() }}</time>
                 </div>
             @empty
                 <p class="empty-note">No activity yet.</p>
@@ -113,8 +145,8 @@
 
         <div class="field search-inline">
             <label for="ci-search">Household head name</label>
-            <div class="search-inline-row">
-                <input type="search" id="ci-search" placeholder="e.g. Dela Cruz, Juan" autocomplete="off">
+            <div class="flex flex-col gap-2 sm:flex-row">
+                <input type="search" id="ci-search" class="sm:flex-1" placeholder="e.g. Dela Cruz, Juan" autocomplete="off">
                 <button type="button" class="btn-secondary" id="ci-load">Load Profile</button>
             </div>
             <ul class="search-results" id="ci-results" hidden></ul>
@@ -127,9 +159,11 @@
                 <p class="kpi-note">Tick everyone who is present at the shelter right now:</p>
                 <div id="ci-members" class="checkbox-list"></div>
             </div>
-            <div class="modal-actions">
+            {{-- Stacks below 640px with the primary action last, so a thumb
+                 reaching the bottom of the sheet lands on Confirm, not Cancel. --}}
+            <div class="modal-actions flex flex-col gap-2 sm:flex-row sm:items-center">
                 <button type="button" class="btn-link" id="ci-edit-family">Edit Family Group</button>
-                <span class="spacer"></span>
+                <span class="hidden sm:block sm:flex-1"></span>
                 <button type="button" class="btn-secondary" data-close-modal>Cancel</button>
                 <button type="submit" class="btn-primary">Confirm Check-in</button>
             </div>
@@ -146,7 +180,7 @@
         </div>
         <p>Current head: <strong id="th-current"></strong></p>
         <div id="th-options" class="radio-list" role="radiogroup" aria-label="Select the new household head"></div>
-        <div class="modal-actions">
+        <div class="modal-actions flex flex-col gap-2 sm:flex-row sm:justify-end">
             <button type="button" class="btn-secondary" data-close-modal>Cancel</button>
             <button type="button" class="btn-primary" id="th-next">Continue</button>
         </div>
@@ -168,7 +202,7 @@
                 <label for="ct-confirmation">Type <strong>transfer</strong> to confirm</label>
                 <input type="text" id="ct-confirmation" name="confirmation" autocomplete="off" required>
             </div>
-            <div class="modal-actions">
+            <div class="modal-actions flex flex-col gap-2 sm:flex-row sm:justify-end">
                 <button type="button" class="btn-secondary" data-close-modal>Cancel</button>
                 <button type="submit" class="btn-danger">Confirm Transfer</button>
             </div>

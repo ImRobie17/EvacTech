@@ -9,6 +9,19 @@
 --}}
 @php
     $sidebarCollapsed = request()->cookie('sidebar') === 'collapsed';
+
+    // CHAT C: Super Admin behaviour moved out of an inline <script> at the
+    // bottom of superadmin/users/index.blade.php and into its own bundle.
+    //
+    // It is loaded from the LAYOUT rather than opted into per view, because the
+    // point of the move was to stop City Admin's bundle and Super Admin's
+    // behaviour meeting on the same page. Loading it here means every Super
+    // Admin screen has its own module available and none of them depend on a
+    // view remembering to ask for it.
+    //
+    // Merged with, not overwriting, anything a view sets: a Super Admin screen
+    // that later wants charts.js appends to this list rather than replacing it.
+    $viteEntries = array_merge(['resources/js/superadmin.js'], (array) ($viteEntries ?? []));
 @endphp
 <html lang="en" data-theme="{{ request()->cookie('theme', 'light') }}">
 <head>
@@ -16,7 +29,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>@yield('title', 'Super Admin') &mdash; EvacTech</title>
-    @vite(['resources/css/app.css', 'resources/js/app.js'])
+    {{-- ONE @vite() call, deliberately -- a second call in a head stack
+         re-injects the HMR client under `npm run dev`.
+
+         NOTE: do not write the PHP-block directive by name in a Blade comment.
+         storeUncompiledBlocks() runs BEFORE compileComments(), so naming it here
+         opens a real block that swallows markup down to the next closer. --}}
+    @vite(array_merge(['resources/css/app.css', 'resources/js/app.js'], (array) ($viteEntries ?? [])))
 </head>
 <body class="staff-body">
 <div class="staff-shell {{ $sidebarCollapsed ? 'sidebar-collapsed' : '' }}">

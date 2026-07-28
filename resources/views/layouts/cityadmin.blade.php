@@ -22,7 +22,25 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>@yield('title', 'City Admin') &mdash; EvacTech</title>
-    @vite(['resources/css/app.css', 'resources/js/app.js'])
+    {{-- CHAT C: $viteEntries support, matching layouts/staff. A view opts into
+         an extra bundle (charts.js, map.js) by setting the variable in a PHP
+         block at its top; Blade renders the child before the layout and passes
+         the child's variables up, so the value is in scope here.
+
+         This line is what the City Admin dashboard needed before its Chart.js
+         cdnjs <script> tag could be deleted -- the last CDN reference in the
+         codebase, and the last thing standing between this app and running with
+         no internet connection.
+
+         ONE @vite() call, deliberately. A second call in a head stack would
+         re-inject the HMR client during `npm run dev`.
+
+         NOTE: do not write the PHP-block directive by name in a Blade comment.
+         BladeCompiler::compileString calls storeUncompiledBlocks() BEFORE
+         compileComments(), so that directive is extracted from comments too --
+         a mention of it opens a real block that swallows everything down to the
+         next genuine closer. --}}
+    @vite(array_merge(['resources/css/app.css', 'resources/js/app.js'], (array) ($viteEntries ?? [])))
 </head>
 <body class="staff-body">
 <div class="staff-shell {{ $sidebarCollapsed ? 'sidebar-collapsed' : '' }}">

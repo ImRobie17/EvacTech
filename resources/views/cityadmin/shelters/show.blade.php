@@ -24,8 +24,13 @@
 @endsection
 
 @section('content')
-<a href="{{ route('city.shelters.index') }}" class="btn-link back-link">&larr; Back to all shelters</a>
+{{-- An anchor, so the 44px tap floor is set here: design-system.css enforces it
+     on button and input elements, not on <a>. --}}
+<a href="{{ route('city.shelters.index') }}" class="btn-link back-link inline-flex min-h-tap items-center">&larr; Back to all shelters</a>
 
+{{-- Two summary cards side by side from 1024px. .shelter-summary already does
+     an auto-fit grid; the explicit breakpoint stops a 20rem minimum from
+     dropping to one column at sizes where two still fit comfortably. --}}
 <section class="shelter-summary">
     @include('partials.capacity-panel', ['center' => $center])
 
@@ -93,7 +98,7 @@
     </form>
 
     <div class="card panel table-panel">
-        <table class="data-table">
+        <table class="data-table" data-stack>
             <thead>
                 <tr>
                     <th scope="col">Household ID</th>
@@ -109,18 +114,18 @@
             <tbody>
                 @forelse($households as $h)
                     <tr>
-                        <td>{{ $h->household_code }}</td>
-                        <td>{{ $h->headMember?->full_name ?? '-' }}</td>
-                        <td>{{ $h->originBarangay?->name ?? '-' }}</td>
-                        <td data-numeric>{{ $h->number_of_members }}</td>
-                        <td data-numeric>{{ $h->members_present }}</td>
-                        <td>
+                        <td data-label="Household ID" data-numeric>{{ $h->household_code }}</td>
+                        <td data-label="Head">{{ $h->headMember?->full_name ?? '-' }}</td>
+                        <td data-label="Origin">{{ $h->originBarangay?->name ?? '-' }}</td>
+                        <td data-label="Size" data-numeric>{{ $h->number_of_members }}</td>
+                        <td data-label="Present" data-numeric>{{ $h->members_present }}</td>
+                        <td data-label="Status">
                             <span class="badge {{ $h->status === 'checked_in' ? 'badge-success' : 'badge-warning' }}">
                                 {{ ucfirst(str_replace('_', ' ', $h->status)) }}
                             </span>
                         </td>
-                        <td data-numeric>{{ $h->checked_in_at?->format('M d, Y - h:i A') ?? '-' }}</td>
-                        <td class="actions-cell">
+                        <td data-label="Checked In" data-numeric>{{ $h->checked_in_at?->format('M d, Y - h:i A') ?? '-' }}</td>
+                        <td class="actions-cell" data-label="Actions">
                             {{-- Opens the modal on THIS page. No navigation. --}}
                             <button type="button" class="btn-link"
                                     data-cd-edit-household="{{ $h->id }}">Edit Family Group</button>
@@ -142,29 +147,34 @@
     </div>
 @else
     {{-- =============== RELIEF TAB =============== --}}
-    <section class="kpi-grid">
+    {{-- These four cards used class="kpi-label" on their labels. That class is
+         defined in NO stylesheet -- not staff.css, not design-system.css, not
+         cityadmin.css -- so all four rendered as unstyled text while every other
+         KPI card in the app uses the .kpi-head / .kpi-title pattern. Now they
+         match. --}}
+    <section class="mb-4 grid grid-cols-1 items-stretch gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <article class="card kpi-card">
-            <span class="kpi-label">Stock on hand</span>
+            <div class="kpi-head"><span class="kpi-title">Stock on hand</span></div>
             <p class="kpi-value" data-numeric>{{ number_format($stats['remaining']) }}</p>
         </article>
         <article class="card kpi-card">
-            <span class="kpi-label">Total received</span>
+            <div class="kpi-head"><span class="kpi-title">Total received</span></div>
             <p class="kpi-value" data-numeric>{{ number_format($stats['received']) }}</p>
         </article>
         <article class="card kpi-card">
-            <span class="kpi-label">Total distributed</span>
+            <div class="kpi-head"><span class="kpi-title">Total distributed</span></div>
             <p class="kpi-value" data-numeric>{{ number_format($stats['distributed']) }}</p>
         </article>
         <article class="card kpi-card">
-            <span class="kpi-label">Est. days of stock</span>
+            <div class="kpi-head"><span class="kpi-title">Est. days of stock</span></div>
             <p class="kpi-value" data-numeric>{{ $stats['days_left'] ?? '-' }}</p>
-            <span class="kpi-note">7-day average burn rate. An estimate, not a promise.</span>
+            <p class="kpi-note">7-day average burn rate. An estimate, not a promise.</p>
         </article>
     </section>
 
     <div class="card panel table-panel">
         <h2 class="panel-title">Current Inventory</h2>
-        <table class="data-table">
+        <table class="data-table" data-stack>
             <thead>
                 <tr><th scope="col">Relief Good</th><th scope="col">On Hand</th><th scope="col">Reorder Level</th><th scope="col">Stock</th></tr>
             </thead>
@@ -174,10 +184,10 @@
                         $low = $inv->reorder_level > 0 && $inv->quantity_on_hand <= $inv->reorder_level;
                     @endphp
                     <tr>
-                        <td>{{ $inv->reliefGood?->name }}</td>
-                        <td data-numeric>{{ number_format($inv->quantity_on_hand) }} {{ $inv->reliefGood?->unit }}</td>
-                        <td data-numeric>{{ number_format($inv->reorder_level) }}</td>
-                        <td>
+                        <td data-label="Relief Good">{{ $inv->reliefGood?->name }}</td>
+                        <td data-label="On Hand" data-numeric>{{ number_format($inv->quantity_on_hand) }} {{ $inv->reliefGood?->unit }}</td>
+                        <td data-label="Reorder Level" data-numeric>{{ number_format($inv->reorder_level) }}</td>
+                        <td data-label="Stock">
                             @if ($inv->quantity_on_hand <= 0)
                                 <span class="badge badge-danger">Out of stock</span>
                             @elseif ($low)
@@ -202,19 +212,19 @@
 
     <div class="card panel table-panel">
         <h2 class="panel-title">Distribution Log</h2>
-        <table class="data-table">
+        <table class="data-table" data-stack>
             <thead>
                 <tr><th scope="col">Date</th><th scope="col">Household</th><th scope="col">Item</th><th scope="col">Qty</th><th scope="col">Recorded By</th><th scope="col">Remarks</th></tr>
             </thead>
             <tbody>
                 @forelse($log as $t)
                     <tr>
-                        <td data-numeric>{{ $t->transaction_date?->format('M d, Y') }}</td>
-                        <td>{{ $t->household?->headMember?->full_name ?? '-' }}</td>
-                        <td>{{ $t->reliefGood?->name }}</td>
-                        <td data-numeric>{{ number_format($t->quantity) }} {{ $t->reliefGood?->unit }}</td>
-                        <td>{{ $t->recordedBy?->name ?? '-' }}</td>
-                        <td>{{ $t->remarks }}</td>
+                        <td data-label="Date" data-numeric>{{ $t->transaction_date?->format('M d, Y') }}</td>
+                        <td data-label="Household">{{ $t->household?->headMember?->full_name ?? '-' }}</td>
+                        <td data-label="Item">{{ $t->reliefGood?->name }}</td>
+                        <td data-label="Qty" data-numeric>{{ number_format($t->quantity) }} {{ $t->reliefGood?->unit }}</td>
+                        <td data-label="Recorded By">{{ $t->recordedBy?->name ?? '-' }}</td>
+                        <td data-label="Remarks">{{ $t->remarks }}</td>
                     </tr>
                 @empty
                     <tr><td colspan="6" class="empty-note">No distributions logged at this shelter yet.</td></tr>
@@ -325,14 +335,27 @@
                 <p><strong id="cd-dist-code"></strong> &middot; <span id="cd-dist-head"></span></p>
             </div>
             <div id="cd-dist-items">
-                <div class="dist-item-row">
+                {{-- The first row now carries a Remove control and data-item-row,
+                     exactly like the template below.
+
+                     It previously had neither. Rows added by "+ Add another item"
+                     got a Remove button; this one never did, so an item picked by
+                     mistake could only be undone by closing the modal and
+                     starting over. .dist-item-row is `2fr 1fr auto` above 640px,
+                     so it also left an empty third column beside every first row.
+
+                     The control is disabled while only one row remains: an empty
+                     items list fails validation server side with a message that
+                     would not explain itself. --}}
+                <div class="dist-item-row" data-item-row>
                     <select name="items[0][relief_good_id]" required aria-label="Relief good">
-                        <option value="">Select item</option>
+                        <option value="">Select item&hellip;</option>
                         @foreach($goods ?? [] as $g)
                             <option value="{{ $g->id }}">{{ $g->name }} ({{ $g->unit }})</option>
                         @endforeach
                     </select>
                     <input type="number" name="items[0][quantity]" min="1" value="1" required aria-label="Quantity">
+                    <button type="button" class="btn-link btn-link-danger" data-remove-item aria-label="Remove this item" disabled>&times; Remove</button>
                 </div>
             </div>
             <button type="button" class="btn-link" id="cdAddItemBtn">+ Add another item</button>
@@ -349,6 +372,23 @@
     </div>
 </div>
 
+{{-- Template for extra distribution rows. Replaces building the row imperatively
+     in cityadmin-shelter.js from CityShelterConfig.goodsOptions: rendering it
+     here from the same $goods collection means the added rows cannot drift out
+     of step with the first one. __INDEX__ is substituted in cityadmin-shelter.js. --}}
+<template id="cdDistItemTemplate">
+    <div class="dist-item-row" data-item-row>
+        <select name="items[__INDEX__][relief_good_id]" required aria-label="Relief good">
+            <option value="">Select item&hellip;</option>
+            @foreach($goods ?? [] as $g)
+                <option value="{{ $g->id }}">{{ $g->name }} ({{ $g->unit }})</option>
+            @endforeach
+        </select>
+        <input type="number" name="items[__INDEX__][quantity]" min="1" value="1" required aria-label="Quantity">
+        <button type="button" class="btn-link btn-link-danger" data-remove-item aria-label="Remove this item">&times; Remove</button>
+    </div>
+</template>
+
 {{-- ======== Receive Stock ======== --}}
 <div class="modal-backdrop" id="cdReceiveModal" hidden>
     <div class="modal modal-narrow" role="dialog" aria-modal="true" aria-labelledby="cdRecvTitle">
@@ -361,7 +401,7 @@
             <div class="field">
                 <label for="cd-recv-good">Relief good</label>
                 <select id="cd-recv-good" name="relief_good_id" required>
-                    <option value="">Select item</option>
+                    <option value="">Select item&hellip;</option>
                     @foreach($goods ?? [] as $g)
                         <option value="{{ $g->id }}">{{ $g->name }} ({{ $g->unit }})</option>
                     @endforeach

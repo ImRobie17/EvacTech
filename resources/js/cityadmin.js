@@ -140,6 +140,22 @@ function initUserAdmin() {
     const modal = document.getElementById('userModal');
     if (!modal) return;
 
+    // CHAT C -- cross-role guard.
+    //
+    // app.js imports this file on EVERY page, and the Super Admin users page
+    // uses the same element ids (userModal, userForm, userMethod, u-name,
+    // u-status-field, u-pw-hint, [data-edit-user]). The `if (!modal) return`
+    // above therefore did NOT stop this function running there: it bound its
+    // handlers alongside that page's own, and since a bundled module executes
+    // after an inline script, these ran last and won. The visible symptom was
+    // Super Admin's "+ Add User" opening a dialog headed "Add Barangay
+    // Personnel".
+    //
+    // Super Admin behaviour now lives in resources/js/superadmin.js, a separate
+    // Vite entry that only layouts/superadmin loads, so the two no longer meet.
+    // This check is the second, independent line of defence.
+    if (modal.dataset.userForm !== 'city') return;
+
     const form = document.getElementById('userForm');
     const title = document.getElementById('userModalTitle');
     const submit = document.getElementById('userSubmit');

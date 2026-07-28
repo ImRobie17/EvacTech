@@ -3,12 +3,68 @@
 @section('title', 'Dashboard')
 @section('page-title', 'Dashboard')
 @section('page-subtitle', 'City-wide overview of evacuation operations and shelter status.')
+
+@php
+    // Opts this page into the bundled Chart.js entry (roadmap item 3). This
+    // replaces the cdnjs <script> tag that used to sit in the scripts stack --
+    // it was the LAST CDN reference in the codebase, so with it gone EvacTech
+    // no longer needs an internet connection to render any page.
+    //
+    // Requires the array_merge @vite() line in layouts/cityadmin.
+    $viteEntries = ['resources/js/charts.js'];
+
+    // GOTCHA #1: chart payloads are built here and emitted with json_encode()
+    // below. Never inline a Blade json directive containing arrows or spanning
+    // multiple lines -- it fails to parse.
+    $topBarangaysPayload = [
+        'labels' => $topBarangays->pluck('name')->values()->all(),
+        'datasets' => [[
+            'label' => 'Evacuees',
+            'data' => $topBarangays->pluck('total')->values()->all(),
+            'colorToken' => '--color-primary-400',
+        ]],
+    ];
+
+    $vulnerablePayload = [
+        'labels' => $vulnerableGroups->pluck('name')->values()->all(),
+        'datasets' => [[
+            'label' => 'Individuals',
+            'data' => $vulnerableGroups->pluck('total')->values()->all(),
+        ]],
+    ];
+
+    // The HEX flags are what make it safe to emit these with {!! !!} into a
+    // <script type="application/json"> island: a barangay or classification name
+    // containing a quote or an angle bracket cannot close the tag early.
+    $flags = JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT;
+    $topBarangaysJson = json_encode($topBarangaysPayload, $flags);
+    $vulnerableJson = json_encode($vulnerablePayload, $flags);
+@endphp
+
 @section('page-actions')
-    <span class="sync-pill"><span class="sync-dot" aria-hidden="true"></span> Live Updates Active</span>
+    {{-- This read "Live Updates Active" beside a pulsing green dot. Nothing on
+         this page polls -- there is no setInterval, no EventSource and no
+         websocket anywhere in the codebase -- so it was telling CDRRMO staff
+         that a city-wide occupancy figure refreshes itself when it does not.
+         During a flood that is the kind of reassurance that gets acted on.
+
+         Replaced with the same honest indicator the barangay dashboard uses:
+         what the browser actually knows, plus when this page was rendered.
+         Wired by initConnectivity() in staff.js. --}}
+    <span class="sync-pill" id="connectivityPill" data-conn="online"
+          data-rendered-at="{{ now()->format('g:i A') }}"
+          role="status" aria-live="polite"
+          title="Figures on this page were loaded at {{ now()->format('g:i A') }}. Reload to refresh them.">
+        <span class="sync-dot" aria-hidden="true"></span>
+        <span id="connectivityText">Connected</span>
+    </span>
 @endsection
 
 @section('content')
-<section class="kpi-grid" aria-label="Key metrics">
+{{-- Five KPI cards. One column on a phone, two from 640px, then three and five.
+     Five across only above 1280px: below that a fifth column squeezes the
+     numbers, and these are the figures the whole screen exists to show. --}}
+<section class="mb-4 grid grid-cols-1 items-stretch gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5" aria-label="Key metrics">
     <article class="card kpi-card">
         <div class="kpi-head"><span class="kpi-icon-wrap" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="3"/><path d="M2.5 20c0-3.3 2.9-6 6.5-6s6.5 2.7 6.5 6"/><circle cx="17" cy="7.5" r="2.3"/><path d="M15.5 12c2.3 0 4.5 1.6 5 4"/></svg></span><span class="kpi-title">Total Evacuees</span></div>
         <p class="kpi-value" data-numeric>{{ number_format($kpis['total_evacuees']) }}</p>
@@ -36,19 +92,68 @@
     </article>
 </section>
 
-<section class="dash-columns">
+{{-- Two charts side by side from 1024px, stacked below. .dash-columns used to
+     do this; it gave both panels equal width at every size including 380px. --}}
+<section class="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
     <article class="card panel">
         <h2 class="panel-title">Evacuees per Barangay (Top 5)</h2>
-        <canvas id="topBarangaysChart" height="220" role="img" aria-label="Bar chart of top 5 barangays by evacuee count"></canvas>
+        {{-- NO height attribute on the canvas. .chart-wrap owns the height and
+             maintainAspectRatio is false in charts.js; a height attribute fights
+             the wrapper and collapses the chart. The old markup had
+             height="220" precisely because the CDN build had no wrapper. --}}
+        <div class="chart-wrap">
+            <canvas id="topBarangaysChart"
+                    data-chart="bar"
+                    data-chart-data="topBarangaysChartData"
+                    role="img"
+                    aria-label="Bar chart of the top 5 barangays by evacuee count"></canvas>
+        </div>
+        {{-- The chart is an image to a screen reader, so the same figures are
+             available as text -- and this is the fallback if the bundle fails. --}}
+        <details class="mt-3 text-sm text-ink-soft">
+            <summary class="min-h-tap cursor-pointer py-2">View these figures as a table</summary>
+            <table class="data-table mt-2">
+                <caption class="visually-hidden">Evacuee count by barangay, top 5</caption>
+                <thead><tr><th scope="col">Barangay</th><th scope="col">Evacuees</th></tr></thead>
+                <tbody>
+                    @forelse($topBarangays as $b)
+                        <tr><td>{{ $b->name }}</td><td data-numeric>{{ number_format($b->total) }}</td></tr>
+                    @empty
+                        <tr><td colspan="2" class="empty-note">No evacuees recorded yet.</td></tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </details>
     </article>
+
     <article class="card panel">
         <h2 class="panel-title">Vulnerable Groups Distribution</h2>
-        <canvas id="vulnerableChart" height="220" role="img" aria-label="Donut chart of vulnerable group distribution"></canvas>
+        <div class="chart-wrap">
+            <canvas id="vulnerableChart"
+                    data-chart="doughnut"
+                    data-chart-data="vulnerableChartData"
+                    role="img"
+                    aria-label="Doughnut chart of vulnerable group distribution"></canvas>
+        </div>
+        <details class="mt-3 text-sm text-ink-soft">
+            <summary class="min-h-tap cursor-pointer py-2">View these figures as a table</summary>
+            <table class="data-table mt-2">
+                <caption class="visually-hidden">Individuals per vulnerable classification</caption>
+                <thead><tr><th scope="col">Classification</th><th scope="col">Individuals</th></tr></thead>
+                <tbody>
+                    @forelse($vulnerableGroups as $g)
+                        <tr><td>{{ $g->name }}</td><td data-numeric>{{ number_format($g->total) }}</td></tr>
+                    @empty
+                        <tr><td colspan="2" class="empty-note">No vulnerability tags recorded yet.</td></tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </details>
     </article>
 </section>
 
 {{-- Heat map 1: Disaster risk by barangay --}}
-<article class="card panel">
+<article class="card panel mt-4">
     <div class="heatmap-head">
         <h2 class="panel-title">Disaster Risk Heat Map (by Barangay)</h2>
         <div class="legend">
@@ -59,7 +164,10 @@
     </div>
     <div class="heat-grid">
         @foreach($riskHeatmap as $b)
-            <div class="heat-cell risk-{{ $b['risk'] }}" title="{{ $b['name'] }} — {{ ucfirst($b['risk']) }} risk">
+            {{-- The raw em dash here was one of 22 non-ASCII glyphs still live in
+                 the City and Super Admin views. Entities only: a raw glyph is
+                 what produced the mojibake in this codebase before. --}}
+            <div class="heat-cell risk-{{ $b['risk'] }}" title="{{ $b['name'] }} &mdash; {{ ucfirst($b['risk']) }} risk">
                 <span class="heat-cell-name">{{ $b['name'] }}</span>
             </div>
         @endforeach
@@ -67,22 +175,25 @@
 </article>
 
 {{-- Heat map 2: Shelter status / occupancy --}}
-<article class="card panel">
+<article class="card panel mt-4">
     <div class="heatmap-head">
         <h2 class="panel-title">Shelter Status Heat Map</h2>
         <div class="legend">
             <span><i class="dot cap-ok-bg"></i> &lt;70%</span>
-            <span><i class="dot cap-warn-bg"></i> 70–89%</span>
-            <span><i class="dot cap-full-bg"></i> 90–100%</span>
+            <span><i class="dot cap-warn-bg"></i> 70&ndash;89%</span>
+            <span><i class="dot cap-full-bg"></i> 90&ndash;100%</span>
             <span><i class="dot cap-over-bg"></i> Over</span>
             <span><i class="dot tier-inactive"></i> Inactive</span>
         </div>
     </div>
     <div class="heat-grid">
         @forelse($shelterHeatmap as $s)
-            <div class="heat-cell tier-{{ $s['tier'] }}" title="{{ $s['name'] }} — {{ $s['occupancy'] }}/{{ $s['capacity'] }}{{ $s['pct'] !== null ? ' (' . $s['pct'] . '%)' : '' }} · {{ ucfirst($s['status']) }}">
+            <div class="heat-cell tier-{{ $s['tier'] }}" title="{{ $s['name'] }} &mdash; {{ $s['occupancy'] }}/{{ $s['capacity'] }}{{ $s['pct'] !== null ? ' (' . $s['pct'] . '%)' : '' }} &middot; {{ ucfirst($s['status']) }}">
                 <span class="heat-cell-name">{{ $s['name'] }}</span>
-                <span class="heat-cell-sub">{{ $s['pct'] !== null ? $s['pct'] . '%' : '—' }}</span>
+                {{-- An entity cannot go inside {{ }}: Blade's e() double-encodes
+                     it and "&mdash;" renders as literal text. The branch keeps
+                     the entity in raw HTML where the parser will decode it. --}}
+                <span class="heat-cell-sub">@if($s['pct'] !== null){{ $s['pct'] }}%@else&mdash;@endif</span>
             </div>
         @empty
             <p class="empty-note">No shelters registered yet.</p>
@@ -91,9 +202,9 @@
 </article>
 
 {{-- Heat map 3: Relief stock per shelter (matrix) --}}
-<article class="card panel">
+<article class="card panel mt-4">
     <div class="heatmap-head">
-        <h2 class="panel-title">Relief Stock Heat Map (Shelter × Good)</h2>
+        <h2 class="panel-title">Relief Stock Heat Map (Shelter &times; Good)</h2>
         <div class="legend">
             <span><i class="dot stock-none"></i> None</span>
             <span><i class="dot stock-low"></i> Low</span>
@@ -101,8 +212,21 @@
             <span><i class="dot stock-high"></i> Good</span>
         </div>
     </div>
-    <div class="table-panel" style="overflow-x:auto;">
+    {{-- DELIBERATELY NOT data-stack. This is the one table in the City Admin
+         screens that must keep scrolling horizontally.
+
+         Stacking prints each cell's own heading and turns a row into a card,
+         which works because a normal row is a list of facts about one thing. A
+         matrix is not: the meaning of a cell is its position in BOTH axes, and
+         a stacked card destroys the shelter-to-shelter comparison that is the
+         only reason to draw a matrix. Twelve goods would also become twelve
+         labelled lines per shelter.
+
+         .table-panel already sets overflow-x: auto, so the inline
+         style="overflow-x:auto" that used to be here was redundant. --}}
+    <div class="table-panel">
         <table class="data-table heat-matrix">
+            <caption class="visually-hidden">Relief stock per shelter and good. Scrolls horizontally.</caption>
             <thead>
                 <tr>
                     <th scope="col">Shelter</th>
@@ -125,14 +249,16 @@
     </div>
 </article>
 
-<article class="card panel">
+<article class="card panel mt-4">
     <h2 class="panel-title">Recent Activity</h2>
     <div class="activity-panel">
         @forelse($recent as $log)
-            <div class="activity-row">
-                <span class="activity-name">{{ $log->description ?? ucfirst($log->action) }}</span>
-                <span class="text-muted">{{ $log->user?->name }}</span>
-                <time class="activity-time">{{ $log->created_at?->diffForHumans() }}</time>
+            {{-- Wraps rather than overflowing at 380px: the action, the user and
+                 the time are all needed, so none may be pushed off-screen. --}}
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border p-3 text-sm last:border-b-0">
+                <span class="min-w-0 flex-1 font-medium">{{ $log->description ?? ucfirst($log->action) }}</span>
+                <span class="text-ink-muted">{{ $log->user?->name }}</span>
+                <time class="text-ink-muted">{{ $log->created_at?->diffForHumans() }}</time>
             </div>
         @empty
             <p class="empty-note">No recent activity.</p>
@@ -142,27 +268,8 @@
 @endsection
 
 @push('scripts')
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-<script>
-    const styles = getComputedStyle(document.documentElement);
-    const cyan = styles.getPropertyValue('--color-primary-700').trim() || '#0E7490';
-
-    new Chart(document.getElementById('topBarangaysChart'), {
-        type: 'bar',
-        data: {
-            labels: @json($topBarangays->pluck('name')),
-            datasets: [{ label: 'Evacuees', data: @json($topBarangays->pluck('total')), backgroundColor: cyan, borderRadius: 6 }]
-        },
-        options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
-    });
-
-    new Chart(document.getElementById('vulnerableChart'), {
-        type: 'doughnut',
-        data: {
-            labels: @json($vulnerableGroups->pluck('name')),
-            datasets: [{ data: @json($vulnerableGroups->pluck('total')), backgroundColor: ['#0E7490','#22D3EE','#15803D','#B45309','#B91C1C','#6366F1'] }]
-        },
-        options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
-    });
-</script>
+{{-- Data islands read by resources/js/charts.js. Inert to the HTML parser, so
+     nothing in the data can break the page or inject script. --}}
+<script type="application/json" id="topBarangaysChartData">{!! $topBarangaysJson !!}</script>
+<script type="application/json" id="vulnerableChartData">{!! $vulnerableJson !!}</script>
 @endpush

@@ -25,7 +25,10 @@
 </form>
 
 <div class="card panel table-panel">
-    <table class="data-table">
+    {{-- data-stack plus a data-label on every <td>: one change, never one
+         without the other. Eight columns is the widest table in the City Admin
+         screens and the one that scrolled worst on a phone. --}}
+    <table class="data-table" data-stack>
         <thead>
             <tr>
                 <th scope="col">Shelter</th>
@@ -67,17 +70,20 @@
                     $editShelterJson = json_encode($editShelter);
                 @endphp
                 <tr>
-                    <td>{{ $c->name }}</td>
-                    <td>{{ $c->barangay?->name }}</td>
-                    <td>{{ $c->address }}</td>
-                    <td data-numeric>{{ number_format($c->capacity) }}</td>
-                    <td data-numeric class="{{ $capClass }}">
+                    <td data-label="Shelter">{{ $c->name }}</td>
+                    <td data-label="Barangay">{{ $c->barangay?->name }}</td>
+                    <td data-label="Location">{{ $c->address }}</td>
+                    <td data-label="Capacity" data-numeric>{{ number_format($c->capacity) }}</td>
+                    {{-- data-label is allowed to be shorter than its <th>: there
+                         is less room on a phone and the full heading is still in
+                         the accessibility tree. --}}
+                    <td data-label="Occupancy" data-numeric class="{{ $capClass }}">
                         {{ number_format($c->current_occupancy) }}{{ $pct !== null ? " ({$pct}%)" : '' }}
                         @if ($c->isOvercapacity())
                             <small class="over-note">+{{ number_format($c->overBy()) }} over</small>
                         @endif
                     </td>
-                    <td>
+                    <td data-label="Staff">
                         @if ($c->staff_count > 0)
                             <details class="staff-list">
                                 <summary>{{ $c->staff_count }} assigned</summary>
@@ -91,15 +97,22 @@
                             <span class="badge badge-warning">None assigned</span>
                         @endif
                     </td>
-                    <td>
+                    <td data-label="Status">
                         @include('partials.status-badge', ['center' => $c])
                     </td>
-                    <td class="actions-cell">
-                        <a class="btn-link" href="{{ route('city.shelters.show', $c) }}">View Details</a>
+                    <td class="actions-cell" data-label="Actions">
+                        {{-- An anchor, not a button: the 44px floor in
+                             design-system.css applies to button and input
+                             elements, NOT to <a>, so the tap target is set
+                             explicitly here. --}}
+                        <a class="btn-link inline-flex min-h-tap items-center" href="{{ route('city.shelters.show', $c) }}">View Details</a>
                         <button type="button" class="btn-link" data-edit-shelter="{{ $editShelterJson }}">Edit</button>
                     </td>
                 </tr>
             @empty
+                {{-- The one documented exception to the data-label rule: a single
+                     colspan cell has no column to be labelled with, and
+                     staff.css exempts td.empty-note from the stacked treatment. --}}
                 <tr><td colspan="8" class="empty-note">No shelters found. Select "Add Shelter" to create the first one.</td></tr>
             @endforelse
         </tbody>
@@ -178,10 +191,12 @@
 
             <fieldset class="member-fieldset">
                 <legend>Facilities</legend>
-                <label class="checkbox-row"><input type="checkbox" name="has_water_supply" value="1"> Water supply</label>
-                <label class="checkbox-row"><input type="checkbox" name="has_medical_desk" value="1"> Medical desk</label>
-                <label class="checkbox-row"><input type="checkbox" name="has_power" value="1"> Power</label>
-                <label class="checkbox-row"><input type="checkbox" name="has_communal_kitchen" value="1"> Communal kitchen</label>
+                <div class="grid grid-cols-1 gap-1 sm:grid-cols-2">
+                    <label class="checkbox-row"><input type="checkbox" name="has_water_supply" value="1"> Water supply</label>
+                    <label class="checkbox-row"><input type="checkbox" name="has_medical_desk" value="1"> Medical desk</label>
+                    <label class="checkbox-row"><input type="checkbox" name="has_power" value="1"> Power</label>
+                    <label class="checkbox-row"><input type="checkbox" name="has_communal_kitchen" value="1"> Communal kitchen</label>
+                </div>
             </fieldset>
 
             <div class="modal-actions">

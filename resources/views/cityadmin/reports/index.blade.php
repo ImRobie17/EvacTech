@@ -5,8 +5,11 @@
 @section('page-subtitle', 'Generate reports across any shelter or the whole city.')
 
 @section('content')
-<section class="dash-columns">
-    <div class="card panel">
+{{-- The form gets two thirds and the history one third from 1024px. The old
+     .dash-columns gave both equal width at every size, which left a form of
+     five controls sharing the screen with a short list. --}}
+<section class="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
+    <div class="card panel lg:col-span-2">
         <h2 class="panel-title">Generate a Report</h2>
         <form method="POST" action="{{ route('city.reports.generate') }}">
             @csrf
@@ -42,13 +45,13 @@
         </form>
     </div>
 
-    <div class="dash-side">
+    <div class="flex flex-col">
         <h2 class="panel-title">Recently Generated</h2>
         <div class="card panel activity-panel">
             @forelse($recent ?? [] as $r)
-                <div class="activity-row">
-                    <span class="activity-name">{{ \App\Models\GeneratedReport::typeLabel($r->report_type) }} <small class="text-muted">.{{ $r->format }}</small></span>
-                    <time class="activity-time">{{ $r->created_at->diffForHumans() }}</time>
+                <div class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border p-3 text-sm last:border-b-0">
+                    <span class="min-w-0 flex-1 font-medium">{{ \App\Models\GeneratedReport::typeLabel($r->report_type) }} <small class="text-ink-muted">.{{ $r->format }}</small></span>
+                    <time class="text-ink-muted">{{ $r->created_at->diffForHumans() }}</time>
                 </div>
             @empty
                 <p class="empty-note">Reports you generate will be listed here.</p>

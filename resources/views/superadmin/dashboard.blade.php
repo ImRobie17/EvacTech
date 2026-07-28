@@ -9,7 +9,9 @@
     <div class="alert alert-warning" role="alert"><strong>Maintenance mode is ON.</strong> Only Super Admins can access the system right now.</div>
 @endif
 
-<section class="kpi-grid" aria-label="System metrics">
+{{-- Five KPI cards, same responsive ladder as the other two dashboards: one
+     column on a phone, two from 640px, three from 1024px, five above 1280px. --}}
+<section class="mb-4 grid grid-cols-1 items-stretch gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5" aria-label="System metrics">
     <article class="card kpi-card">
         <div class="kpi-head"><span class="kpi-title">Total Users</span></div>
         <p class="kpi-value" data-numeric>{{ number_format($stats['total_users']) }}</p>
@@ -32,15 +34,22 @@
     </article>
     <article class="card kpi-card">
         <div class="kpi-head"><span class="kpi-title">Database Size</span></div>
-        <p class="kpi-value" data-numeric>{{ $system['db_size'] !== null ? $system['db_size'] . ' MB' : '—' }}</p>
+        {{-- An entity cannot go inside {{ }}: Blade's e() double-encodes it and
+             "&mdash;" would render as literal text. The branch keeps the entity
+             in raw HTML, where the parser decodes it. --}}
+        <p class="kpi-value" data-numeric>@if($system['db_size'] !== null){{ $system['db_size'] }} MB@else&mdash;@endif</p>
         <p class="kpi-note">Last backup: {{ $system['last_backup']?->diffForHumans() ?? 'never' }}</p>
     </article>
 </section>
 
-<section class="dash-columns">
-    <div>
+<section class="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
+    <div class="flex flex-col gap-4 lg:col-span-2">
         <article class="card panel">
             <h2 class="panel-title">Users by Role</h2>
+            {{-- DELIBERATELY NOT data-stack. Two columns already fit a 380px
+                 screen without scrolling, and stacking would turn each role into
+                 a card containing one number -- more vertical space, no gain.
+                 Matches how the barangay dashboard's figures table was left. --}}
             <table class="data-table">
                 <thead><tr><th scope="col">Role</th><th scope="col">Accounts</th></tr></thead>
                 <tbody>
@@ -55,11 +64,13 @@
             <h2 class="panel-title">Recent Audit Logs</h2>
             <div class="activity-panel">
                 @forelse($recentAudit as $log)
-                    <div class="activity-row">
+                    {{-- Wraps rather than overflowing at 380px: action,
+                         description, user and time are all needed. --}}
+                    <div class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border p-3 text-sm last:border-b-0">
                         <span class="badge badge-info">{{ ucfirst($log->action) }}</span>
-                        <span class="activity-name">{{ $log->description ?? '—' }}</span>
-                        <span class="text-muted">{{ $log->user?->name ?? 'System' }}</span>
-                        <time class="activity-time">{{ $log->created_at?->diffForHumans() }}</time>
+                        <span class="min-w-0 flex-1 font-medium">{{ $log->description ?? '-' }}</span>
+                        <span class="text-ink-muted">{{ $log->user?->name ?? 'System' }}</span>
+                        <time class="text-ink-muted">{{ $log->created_at?->diffForHumans() }}</time>
                     </div>
                 @empty
                     <p class="empty-note">No audit activity yet.</p>
@@ -68,7 +79,7 @@
         </article>
     </div>
 
-    <div class="dash-side">
+    <div class="flex flex-col gap-4">
         <article class="card panel">
             <h2 class="panel-title">System Status</h2>
             <ul class="status-list">
@@ -83,9 +94,9 @@
             <h2 class="panel-title">Recent Logins</h2>
             <div class="activity-panel">
                 @forelse($recentLogins as $u)
-                    <div class="activity-row">
-                        <span class="activity-name">{{ $u->name }} <small class="text-muted">({{ $u->role?->display_name }})</small></span>
-                        <time class="activity-time">{{ $u->last_login_at?->diffForHumans() }}</time>
+                    <div class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border p-3 text-sm last:border-b-0">
+                        <span class="min-w-0 flex-1 font-medium">{{ $u->name }} <small class="text-ink-muted">({{ $u->role?->display_name }})</small></span>
+                        <time class="text-ink-muted">{{ $u->last_login_at?->diffForHumans() }}</time>
                     </div>
                 @empty
                     <p class="empty-note">No logins recorded.</p>
@@ -97,10 +108,10 @@
             <h2 class="panel-title">Recent System Actions</h2>
             <div class="activity-panel">
                 @forelse($recentEvents as $e)
-                    <div class="activity-row">
+                    <div class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border p-3 text-sm last:border-b-0">
                         <span class="badge badge-info">{{ ucfirst(str_replace('_', ' ', $e->type)) }}</span>
-                        <span class="activity-name">{{ $e->description }}</span>
-                        <time class="activity-time">{{ $e->created_at?->diffForHumans() }}</time>
+                        <span class="min-w-0 flex-1 font-medium">{{ $e->description }}</span>
+                        <time class="text-ink-muted">{{ $e->created_at?->diffForHumans() }}</time>
                     </div>
                 @empty
                     <p class="empty-note">No system actions logged yet.</p>

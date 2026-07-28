@@ -367,60 +367,102 @@ wireSearch('cd-dist-search', 'cd-dist-results', 'reliefSearchUrl', (row) => {
     });
 });
 
+// ---------------------------------------------------------------------
+// Distribution item rows
+//
+// CHAT C -- the first row could not be removed.
+//
+// The first row was written in Blade with only a select and a quantity input.
+// Rows added here got a Remove button; the Blade one never did, so an item
+// picked by mistake could only be undone by closing the modal and starting
+// over. On top of that, .dist-item-row is `2fr 1fr auto` above 640px, so the
+// first row also rendered with an empty third column beside it.
+//
+// This now mirrors the fix staff.js already carries on the barangay side: a
+// <template> in the view with __INDEX__ substituted here, a Remove control on
+// EVERY row including the first, removal delegated so it reaches rows that did
+// not exist at page load, and the control disabled while only one row remains
+// (an empty items list fails validation server side with a message that would
+// not explain itself).
+//
+// The goodsOptions config entry is no longer read for this: the template is
+// rendered by Blade from the same $goods collection, so the option list cannot
+// drift out of step with the one in the first row.
+//
+// Indices are deliberately NOT renumbered after a removal. Laravel validates
+// with `items.*` and the controller iterates the array, so a sparse
+// items[0], items[2] is handled correctly -- and renumbering live inputs is how
+// a quantity ends up attached to the wrong item.
+// ---------------------------------------------------------------------
+
+let distItemIndex = 1;
+
+function cdSyncRemoveButtons() {
+    const itemBox = document.getElementById('cd-dist-items');
+    if (!itemBox) return;
+    const rows = itemBox.querySelectorAll('[data-item-row]');
+    rows.forEach((row) => {
+        const btn = row.querySelector('[data-remove-item]');
+        if (btn) btn.disabled = rows.length <= 1;
+    });
+}
+
 document.addEventListener('click', (e) => {
     if (!e.target.closest('[data-open-modal="cdDistributeModal"]')) return;
     const search = document.getElementById('cd-dist-search');
     const results = document.getElementById('cd-dist-results');
     const form = document.getElementById('cdDistributeForm');
+    const itemBox = document.getElementById('cd-dist-items');
     if (search) search.value = '';
     if (results) results.hidden = true;
     if (form) form.hidden = true;
-});
 
-let distItemIndex = 1;
+    // Reopening the modal starts a fresh distribution, so drop any extra rows
+    // left from the previous one. Previously they persisted, and the next
+    // household silently inherited the last household's item list.
+    if (itemBox) {
+        const rows = itemBox.querySelectorAll('[data-item-row]');
+        rows.forEach((row, i) => {
+            if (i > 0) row.remove();
+        });
+    }
+    distItemIndex = 1;
+    cdSyncRemoveButtons();
+});
 
 document.addEventListener('click', (e) => {
     if (!e.target.closest('#cdAddItemBtn')) return;
 
-    const c = cfg();
     const itemBox = document.getElementById('cd-dist-items');
-    if (!c || !itemBox) return;
+    const template = document.getElementById('cdDistItemTemplate');
+    if (!itemBox || !template) {
+        console.error(
+            TAG + ' the distribution item template is missing. Check that ' +
+            'cityadmin/shelters/show.blade.php still renders #cdDistItemTemplate.'
+        );
+        return;
+    }
 
-    const row = document.createElement('div');
-    row.className = 'dist-item-row';
+    const html = template.innerHTML.replace(/__INDEX__/g, String(distItemIndex));
+    const holder = document.createElement('div');
+    holder.innerHTML = html;
+    const row = holder.querySelector('[data-item-row]');
+    if (!row) return;
 
-    const select = document.createElement('select');
-    select.name = 'items[' + distItemIndex + '][relief_good_id]';
-    select.required = true;
-    select.setAttribute('aria-label', 'Relief good');
-    const blank = document.createElement('option');
-    blank.value = '';
-    blank.textContent = 'Select item';
-    select.appendChild(blank);
-    (c.goodsOptions || []).forEach((g) => {
-        const o = document.createElement('option');
-        o.value = g.id;
-        o.textContent = g.label;
-        select.appendChild(o);
-    });
-
-    const qty = document.createElement('input');
-    qty.type = 'number';
-    qty.name = 'items[' + distItemIndex + '][quantity]';
-    qty.min = '1';
-    qty.value = '1';
-    qty.required = true;
-    qty.setAttribute('aria-label', 'Quantity');
-
-    const remove = document.createElement('button');
-    remove.type = 'button';
-    remove.className = 'btn-link btn-link-danger';
-    remove.textContent = 'Remove';
-    remove.addEventListener('click', () => row.remove());
-
-    row.appendChild(select);
-    row.appendChild(qty);
-    row.appendChild(remove);
     itemBox.appendChild(row);
     distItemIndex++;
+    cdSyncRemoveButtons();
+    row.querySelector('select')?.focus();
 });
+
+document.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-remove-item]');
+    if (!btn) return;
+    const itemBox = document.getElementById('cd-dist-items');
+    if (!itemBox || !itemBox.contains(btn)) return;
+    if (itemBox.querySelectorAll('[data-item-row]').length <= 1) return;
+    btn.closest('[data-item-row]')?.remove();
+    cdSyncRemoveButtons();
+});
+
+document.addEventListener('DOMContentLoaded', cdSyncRemoveButtons);

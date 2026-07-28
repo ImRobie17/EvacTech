@@ -9,7 +9,11 @@
 
 @section('content')
 <form method="GET" class="filter-bar" role="search">
-    <input type="search" name="q" value="{{ request('q') }}" placeholder="Search household head…" aria-label="Search head">
+    {{-- The raw ellipsis and em dashes on this page were non-ASCII glyphs, the
+         class of character that has been double-encoded into mojibake in this
+         codebase before. Entities in raw HTML; plain ASCII inside {{ }}, because
+         Blade's e() double-encodes an entity written there into literal text. --}}
+    <input type="search" name="q" value="{{ request('q') }}" placeholder="Search household head" aria-label="Search head">
     <select name="barangay" aria-label="Filter barangay">
         <option value="">All barangays</option>
         @foreach($barangays as $b)<option value="{{ $b->id }}" @selected(request('barangay') == $b->id)>{{ $b->name }}</option>@endforeach
@@ -28,23 +32,28 @@
 </form>
 
 <div class="card panel table-panel">
-    <table class="data-table">
+    <table class="data-table" data-stack>
         <thead>
             <tr><th scope="col">Household ID</th><th scope="col">Head</th><th scope="col">Size</th><th scope="col">Barangay</th><th scope="col">Shelter</th><th scope="col">Tags</th><th scope="col">Status</th></tr>
         </thead>
         <tbody>
             @forelse($households as $h)
                 <tr>
-                    <td data-numeric>{{ $h->household_code }}</td>
-                    <td>{{ $h->headMember?->full_name ?? '—' }}</td>
-                    <td data-numeric>{{ $h->number_of_members }}</td>
-                    <td>{{ $h->originBarangay?->name }}</td>
-                    <td>{{ $h->evacuationCenter?->name ?? '—' }}</td>
-                    <td>
+                    <td data-label="Household ID" data-numeric>{{ $h->household_code }}</td>
+                    <td data-label="Head">{{ $h->headMember?->full_name ?? '-' }}</td>
+                    <td data-label="Size" data-numeric>{{ $h->number_of_members }}</td>
+                    <td data-label="Barangay">{{ $h->originBarangay?->name }}</td>
+                    <td data-label="Shelter">{{ $h->evacuationCenter?->name ?? '-' }}</td>
+                    {{-- Tags wrap onto their own lines in a stacked card rather
+                         than forcing the row wide. flex-wrap with a gap keeps
+                         them legible at 380px. --}}
+                    <td data-label="Tags">
                         @php $tags = $h->members->flatMap->vulnerableClassifications->unique('id'); @endphp
-                        @forelse($tags as $tag)<span class="badge badge-info">{{ $tag->name }}</span>@empty<span class="text-muted">None</span>@endforelse
+                        <span class="flex flex-wrap justify-end gap-1 md:justify-start">
+                            @forelse($tags as $tag)<span class="badge badge-info">{{ $tag->name }}</span>@empty<span class="text-muted">None</span>@endforelse
+                        </span>
                     </td>
-                    <td><span class="badge {{ $h->status === 'checked_in' ? 'badge-success' : 'badge-warning' }}">{{ ucfirst(str_replace('_', ' ', $h->status)) }}</span></td>
+                    <td data-label="Status"><span class="badge {{ $h->status === 'checked_in' ? 'badge-success' : 'badge-warning' }}">{{ ucfirst(str_replace('_', ' ', $h->status)) }}</span></td>
                 </tr>
             @empty
                 <tr><td colspan="7" class="empty-note">No households found.</td></tr>
@@ -68,14 +77,14 @@
                 <div class="field">
                     <label for="ce-barangay">Origin barangay</label>
                     <select id="ce-barangay" name="origin_barangay_id" required>
-                        <option value="">Select…</option>
+                        <option value="">Select&hellip;</option>
                         @foreach($barangays as $b)<option value="{{ $b->id }}">{{ $b->name }}</option>@endforeach
                     </select>
                 </div>
                 <div class="field">
                     <label for="ce-shelter">Evacuation shelter</label>
                     <select id="ce-shelter" name="evacuation_center_id" required>
-                        <option value="">Select…</option>
+                        <option value="">Select&hellip;</option>
                         @foreach($shelters as $s)<option value="{{ $s->id }}">{{ $s->name }}</option>@endforeach
                     </select>
                 </div>
@@ -87,6 +96,9 @@
                 <button type="button" class="btn-secondary" id="ceAddMemberBtn">+ Add family member</button>
             </fieldset>
 
+            {{-- Three buttons stack on a phone and sit in a row from 640px, so
+                 "Save" and "Save &amp; Check-in" are never squeezed to two
+                 illegible words each at 380px. --}}
             <div class="modal-actions">
                 <button type="button" class="btn-secondary" data-close-modal>Cancel</button>
                 <button type="submit" class="btn-secondary" name="checkin" value="0">Save</button>
@@ -104,7 +116,7 @@
             <div class="field"><label>First name</label><input type="text" data-field="first_name" required maxlength="100"></div>
             <div class="field"><label>Middle name <small>(optional)</small></label><input type="text" data-field="middle_name" maxlength="100"></div>
             <div class="field"><label>Date of birth</label><input type="date" data-field="birthdate" required max="{{ now()->toDateString() }}"></div>
-            <div class="field"><label>Sex</label><select data-field="sex" required><option value="">Select…</option><option value="male">Male</option><option value="female">Female</option></select></div>
+            <div class="field"><label>Sex</label><select data-field="sex" required><option value="">Select&hellip;</option><option value="male">Male</option><option value="female">Female</option></select></div>
         </div>
         <div class="member-tags-row">
             <span class="age-tag badge badge-info" data-age-tag hidden></span>

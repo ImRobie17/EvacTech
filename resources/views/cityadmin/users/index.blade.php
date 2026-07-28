@@ -29,7 +29,7 @@
 </form>
 
 <div class="card panel table-panel">
-    <table class="data-table">
+    <table class="data-table" data-stack>
         <thead>
             <tr>
                 <th scope="col">Name</th>
@@ -56,9 +56,12 @@
                     $editUserJson = json_encode($editUser);
                 @endphp
                 <tr>
-                    <td>{{ $u->name }}</td>
-                    <td>{{ $u->email }}</td>
-                    <td>
+                    <td data-label="Name">{{ $u->name }}</td>
+                    {{-- Long addresses must wrap rather than force the card wide
+                         at 380px. break-all is deliberate: an email has no spaces
+                         to break at, so break-words alone would not help. --}}
+                    <td data-label="Email" class="break-all">{{ $u->email }}</td>
+                    <td data-label="Shelters">
                         @if ($u->assignedCenters->isEmpty())
                             <span class="badge badge-danger">No shelter assigned</span>
                         @else
@@ -72,9 +75,9 @@
                             </details>
                         @endif
                     </td>
-                    <td data-numeric>{{ $u->last_login_at?->diffForHumans() ?? 'Never' }}</td>
-                    <td><span class="badge {{ $u->status === 'active' ? 'badge-success' : 'badge-warning' }}">{{ ucfirst($u->status) }}</span></td>
-                    <td class="actions-cell">
+                    <td data-label="Last Login" data-numeric>{{ $u->last_login_at?->diffForHumans() ?? 'Never' }}</td>
+                    <td data-label="Status"><span class="badge {{ $u->status === 'active' ? 'badge-success' : 'badge-warning' }}">{{ ucfirst($u->status) }}</span></td>
+                    <td class="actions-cell" data-label="Actions">
                         <button type="button" class="btn-link" data-edit-user="{{ $editUserJson }}">Edit</button>
                         <form method="POST" action="{{ route('city.users.toggle', $u) }}" class="inline-form"
                               data-confirm="Set {{ $u->name }} to {{ $u->status === 'active' ? 'inactive' : 'active' }}?">
@@ -93,7 +96,18 @@
 @endsection
 
 @push('modals')
-<div class="modal-backdrop" id="userModal" hidden>
+{{-- data-user-form="city" is the cross-role guard added in Chat C.
+
+     app.js loads cityadmin.js on every page, and the Super Admin users page
+     uses these very same element ids (userModal, userForm, userMethod, u-name,
+     u-status-field, u-pw-hint, [data-edit-user]). initUserAdmin() guarded only
+     on #userModal existing, so it bound to Super Admin's buttons as well and,
+     running last, relabelled that page's dialog "Add Barangay Personnel".
+
+     Super Admin now has its own bundle (resources/js/superadmin.js). This
+     attribute is the second, independent line of defence: each module refuses
+     to touch a form that is not its own. --}}
+<div class="modal-backdrop" id="userModal" data-user-form="city" hidden>
     <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="userModalTitle">
         <div class="modal-head">
             <h2 id="userModalTitle">Add Barangay Personnel</h2>
@@ -102,9 +116,11 @@
         <form method="POST" action="{{ route('city.users.store') }}" id="userForm">
             @csrf
             <input type="hidden" name="_method" id="userMethod" value="POST">
-            <div class="field"><label for="u-name">Full name</label><input type="text" id="u-name" name="name" required maxlength="255"></div>
-            <div class="field"><label for="u-email">Email</label><input type="email" id="u-email" name="email" required></div>
-            <div class="field"><label for="u-contact">Contact number <small>(optional)</small></label><input type="text" id="u-contact" name="contact_number" maxlength="20"></div>
+            <div class="member-grid">
+                <div class="field"><label for="u-name">Full name</label><input type="text" id="u-name" name="name" required maxlength="255"></div>
+                <div class="field"><label for="u-email">Email</label><input type="email" id="u-email" name="email" required></div>
+                <div class="field"><label for="u-contact">Contact number <small>(optional)</small></label><input type="text" id="u-contact" name="contact_number" maxlength="20"></div>
+            </div>
 
             {{-- Shelter assignment REPLACES the old "Assigned barangay" dropdown.
                  Access follows the shelter roster, not the barangay. Editing this

@@ -28,6 +28,21 @@
             <option value="{{ $val }}" @selected(request('status') === $val)>{{ $label }}</option>
         @endforeach
     </select>
+    {{-- Phase 2 item 6: age group and vulnerable category are separate controls.
+         Single-headed is a derived household fact, not a tag, so it is its own
+         checkbox rather than an entry in the category list. --}}
+    <select name="age_group" aria-label="Filter age group">
+        <option value="">All age groups</option>
+        @foreach($ageGroups as $key => $label)<option value="{{ $key }}" @selected(request('age_group') === $key)>{{ $label }}</option>@endforeach
+    </select>
+    <select name="category" aria-label="Filter vulnerable category">
+        <option value="">All vulnerable categories</option>
+        @foreach($classifications as $c)<option value="{{ $c->id }}" @selected(request('category') == $c->id)>{{ $c->name }}</option>@endforeach
+    </select>
+    <label class="inline-flex min-h-[44px] items-center gap-2 text-sm">
+        <input type="checkbox" name="single_headed" value="1" class="h-5 w-5 shrink-0" @checked(request()->boolean('single_headed'))>
+        <span>Single-headed only</span>
+    </label>
     <button type="submit" class="btn-secondary">Filter</button>
 </form>
 
@@ -41,14 +56,22 @@
                 <tr>
                     <td data-label="Household ID" data-numeric>{{ $h->household_code }}</td>
                     <td data-label="Head">{{ $h->headMember?->full_name ?? '-' }}</td>
-                    <td data-label="Size" data-numeric>{{ $h->number_of_members }}</td>
+                    <td data-label="Size" data-numeric>
+                        {{ $h->number_of_members }}
+                        @if($h->isSingleHeaded())<span class="badge badge-warning">Single-headed</span>@endif
+                    </td>
                     <td data-label="Barangay">{{ $h->originBarangay?->name }}</td>
                     <td data-label="Shelter">{{ $h->evacuationCenter?->name ?? '-' }}</td>
                     {{-- Tags wrap onto their own lines in a stacked card rather
                          than forcing the row wide. flex-wrap with a gap keeps
                          them legible at 380px. --}}
                     <td data-label="Tags">
-                        @php $tags = $h->members->flatMap->vulnerableClassifications->unique('id'); @endphp
+                        @php
+                            // Retired classifications (Senior Citizen, Infant) are
+                            // age tiers now and must not render as vulnerability badges.
+                            $tags = $h->members->flatMap->vulnerableClassifications
+                                ->where('is_selectable', true)->unique('id');
+                        @endphp
                         <span class="flex flex-wrap justify-end gap-1 md:justify-start">
                             @forelse($tags as $tag)<span class="badge badge-info">{{ $tag->name }}</span>@empty<span class="text-muted">None</span>@endforelse
                         </span>
@@ -115,15 +138,39 @@
             <div class="field"><label>Last name</label><input type="text" data-field="last_name" required maxlength="100"></div>
             <div class="field"><label>First name</label><input type="text" data-field="first_name" required maxlength="100"></div>
             <div class="field"><label>Middle name <small>(optional)</small></label><input type="text" data-field="middle_name" maxlength="100"></div>
-            <div class="field"><label>Date of birth</label><input type="date" data-field="birthdate" required max="{{ now()->toDateString() }}"></div>
+            {{-- Birthdate is OPTIONAL as of Phase 2: tag the family fast now,
+                 fill the birthday in later. --}}
+            <div class="field"><label>Date of birth <small>(optional)</small></label><input type="date" data-field="birthdate" max="{{ now()->toDateString() }}"></div>
             <div class="field"><label>Sex</label><select data-field="sex" required><option value="">Select&hellip;</option><option value="male">Male</option><option value="female">Female</option></select></div>
         </div>
-        <div class="member-tags-row">
+
+        <div class="mt-3 grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,17rem)_minmax(0,1fr)]">
+            {{-- Locked by JS whenever a date of birth is present: the server
+                 derives the tier from the birthday and ignores this value. --}}
+            <div class="field">
+                <label>Age group</label>
+                <select data-field="age_group" required>
+                    <option value="">Select&hellip;</option>
+                    @foreach($ageGroups as $key => $label)<option value="{{ $key }}">{{ $label }}</option>@endforeach
+                </select>
+                <small class="field-hint">Set automatically from the date of birth. Choose it here when the birthday is not known yet.</small>
+            </div>
+
+            <fieldset class="min-w-0 border-0 p-0">
+                <legend class="mb-1 text-sm font-semibold">Vulnerable categories <small class="font-normal">(optional, choose any)</small></legend>
+                <div class="flex flex-wrap gap-x-5 gap-y-1">
+                    @foreach($classifications as $c)
+                        <label class="inline-flex min-h-[44px] cursor-pointer items-center gap-2 text-sm">
+                            <input type="checkbox" data-field="tags" value="{{ $c->id }}" class="h-5 w-5 shrink-0">
+                            <span>{{ $c->name }}</span>
+                        </label>
+                    @endforeach
+                </div>
+            </fieldset>
+        </div>
+
+        <div class="mt-2 flex flex-wrap items-center justify-between gap-2">
             <span class="age-tag badge badge-info" data-age-tag hidden></span>
-            <label class="tags-label">Special needs / classifications:</label>
-            <select data-field="tags" multiple size="1" aria-label="Vulnerability classifications">
-                @foreach($classifications as $c)<option value="{{ $c->id }}">{{ $c->name }}</option>@endforeach
-            </select>
             <button type="button" class="btn-link btn-link-danger" data-remove-row>Remove person</button>
         </div>
     </div>

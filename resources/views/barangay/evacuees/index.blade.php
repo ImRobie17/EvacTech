@@ -11,7 +11,7 @@
 @section('content')
 {{-- Four filters. Stacked on a phone, two up from 640px, four across from
      1024px -- four side by side at 380px would make every control unusable. --}}
-<form method="GET" class="filter-bar sm:grid sm:grid-cols-2 sm:items-end lg:grid-cols-5" role="search">
+<form method="GET" class="filter-bar sm:grid sm:grid-cols-2 sm:items-end lg:grid-cols-7" role="search">
     <input type="search" name="q" value="{{ request('q') }}" placeholder="Search household head&hellip;" aria-label="Search household head">
     <select name="status" aria-label="Filter by status">
         <option value="">All statuses</option>
@@ -27,12 +27,27 @@
             <option value="{{ $b->id }}" @selected(request('barangay') == $b->id)>{{ $b->name }}</option>
         @endforeach
     </select>
-    <select name="vulnerable" aria-label="Filter by vulnerability tag">
-        <option value="">All vulnerability tags</option>
-        @foreach($classifications as $c)
-            <option value="{{ $c->id }}" @selected(request('vulnerable') == $c->id)>{{ $c->name }}</option>
+    {{-- Phase 2 item 6: age group and vulnerable category are now SEPARATE
+         controls. They used to share one dropdown because Senior Citizen and
+         Infant were classifications; they are derived age tiers now, so mixing
+         them would let an operator filter by "Senior" and by "PWD" only one at
+         a time. --}}
+    <select name="age_group" aria-label="Filter by age group">
+        <option value="">All age groups</option>
+        @foreach($ageGroups as $key => $label)
+            <option value="{{ $key }}" @selected(request('age_group') === $key)>{{ $label }}</option>
         @endforeach
     </select>
+    <select name="category" aria-label="Filter by vulnerable category">
+        <option value="">All vulnerable categories</option>
+        @foreach($classifications as $c)
+            <option value="{{ $c->id }}" @selected(request('category') == $c->id)>{{ $c->name }}</option>
+        @endforeach
+    </select>
+    <label class="inline-flex min-h-[44px] items-center gap-2 text-sm">
+        <input type="checkbox" name="single_headed" value="1" class="h-5 w-5 shrink-0" @checked(request()->boolean('single_headed'))>
+        <span>Single-headed only</span>
+    </label>
     <button type="submit" class="btn-secondary">Filter</button>
 </form>
 
@@ -57,12 +72,24 @@
                 <tr>
                     <td data-label="Household ID" data-numeric>{{ $h->household_code }}</td>
                     <td data-label="Household Head">{{ $h->headMember?->full_name ?? '-' }}</td>
-                    <td data-label="Family Size" data-numeric>{{ $h->number_of_members }}</td>
+                    <td data-label="Family Size" data-numeric>
+                        {{ $h->number_of_members }}
+                        {{-- Derived, never stored: one person present, currently
+                             checked in. Not a vulnerable classification -- it is a
+                             household-level fact, so it lives here rather than in
+                             the per-member tag pivot. --}}
+                        @if($h->isSingleHeaded())
+                            <span class="badge badge-warning">Single-headed</span>
+                        @endif
+                    </td>
                     <td data-label="Address">{{ $h->origin_address }}</td>
                     <td data-label="Shelter">{{ $h->evacuationCenter?->name ?? '-' }}</td>
                     <td data-label="Vulnerable Tags">
                         @php
-                            $tags = $h->members->flatMap->vulnerableClassifications->unique('id');
+                            // Retired classifications (Senior Citizen, Infant) are
+                            // age tiers now and must not show as vulnerability badges.
+                            $tags = $h->members->flatMap->vulnerableClassifications
+                                ->where('is_selectable', true)->unique('id');
                         @endphp
                         {{-- Wraps: a household with four tags must not force the
                              stacked card wider than the screen. --}}
@@ -199,11 +226,16 @@
 <template id="memberRowTemplate">
     <div class="member-row" data-row>
         <input type="hidden" data-field="id" name="">
+        {{-- .member-grid stays tuned for exactly these five fields. The two new
+             Phase 2 controls go in their own Tailwind grid below rather than
+             being crammed in as a sixth and seventh column. --}}
         <div class="member-grid">
             <div class="field"><label>Last name</label><input type="text" data-field="last_name" required maxlength="100"></div>
             <div class="field"><label>First name</label><input type="text" data-field="first_name" required maxlength="100"></div>
             <div class="field"><label>Middle name <small>(optional)</small></label><input type="text" data-field="middle_name" maxlength="100"></div>
-            <div class="field"><label>Date of birth</label><input type="date" data-field="birthdate" required max="{{ now()->toDateString() }}"></div>
+            {{-- Birthdate is OPTIONAL as of Phase 2 so staff can tag a family
+                 fast during a surge and complete the record later. --}}
+            <div class="field"><label>Date of birth <small>(optional)</small></label><input type="date" data-field="birthdate" max="{{ now()->toDateString() }}"></div>
             <div class="field"><label>Sex</label>
                 <select data-field="sex" required>
                     <option value="">Select&hellip;</option>
@@ -212,14 +244,44 @@
                 </select>
             </div>
         </div>
-        <div class="member-tags-row">
+
+        <div class="mt-3 grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,17rem)_minmax(0,1fr)]">
+            {{-- Age group. Filled in and locked by JS whenever a date of birth is
+                 present -- the server ignores this value in that case, so letting
+                 it contradict the birthday would only mislead. Required when the
+                 birthday is blank, which keeps "Unknown" off a form a City Social
+                 Welfare officer signs. --}}
+            <div class="field">
+                <label>Age group</label>
+                <select data-field="age_group" required>
+                    <option value="">Select&hellip;</option>
+                    @foreach($ageGroups as $key => $label)
+                        <option value="{{ $key }}">{{ $label }}</option>
+                    @endforeach
+                </select>
+                <small class="field-hint">Set automatically from the date of birth. Choose it here when the birthday is not known yet.</small>
+            </div>
+
+            {{-- Categories are checkboxes now. The old control was a
+                 &lt;select multiple size="1"&gt; -- a one-row-tall multi-select,
+                 effectively unusable on a phone and far under the 44px tap
+                 target the design system requires. A person can hold several at
+                 once (a pregnant solo parent on 4Ps is three boxes). --}}
+            <fieldset class="min-w-0 border-0 p-0">
+                <legend class="mb-1 text-sm font-semibold">Vulnerable categories <small class="font-normal">(optional, choose any)</small></legend>
+                <div class="flex flex-wrap gap-x-5 gap-y-1">
+                    @foreach($classifications as $c)
+                        <label class="inline-flex min-h-[44px] cursor-pointer items-center gap-2 text-sm">
+                            <input type="checkbox" data-field="tags" value="{{ $c->id }}" class="h-5 w-5 shrink-0">
+                            <span>{{ $c->name }}</span>
+                        </label>
+                    @endforeach
+                </div>
+            </fieldset>
+        </div>
+
+        <div class="mt-2 flex flex-wrap items-center justify-between gap-2">
             <span class="age-tag badge badge-info" data-age-tag hidden></span>
-            <label class="tags-label">Special needs / classifications:</label>
-            <select data-field="tags" multiple size="1" aria-label="Vulnerability classifications">
-                @foreach($classifications as $c)
-                    <option value="{{ $c->id }}">{{ $c->name }}</option>
-                @endforeach
-            </select>
             <button type="button" class="btn-link btn-link-danger" data-remove-row>Remove person</button>
         </div>
     </div>

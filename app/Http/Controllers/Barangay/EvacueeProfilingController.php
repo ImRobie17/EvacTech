@@ -7,12 +7,18 @@ use App\Models\EvacuationCenter;
 use App\Models\Household;
 use App\Models\VulnerableClassification;
 use App\Services\AuditLogger;
+use App\Services\HouseholdMemberSync;
+use App\Support\AgeTier;
+use App\Support\HouseholdCode;
 use Illuminate\Http\Request;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class EvacueeProfilingController extends BarangayController
 {
+    public function __construct(private HouseholdMemberSync $sync)
+    {
+    }
+
     public function index(Request $request, ?EvacuationCenter $routeCenter = null)
     {
         $center = $this->center($routeCenter);
@@ -44,21 +50,43 @@ class EvacueeProfilingController extends BarangayController
             $query->where('origin_barangay_id', $barangayId);
         }
 
-        if ($vuln = $request->input('vulnerable')) {
+        // Phase 2 item 6: age group and category are now SEPARATE filters.
+        // They used to be one dropdown, because Senior Citizen and Infant were
+        // classifications. Filtering by both at once means "households with at
+        // least one member in this tier AND at least one member with this tag",
+        // which is what an operator looking for, say, pregnant women in a
+        // family with infants actually wants.
+        if ($tier = $request->input('age_group')) {
+            if (AgeTier::isValid($tier)) {
+                $query->whereHas('members', fn ($q) => $q
+                    ->whereRaw(AgeTier::sqlCase() . ' = ?', [$tier]));
+            }
+        }
+
+        if ($vuln = $request->input('category')) {
             $query->whereHas('members.vulnerableClassifications', fn ($q) => $q
                 ->where('vulnerable_classifications.id', $vuln));
         }
 
-        $households = $query->latest()->paginate(15)->withQueryString();
-        $classifications = VulnerableClassification::orderBy('name')->get();
+        // Derived from members_present == 1 on a checked-in family, never a tag.
+        if ($request->boolean('single_headed')) {
+            $query->singleHeaded();
+        }
 
-        // Origin barangay is now an explicit field on the Add Evacuee form:
-        // staff are no longer tied to a barangay, so it can no longer be
-        // inferred from the account.
+        $households = $query->latest()->paginate(15)->withQueryString();
+
+        // Only SELECTABLE classifications reach the UI. The retired Senior
+        // Citizen / Infant rows still exist for history but must never be
+        // offered as something to tag or filter by.
+        $classifications = VulnerableClassification::selectable()->orderBy('name')->get();
+        $ageGroups = AgeTier::options();
+
         $barangays = Barangay::orderBy('name')->get();
         $defaultBarangayId = $center?->barangay_id;
 
-        return view('barangay.evacuees.index', compact('households', 'classifications', 'center', 'barangays', 'defaultBarangayId'));
+        return view('barangay.evacuees.index', compact(
+            'households', 'classifications', 'ageGroups', 'center', 'barangays', 'defaultBarangayId'
+        ));
     }
 
     /** Register a new household (Add Evacuee modal). checkin=1 also checks them in. */
@@ -68,9 +96,11 @@ class EvacueeProfilingController extends BarangayController
         $checkin = $request->boolean('checkin');
         $center = $checkin ? $this->centerOrFail() : $this->center();
 
-        $household = DB::transaction(function () use ($data, $checkin, $center) {
+        // The retry wraps the transaction, never the other way round: a duplicate
+        // key rolls the transaction back, so a retry needs a clean one.
+        $household = HouseholdCode::attempt(fn ($code) => DB::transaction(function () use ($code, $data, $checkin, $center) {
             $household = Household::create([
-                'household_code' => $this->nextCode(),
+                'household_code' => $code,
                 'origin_barangay_id' => $data['origin_barangay_id'],
                 'origin_address' => $data['address'],
                 'number_of_members' => count($data['members']),
@@ -78,7 +108,7 @@ class EvacueeProfilingController extends BarangayController
                 'registered_by' => auth()->id(),
             ]);
 
-            $this->syncMembers($household, $data['members'], $checkin);
+            $this->sync->sync($household, $data['members'], checkin: $checkin);
 
             if ($checkin) {
                 $present = $household->members()->where('is_present', true)->count();
@@ -93,7 +123,7 @@ class EvacueeProfilingController extends BarangayController
             }
 
             return $household;
-        });
+        }));
 
         AuditLogger::log('created', $household,
             "Registered household {$household->household_code}" . ($checkin ? " and checked in at {$center->name}" : ''));
@@ -119,6 +149,7 @@ class EvacueeProfilingController extends BarangayController
             'center' => $household->evacuationCenter?->name,
             'center_id' => $household->evacuation_center_id,
             'head_member_id' => $household->head_member_id,
+            'single_headed' => $household->isSingleHeaded(),
             'members' => $household->members->map(fn ($m) => [
                 'id' => $m->id,
                 'full_name' => $m->full_name,
@@ -126,7 +157,17 @@ class EvacueeProfilingController extends BarangayController
                 'sex' => $m->sex,
                 'is_head' => $m->is_household_head,
                 'is_present' => $m->is_present,
-                'tags' => $m->vulnerableClassifications->map(fn ($c) => ['id' => $c->id, 'name' => $c->name]),
+                // The derived tier, plus the raw fallback so the edit form can
+                // tell "chosen by hand" from "computed from a birthdate".
+                'age_tier' => $m->ageTier(),
+                'age_tier_label' => $m->ageTierShortLabel(),
+                'age_tier_fallback' => $m->age_tier_fallback,
+                // Retired tags are filtered out: the edit form must not present
+                // Senior Citizen as a live checkbox.
+                'tags' => $m->vulnerableClassifications
+                    ->where('is_selectable', true)
+                    ->values()
+                    ->map(fn ($c) => ['id' => $c->id, 'code' => $c->code, 'name' => $c->name]),
             ]),
         ]);
     }
@@ -142,7 +183,7 @@ class EvacueeProfilingController extends BarangayController
                 'origin_address' => $data['address'],
                 'origin_barangay_id' => $data['origin_barangay_id'],
             ]);
-            $this->syncMembers($household, $data['members'], keepPresence: true);
+            $this->sync->sync($household, $data['members'], keepPresence: true);
             $household->update([
                 'number_of_members' => $household->members()->count(),
                 'members_present' => $household->status === 'checked_in'
@@ -184,8 +225,6 @@ class EvacueeProfilingController extends BarangayController
         $term = trim((string) $request->input('q'));
         $user = auth()->user();
 
-        // Households at any shelter on this staff member's roster, plus any not yet
-        // placed in a shelter (so they can be checked in for the first time).
         $results = Household::with(['headMember', 'evacuationCenter', 'originBarangay'])
             ->where(fn ($q) => $q
                 ->whereIn('evacuation_center_id', $user->assignedCenterIds())
@@ -203,6 +242,7 @@ class EvacueeProfilingController extends BarangayController
                 'status' => $h->status,
                 'center' => $h->evacuationCenter?->name,
                 'origin_barangay' => $h->originBarangay?->name,
+                'single_headed' => $h->isSingleHeaded(),
             ]);
 
         return response()->json($results);
@@ -220,96 +260,31 @@ class EvacueeProfilingController extends BarangayController
             'members.*.last_name' => ['required', 'string', 'max:100'],
             'members.*.first_name' => ['required', 'string', 'max:100'],
             'members.*.middle_name' => ['nullable', 'string', 'max:100'],
-            'members.*.birthdate' => ['required', 'date', 'before_or_equal:today'],
+
+            // Phase 2: birthdate is OPTIONAL so staff can tag a family fast
+            // during a surge and complete the record later. The age group is
+            // then required in its place -- one tap, and it keeps "Unknown" off
+            // a form a City Social Welfare officer signs.
+            'members.*.birthdate' => ['nullable', 'date', 'before_or_equal:today'],
+            'members.*.age_group' => [
+                'required_without:members.*.birthdate',
+                'nullable',
+                'in:' . implode(',', array_keys(AgeTier::options())),
+            ],
+
+            // Sex stays REQUIRED: every row of the IDP Monitoring Form splits
+            // Male/Female with a reconciling TOTAL, and an unknown sex makes the
+            // age table, the category table and the headcount disagree.
             'members.*.sex' => ['required', 'in:male,female'],
+
             'members.*.is_head' => ['nullable'],
             'members.*.is_present' => ['nullable'],
             'members.*.tags' => ['nullable', 'array'],
             'members.*.tags.*' => ['integer', 'exists:vulnerable_classifications,id'],
         ], [
             'origin_barangay_id.required' => 'Select the barangay this family came from.',
+            'members.*.age_group.required_without' => 'Choose an age group for any member without a date of birth.',
+            'members.*.sex.required' => 'Sex is required for every member.',
         ]);
-    }
-
-    /**
-     * Create/update members, mark exactly one head, apply manual tags,
-     * and AUTO-TAG Senior (60+) / Infant-Young Child (0-5) from birthdate.
-     *
-     * NOTE: the age-tag rules here are replaced in Phase 2 (#5/#6) by the seven
-     * age tiers and the revised category list. Left as-is deliberately so this
-     * item changes shelter architecture only.
-     */
-    private function syncMembers(Household $household, array $members, bool $checkin = false, bool $keepPresence = false): void
-    {
-        $senior = VulnerableClassification::where('name', 'like', 'Senior%')->first();
-        $infant = VulnerableClassification::where('name', 'like', 'Infant%')->first();
-
-        $headSet = false;
-        $keptIds = [];
-
-        foreach ($members as $i => $m) {
-            $isHead = ! $headSet && ! empty($m['is_head']);
-            if ($i === 0 && ! collect($members)->contains(fn ($x) => ! empty($x['is_head']))) {
-                $isHead = true; // default: first row is the head if none flagged
-            }
-            if ($isHead) {
-                $headSet = true;
-            }
-
-            $fullName = trim($m['last_name'] . ', ' . $m['first_name'] . ' ' . ($m['middle_name'] ?? ''));
-            $birthdate = Carbon::parse($m['birthdate']);
-            $age = (int) $birthdate->age;
-
-            $attrs = [
-                'full_name' => $fullName,
-                'birthdate' => $birthdate,
-                'age' => $age,
-                'sex' => $m['sex'],
-                'is_household_head' => $isHead,
-                'family_role' => $isHead ? 'head' : 'member',
-            ];
-
-            if ($checkin) {
-                $attrs['is_present'] = array_key_exists('is_present', $m)
-                    ? ! empty($m['is_present'])
-                    : true;
-            } elseif (! $keepPresence) {
-                $attrs['is_present'] = false;
-            }
-
-            if (! empty($m['id'])) {
-                $member = $household->members()->whereKey($m['id'])->first();
-                $member?->update($attrs);
-                $member ??= $household->members()->create($attrs);
-            } else {
-                $member = $household->members()->create($attrs);
-            }
-            $keptIds[] = $member->id;
-
-            $tagIds = collect($m['tags'] ?? [])->map(fn ($t) => (int) $t);
-            if ($age >= 60 && $senior) {
-                $tagIds->push($senior->id);
-            }
-            if ($age <= 5 && $infant) {
-                $tagIds->push($infant->id);
-            }
-            $member->vulnerableClassifications()->sync(
-                $tagIds->unique()->mapWithKeys(fn ($id) => [$id => ['tagged_by' => auth()->id(), 'tagged_at' => now()]])->all()
-            );
-
-            if ($isHead) {
-                $household->update(['head_member_id' => $member->id]);
-            }
-        }
-
-        $household->members()->whereNotIn('id', $keptIds)->delete();
-    }
-
-    private function nextCode(): string
-    {
-        $year = now()->year;
-        $count = Household::whereYear('created_at', $year)->count();
-
-        return sprintf('HH-%d-%05d', $year, $count + 1);
     }
 }

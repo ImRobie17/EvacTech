@@ -1,3 +1,4 @@
+import { wireAgeGroup } from './age-tiers';
 // City Admin shelter detail page behaviour.
 //
 // Deliberately separate from staff.js: that file drives the barangay screens, and
@@ -233,7 +234,9 @@ function makeMemberRow(prefix, isHead) {
 
     row.querySelectorAll('[data-field]').forEach((el) => {
         const f = el.dataset.field;
-        el.name = 'members[' + prefix + '][' + (f === 'tags' ? 'tags[]' : f) + ']';
+        // PHASE 2 BUG FIX: 'members[0][tags[]]' parsed as the string key 'tags['
+        // in PHP, silently discarding every ticked classification.
+        el.name = 'members[' + prefix + '][' + f + ']' + (f === 'tags' ? '[]' : '');
     });
 
     if (isHead) {
@@ -247,17 +250,9 @@ function makeMemberRow(prefix, isHead) {
         row.querySelector('[data-remove-row]')?.addEventListener('click', () => row.remove());
     }
 
-    const bd = row.querySelector('[data-field="birthdate"]');
-    const tag = row.querySelector('[data-age-tag]');
-    bd?.addEventListener('change', () => {
-        const age = cdAge(bd.value);
-        if (age === null) {
-            tag.hidden = true;
-            return;
-        }
-        tag.hidden = false;
-        tag.textContent = cdAgeLabel(age) + ' (' + age + ' yrs)';
-    });
+    // Birthdate wins and locks the age-group dropdown; with no birthdate the
+    // dropdown is the operator's fast tag-first path (and is then required).
+    wireAgeGroup(row);
 
     return row;
 }
@@ -272,16 +267,17 @@ function fillMemberRow(row, m) {
     row.querySelector('[data-field="birthdate"]').value = m.birthdate || '';
     row.querySelector('[data-field="sex"]').value = m.sex || '';
 
-    const tagSelect = row.querySelector('[data-field="tags"]');
+    // Categories are checkboxes now, not a 1-row-tall multi-select.
     const ids = (m.tags || []).map((t) => String(t.id));
-    Array.from(tagSelect.options).forEach((o) => { o.selected = ids.includes(o.value); });
+    row.querySelectorAll('[data-field="tags"]').forEach((box) => {
+        box.checked = ids.includes(box.value);
+    });
 
-    const age = cdAge(m.birthdate);
-    const tag = row.querySelector('[data-age-tag]');
-    if (age !== null) {
-        tag.hidden = false;
-        tag.textContent = cdAgeLabel(age) + ' (' + age + ' yrs)';
-    }
+    // Restore any manually chosen group, then let wireAgeGroup settle the
+    // lock/badge state from the birthdate.
+    const groupSelect = row.querySelector('[data-field="age_group"]');
+    if (groupSelect) groupSelect.value = m.age_tier_fallback || m.age_tier || '';
+    wireAgeGroup(row);
 }
 
 // Delegated: works no matter when the table rows were rendered.

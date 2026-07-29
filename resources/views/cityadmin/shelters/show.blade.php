@@ -431,7 +431,8 @@
             <div class="field"><label>Last name</label><input type="text" data-field="last_name" required maxlength="100"></div>
             <div class="field"><label>First name</label><input type="text" data-field="first_name" required maxlength="100"></div>
             <div class="field"><label>Middle name <small>(optional)</small></label><input type="text" data-field="middle_name" maxlength="100"></div>
-            <div class="field"><label>Date of birth</label><input type="date" data-field="birthdate" required max="{{ now()->toDateString() }}"></div>
+            {{-- Birthdate is OPTIONAL as of Phase 2. --}}
+            <div class="field"><label>Date of birth <small>(optional)</small></label><input type="date" data-field="birthdate" max="{{ now()->toDateString() }}"></div>
             <div class="field"><label>Sex</label>
                 <select data-field="sex" required>
                     <option value="">Select</option>
@@ -440,14 +441,36 @@
                 </select>
             </div>
         </div>
-        <div class="member-tags-row">
+
+        <div class="mt-3 grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,17rem)_minmax(0,1fr)]">
+            {{-- Locked by JS when a date of birth is present: the server derives
+                 the tier from the birthday and ignores this value. --}}
+            <div class="field">
+                <label>Age group</label>
+                <select data-field="age_group" required>
+                    <option value="">Select</option>
+                    @foreach($ageGroups as $key => $label)
+                        <option value="{{ $key }}">{{ $label }}</option>
+                    @endforeach
+                </select>
+                <small class="field-hint">Set automatically from the date of birth. Choose it here when the birthday is not known yet.</small>
+            </div>
+
+            <fieldset class="min-w-0 border-0 p-0">
+                <legend class="mb-1 text-sm font-semibold">Vulnerable categories <small class="font-normal">(optional, choose any)</small></legend>
+                <div class="flex flex-wrap gap-x-5 gap-y-1">
+                    @foreach($classifications as $c)
+                        <label class="inline-flex min-h-[44px] cursor-pointer items-center gap-2 text-sm">
+                            <input type="checkbox" data-field="tags" value="{{ $c->id }}" class="h-5 w-5 shrink-0">
+                            <span>{{ $c->name }}</span>
+                        </label>
+                    @endforeach
+                </div>
+            </fieldset>
+        </div>
+
+        <div class="mt-2 flex flex-wrap items-center justify-between gap-2">
             <span class="age-tag badge badge-info" data-age-tag hidden></span>
-            <label class="tags-label">Special needs / classifications:</label>
-            <select data-field="tags" multiple size="1" aria-label="Vulnerability classifications">
-                @foreach($classifications as $c)
-                    <option value="{{ $c->id }}">{{ $c->name }}</option>
-                @endforeach
-            </select>
             <button type="button" class="btn-link btn-link-danger" data-remove-row>Remove person</button>
         </div>
     </div>

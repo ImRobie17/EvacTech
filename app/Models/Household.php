@@ -29,6 +29,31 @@ class Household extends Model
         ];
     }
 
+    /**
+     * Phase 2 item 6 -- "Single Headed Household".
+     *
+     * DERIVED, never stored, and deliberately NOT a vulnerable classification.
+     * member_vulnerabilities is a per-MEMBER pivot; putting a household-level
+     * fact there would force a choice about which member carries it and would
+     * corrupt every count grouped by classification.
+     *
+     * Definition confirmed with Cabuyao's shelter operations manager: a
+     * one-person family who is currently checked in at the shelter. Because it
+     * is tied to check-in state, the flag correctly does not exist before
+     * check-in, and clears itself if the family checks out or the rest of them
+     * arrive.
+     */
+    public function isSingleHeaded(): bool
+    {
+        return $this->status === 'checked_in' && (int) $this->members_present === 1;
+    }
+
+    /** Query-side twin of isSingleHeaded(), for counts and report cross-tabs. */
+    public function scopeSingleHeaded($query)
+    {
+        return $query->where('status', 'checked_in')->where('members_present', 1);
+    }
+
     public function originBarangay(): BelongsTo
     {
         return $this->belongsTo(Barangay::class, 'origin_barangay_id');

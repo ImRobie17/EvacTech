@@ -1,3 +1,4 @@
+import { wireAgeGroup } from './age-tiers';
 // City Admin specific behaviors. Loaded alongside staff.js (which provides the
 // generic modal system, theme toggle, confirm forms, and age-tagging helpers).
 
@@ -223,7 +224,10 @@ function initCityEvacueeForm() {
         const row = node.querySelector('[data-row]');
         row.querySelectorAll('[data-field]').forEach((el) => {
             const f = el.dataset.field;
-            el.name = `members[${prefix}][${f === 'tags' ? 'tags[]' : f}]`;
+            // PHASE 2 BUG FIX: was `members[0][tags[]]`, which PHP parsed as the
+            // string key 'tags[' -- so no ticked classification ever reached the
+            // server. Correct form is `members[0][tags][]`.
+            el.name = `members[${prefix}][${f}]` + (f === 'tags' ? '[]' : '');
         });
         if (isHead) {
             row.querySelector('[data-remove-row]')?.remove();
@@ -233,13 +237,9 @@ function initCityEvacueeForm() {
         } else {
             row.querySelector('[data-remove-row]').addEventListener('click', () => row.remove());
         }
-        const bd = row.querySelector('[data-field="birthdate"]');
-        const tag = row.querySelector('[data-age-tag]');
-        bd.addEventListener('change', () => {
-            const age = ageFromBirthdateCA(bd.value);
-            if (age !== null) { tag.hidden = false; tag.textContent = `${ageTagLabelCA(age)} (${age} yrs)`; }
-            else tag.hidden = true;
-        });
+        // Birthdate wins and locks the age-group dropdown; no birthdate leaves
+        // it open as the fast tag-first path.
+        wireAgeGroup(row);
         return row;
     }
 

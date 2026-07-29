@@ -1,3 +1,4 @@
+import { wireAgeGroup, tierShortLabel } from './age-tiers';
 // EvacTech staff UI behavior. No build step assumptions beyond Vite bundling this file.
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -230,11 +231,11 @@ function ageFromBirthdate(dateStr) {
     return age;
 }
 
-function ageTagLabel(age) {
-    if (age === null) return '';
-    if (age <= 5) return 'Infant / Young Child';
-    if (age >= 60) return 'Senior Citizen';
-    return 'Adult';
+// Phase 2: the old three-label helper (Infant / Adult / Senior) is gone. Those
+// were classifications; they are seven derived age tiers now. See age-tiers.js,
+// which mirrors app/Support/AgeTier.php exactly.
+function ageTagLabel(tierKey) {
+    return tierShortLabel(tierKey);
 }
 
 // ---------------------------------------------------------------------
@@ -257,7 +258,14 @@ function initEvacueeForm() {
         const row = node.querySelector('[data-row]');
         row.querySelectorAll('[data-field]').forEach((el) => {
             const field = el.dataset.field;
-            el.name = `members[${fieldPrefix}][${field === 'tags' ? 'tags[]' : field}]`;
+            // PHASE 2 BUG FIX. This used to emit `members[0][tags[]]`. PHP's
+            // parser closes the key at the FIRST ']', so it became the string
+            // key 'tags[' and the trailing ']' was discarded -- meaning
+            // members.*.tags never arrived, validation passed because the rule
+            // is nullable, and every manually ticked classification was silently
+            // dropped. The only tags that ever saved were the ones the server
+            // stamped on automatically. Correct form is `members[0][tags][]`.
+            el.name = `members[${fieldPrefix}][${field}]` + (field === 'tags' ? '[]' : '');
         });
         if (isHead) {
             row.querySelector('[data-field="birthdate"]').closest('.member-row')?.classList.add('is-head');
@@ -272,18 +280,10 @@ function initEvacueeForm() {
             row.querySelector('[data-remove-row]').addEventListener('click', () => row.remove());
         }
 
-        // Presence checkbox only shown in check-in context (Shelter page injects it separately)
-        const birthdateInput = row.querySelector('[data-field="birthdate"]');
-        const ageTagEl = row.querySelector('[data-age-tag]');
-        birthdateInput.addEventListener('change', () => {
-            const age = ageFromBirthdate(birthdateInput.value);
-            if (age !== null) {
-                ageTagEl.hidden = false;
-                ageTagEl.textContent = `${ageTagLabel(age)} (${age} yrs)`;
-            } else {
-                ageTagEl.hidden = true;
-            }
-        });
+        // Birthdate <-> age-group wiring. Birthdate wins and locks the
+        // dropdown; with no birthdate the dropdown is the operator's fast
+        // tag-first path and validation requires it.
+        wireAgeGroup(row);
 
         return row;
     }
@@ -347,12 +347,17 @@ function initEvacueeForm() {
             row.querySelector('[data-field="first_name"]').value = (firstMiddle || '').split(' ')[0] || '';
             row.querySelector('[data-field="birthdate"]').value = m.birthdate || '';
             row.querySelector('[data-field="sex"]').value = m.sex || '';
-            const tagSelect = row.querySelector('[data-field="tags"]');
+            // Categories are checkboxes now, not a 1-row-tall multi-select.
             const tagIds = (m.tags || []).map((t) => String(t.id));
-            Array.from(tagSelect.options).forEach((opt) => { opt.selected = tagIds.includes(opt.value); });
-            const age = ageFromBirthdate(m.birthdate);
-            const ageTagEl = row.querySelector('[data-age-tag]');
-            if (age !== null) { ageTagEl.hidden = false; ageTagEl.textContent = `${ageTagLabel(age)} (${age} yrs)`; }
+            row.querySelectorAll('[data-field="tags"]').forEach((box) => {
+                box.checked = tagIds.includes(box.value);
+            });
+
+            // Restore the manually chosen group, then let wireAgeGroup settle
+            // the lock/badge state from whatever the birthdate turns out to be.
+            const groupSelect = row.querySelector('[data-field="age_group"]');
+            if (groupSelect) groupSelect.value = m.age_tier_fallback || m.age_tier || '';
+            wireAgeGroup(row);
 
             (m.is_head ? headRow : memberRows).appendChild(row);
         });

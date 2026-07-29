@@ -43,6 +43,11 @@
     @vite(array_merge(['resources/css/app.css', 'resources/js/app.js'], (array) ($viteEntries ?? [])))
 </head>
 <body class="staff-body">
+@php
+    // PHASE 2 ITEM 8. Same composer as the barangay layout; same defaults.
+    $navTransferCount = (int) (($transferAlerts['needs_action'] ?? 0) + ($transferAlerts['overdue'] ?? 0));
+    $navTransferGlow = $navTransferCount > 0;
+@endphp
 <div class="staff-shell {{ $sidebarCollapsed ? 'sidebar-collapsed' : '' }}">
 
     <header class="mobile-bar">
@@ -83,6 +88,11 @@
             <a href="{{ route('city.relief.index') }}" class="nav-item {{ request()->routeIs('city.relief.*') ? 'active' : '' }}">
                 <span class="nav-icon" aria-hidden="true">&#128230;</span><span class="nav-label">Relief Distribution</span>
             </a>
+            {{-- PHASE 2 ITEM 8. Count printed as text: the ring is never the
+                 only signal that something needs attention. --}}
+            <a href="{{ route('city.transfers.index') }}" class="nav-item {{ request()->routeIs('city.transfers.*') ? 'active' : '' }} {{ $navTransferGlow ? 'ring-2 ring-red-500' : '' }}">
+                <span class="nav-icon" aria-hidden="true">&#8646;</span><span class="nav-label">Shelter Transfers @if($navTransferGlow)<span class="badge badge-danger">{{ $navTransferCount }}</span>@endif</span>
+            </a>
             <a href="{{ route('city.reports.index') }}" class="nav-item {{ request()->routeIs('city.reports.*') ? 'active' : '' }}">
                 <span class="nav-icon" aria-hidden="true">&#128462;</span><span class="nav-label">Report Generation</span>
             </a>
@@ -105,6 +115,9 @@
     </aside>
 
     <main class="staff-main">
+        {{-- PHASE 2 ITEM 8 -- pinned at the top of the content area. --}}
+        @include('partials.transfer-alert-bar')
+
         <header class="page-head">
             <div>
                 <h1 class="page-title">@yield('page-title')</h1>

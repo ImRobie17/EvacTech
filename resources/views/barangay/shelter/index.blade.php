@@ -4,6 +4,25 @@
 @section('page-title', 'Evacuation Shelter')
 @section('page-subtitle', $center?->name ?? 'No assigned shelter')
 
+@php
+    // PHASE 2 ITEM 8. Route templates for the shared transfer partials, built in
+    // a PHP block and printed with json_encode further down: a json directive holding
+    // arrows or spanning lines does not survive Blade's parser (gotcha 1).
+    $tx = [
+        'store' => route('barangay.transfers.store'),
+        'search' => route('barangay.transfers.households'),
+        'members' => route('barangay.transfers.members', ':id'),
+        'confirm' => route('barangay.transfers.confirm', ':id'),
+        'refuse' => route('barangay.transfers.refuse', ':id'),
+        'depart' => route('barangay.transfers.depart', ':id'),
+        'receive' => route('barangay.transfers.receive', ':id'),
+        'cancel' => route('barangay.transfers.cancel', ':id'),
+    ];
+    $txConfig = $tx;
+    $txConfig['centers'] = $transferCenters ?? [];
+    $txOpenIds = $openTransferHouseholdIds ?? [];
+@endphp
+
 @section('page-actions')
     <button type="button" class="btn-primary w-full sm:w-auto" data-open-modal="checkinModal">&check; Check-in Existing Family</button>
 @endsection
@@ -92,6 +111,23 @@
                                 <a class="btn-link inline-flex min-h-tap items-center"
                                    href="{{ route('barangay.evacuees.index') }}?edit={{ $h->id }}">Edit Family Group</a>
                                 @if($h->status === 'checked_in')
+                                    {{-- PHASE 2 ITEM 8. Named "Move to Shelter", not
+                                         "Transfer": the Transfer Head flow already
+                                         lives on this page and two unrelated
+                                         controls called Transfer is how a demo
+                                         goes wrong. --}}
+                                    @if(in_array($h->id, $txOpenIds))
+                                        <span class="text-sm text-ink-muted">Transfer in progress</span>
+                                    @else
+                                        <button type="button" class="btn-link"
+                                                data-tx-create
+                                                data-household-id="{{ $h->id }}"
+                                                data-household-code="{{ $h->household_code }}"
+                                                data-household-head="{{ $h->headMember?->full_name }}"
+                                                data-household-present="{{ $h->members_present }}"
+                                                data-center-id="{{ $center->id }}"
+                                                data-center-name="{{ $center->name }}">Move to Shelter</button>
+                                    @endif
                                     <form method="POST" action="{{ route('barangay.shelter.checkout', $h) }}" class="inline-form"
                                           data-confirm="Check out {{ $h->headMember?->full_name }}'s household?">
                                         @csrf
@@ -221,5 +257,25 @@
         editRedirectTemplate: "{{ route('barangay.evacuees.index') }}?edit=:id",
         autoOpen: @json(request('open') === 'checkin'),
     };
+</script>
+@endpush
+
+@push('modals')
+    {{-- PHASE 2 ITEM 8 -- the same four modals the Transfers page uses. --}}
+    @include('partials.transfer-modals', ['tx' => $tx])
+@endpush
+
+@push('scripts')
+<script>
+    // Raw echo, not the escaped one. Blade's escaped echo runs the value through
+    // e(), which turns every double quote in the JSON into an HTML entity. A
+    // browser does not decode entities inside a script tag, so the assignment
+    // threw a SyntaxError and window.TransferConfig was never set. JSON headed
+    // for a script block always needs the raw echo.
+    //
+    // And note there is no Blade echo syntax anywhere in this comment: a JS
+    // comment is still Blade source, so braces here would be compiled and would
+    // break the whole file. Same trap as naming a Blade directive in a comment.
+    window.TransferConfig = {!! json_encode($txConfig) !!};
 </script>
 @endpush

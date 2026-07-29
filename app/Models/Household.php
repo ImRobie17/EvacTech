@@ -84,6 +84,34 @@ class Household extends Model
         return $this->hasMany(HouseholdTransfer::class);
     }
 
+    /**
+     * PHASE 2 ITEM 8 -- shelter-to-shelter moves.
+     *
+     * Separate from transfers() above, which is family-HEAD-role changes and
+     * always has from_center_id == to_center_id. The two answer different
+     * questions and share no lifecycle.
+     */
+    public function shelterTransfers(): HasMany
+    {
+        return $this->hasMany(ShelterTransfer::class);
+    }
+
+    /**
+     * The transfer currently in flight for this family, if any.
+     *
+     * Guard used before starting a second transfer and before allowing a
+     * check-out: a family who is committed to a move must not be checked out
+     * from underneath it, or the transfer would try to receive a household that
+     * is no longer anywhere.
+     */
+    public function openTransfer(): ?ShelterTransfer
+    {
+        return $this->shelterTransfers()
+            ->whereIn('status', ShelterTransfer::OPEN_STATUSES)
+            ->latest('id')
+            ->first();
+    }
+
     public function reliefTransactions(): HasMany
     {
         return $this->hasMany(ReliefTransaction::class);

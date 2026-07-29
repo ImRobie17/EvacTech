@@ -22,6 +22,7 @@ use App\Http\Controllers\CityAdmin\ReliefController as CityRelief;
 use App\Http\Controllers\CityAdmin\ReportController as CityReport;
 use App\Http\Controllers\CityAdmin\ShelterController as CityShelter;
 use App\Http\Controllers\CityAdmin\ShelterDetailController as CityShelterDetail;
+use App\Http\Controllers\CityAdmin\TransferController as CityTransfer;
 use App\Http\Controllers\CityAdmin\UserManagementController;
 use Illuminate\Support\Facades\Route;
 
@@ -69,6 +70,21 @@ Route::middleware(['auth', 'role:city_admin'])
         // ---- Report Generation ----
         Route::get('/reports', [CityReport::class, 'index'])->name('reports.index');
         Route::post('/reports/generate', [CityReport::class, 'generate'])->name('reports.generate');
+
+        // ---- Shelter Transfers (Phase 2 item 8) ----
+        // City Admin sees every transfer between every shelter and may act at
+        // either end. Cancelling a transfer that is already IN TRANSIT is a
+        // City-Admin-only power -- see ShelterTransfer::canBeCancelledBy().
+        Route::get('/transfers', [CityTransfer::class, 'index'])->name('transfers.index');
+        Route::get('/transfers/households', [CityTransfer::class, 'searchHouseholds'])->name('transfers.households');
+        Route::post('/transfers', [CityTransfer::class, 'store'])->name('transfers.store');
+
+        Route::get('/transfers/{transfer}/members', [CityTransfer::class, 'members'])->name('transfers.members');
+        Route::post('/transfers/{transfer}/confirm', [CityTransfer::class, 'confirm'])->name('transfers.confirm');
+        Route::post('/transfers/{transfer}/refuse', [CityTransfer::class, 'refuse'])->name('transfers.refuse');
+        Route::post('/transfers/{transfer}/depart', [CityTransfer::class, 'depart'])->name('transfers.depart');
+        Route::post('/transfers/{transfer}/receive', [CityTransfer::class, 'receive'])->name('transfers.receive');
+        Route::post('/transfers/{transfer}/cancel', [CityTransfer::class, 'cancel'])->name('transfers.cancel');
 
         // ---- User Management (barangay personnel only) ----
         Route::get('/users', [UserManagementController::class, 'index'])->name('users.index');

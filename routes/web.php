@@ -6,6 +6,7 @@ use App\Http\Controllers\Barangay\EvacueeProfilingController;
 use App\Http\Controllers\Barangay\ReliefController;
 use App\Http\Controllers\Barangay\ReportController;
 use App\Http\Controllers\Barangay\ShelterController;
+use App\Http\Controllers\Barangay\TransferController;
 use Illuminate\Support\Facades\Route;
 
 // ---- Auth (staff) ----
@@ -61,4 +62,23 @@ Route::middleware(['auth', 'role:barangay_personnel', 'shelter.assigned'])
         // Report Generation
         Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
         Route::post('/reports/generate', [ReportController::class, 'generate'])->name('reports.generate');
+
+        // ---- Shelter Transfers (Phase 2 item 8) ----
+        //
+        // Distinct from shelter.transfer above, which is the family-HEAD-role
+        // change. These are shelter-to-shelter moves with their own table and
+        // their own state machine.
+        //
+        // The two literal segments are declared BEFORE the {transfer} routes so
+        // model binding cannot swallow them.
+        Route::get('/transfers', [TransferController::class, 'index'])->name('transfers.index');
+        Route::get('/transfers/households', [TransferController::class, 'searchHouseholds'])->name('transfers.households');
+        Route::post('/transfers', [TransferController::class, 'store'])->name('transfers.store');
+
+        Route::get('/transfers/{transfer}/members', [TransferController::class, 'members'])->name('transfers.members');
+        Route::post('/transfers/{transfer}/confirm', [TransferController::class, 'confirm'])->name('transfers.confirm');
+        Route::post('/transfers/{transfer}/refuse', [TransferController::class, 'refuse'])->name('transfers.refuse');
+        Route::post('/transfers/{transfer}/depart', [TransferController::class, 'depart'])->name('transfers.depart');
+        Route::post('/transfers/{transfer}/receive', [TransferController::class, 'receive'])->name('transfers.receive');
+        Route::post('/transfers/{transfer}/cancel', [TransferController::class, 'cancel'])->name('transfers.cancel');
     });

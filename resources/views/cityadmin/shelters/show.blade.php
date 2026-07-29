@@ -14,6 +14,24 @@
 @section('page-title', $center->name)
 @section('page-subtitle', ($center->barangay?->name ? 'Brgy. ' . $center->barangay->name . ' - ' : '') . $center->address)
 
+@php
+    // PHASE 2 ITEM 8. Route templates for the shared transfer partials. Built in
+    // a PHP block, printed with json_encode at the bottom (gotcha 1).
+    $tx = [
+        'store' => route('city.transfers.store'),
+        'search' => route('city.transfers.households'),
+        'members' => route('city.transfers.members', ':id'),
+        'confirm' => route('city.transfers.confirm', ':id'),
+        'refuse' => route('city.transfers.refuse', ':id'),
+        'depart' => route('city.transfers.depart', ':id'),
+        'receive' => route('city.transfers.receive', ':id'),
+        'cancel' => route('city.transfers.cancel', ':id'),
+    ];
+    $txConfig = $tx;
+    $txConfig['centers'] = $transferCenters ?? [];
+    $txOpenIds = $openTransferHouseholdIds ?? [];
+@endphp
+
 @section('page-actions')
     @if ($tab === 'relief')
         <button type="button" class="btn-secondary" data-open-modal="cdReceiveModal">Receive Stock</button>
@@ -130,6 +148,19 @@
                             <button type="button" class="btn-link"
                                     data-cd-edit-household="{{ $h->id }}">Edit Family Group</button>
                             @if ($h->status === 'checked_in')
+                                {{-- PHASE 2 ITEM 8 -- shelter-to-shelter move. --}}
+                                @if (in_array($h->id, $txOpenIds))
+                                    <span class="text-sm text-ink-muted">Transfer in progress</span>
+                                @else
+                                    <button type="button" class="btn-link"
+                                            data-tx-create
+                                            data-household-id="{{ $h->id }}"
+                                            data-household-code="{{ $h->household_code }}"
+                                            data-household-head="{{ $h->headMember?->full_name }}"
+                                            data-household-present="{{ $h->members_present }}"
+                                            data-center-id="{{ $center->id }}"
+                                            data-center-name="{{ $center->name }}">Move to Shelter</button>
+                                @endif
                                 <form method="POST" action="{{ route('city.shelters.households.checkout', [$center, $h]) }}"
                                       class="inline-form" data-confirm="Check out {{ $h->household_code }}?">
                                     @csrf
@@ -487,5 +518,25 @@
         reliefSearchUrl: "{{ route('city.shelters.relief.recipients', $center) }}",
         goodsOptions: {!! json_encode(($goods ?? collect())->map(fn ($g) => ['id' => $g->id, 'label' => $g->name . ' (' . $g->unit . ')'])->values()) !!},
     };
+</script>
+@endpush
+
+@push('modals')
+    {{-- PHASE 2 ITEM 8 -- shared transfer modals. --}}
+    @include('partials.transfer-modals', ['tx' => $tx])
+@endpush
+
+@push('scripts')
+<script>
+    // Raw echo, not the escaped one. Blade's escaped echo runs the value through
+    // e(), which turns every double quote in the JSON into an HTML entity. A
+    // browser does not decode entities inside a script tag, so the assignment
+    // threw a SyntaxError and window.TransferConfig was never set. JSON headed
+    // for a script block always needs the raw echo.
+    //
+    // And note there is no Blade echo syntax anywhere in this comment: a JS
+    // comment is still Blade source, so braces here would be compiled and would
+    // break the whole file. Same trap as naming a Blade directive in a comment.
+    window.TransferConfig = {!! json_encode($txConfig) !!};
 </script>
 @endpush

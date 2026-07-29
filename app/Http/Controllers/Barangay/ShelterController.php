@@ -6,7 +6,9 @@ use App\Models\EvacuationCenter;
 use App\Models\Household;
 use App\Models\HouseholdMember;
 use App\Models\HouseholdTransfer;
+use App\Models\ShelterTransfer;
 use App\Services\AuditLogger;
+use App\Services\TransferService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -48,7 +50,22 @@ class ShelterController extends BarangayController
 
         $recent = $this->recentActivity($center);
 
-        return view('barangay.shelter.index', compact('center', 'households', 'recent'));
+        // PHASE 2 ITEM 8: destinations for the "Move to Shelter" modal. The full
+        // active list goes to the browser and transfers.js filters out whichever
+        // shelter the family is currently in.
+        $transferCenters = app(TransferService::class)->centerOptions();
+
+        // ONE query for the whole page rather than an openTransfer() call per
+        // row, so the table can show "Transfer in progress" instead of offering
+        // a button the service would only reject.
+        $openTransferHouseholdIds = ShelterTransfer::whereIn('household_id', $households->pluck('id'))
+            ->open()
+            ->pluck('household_id')
+            ->all();
+
+        return view('barangay.shelter.index', compact(
+            'center', 'households', 'recent', 'transferCenters', 'openTransferHouseholdIds'
+        ));
     }
 
     /**
@@ -115,6 +132,17 @@ class ShelterController extends BarangayController
 
         if ($household->status !== 'checked_in') {
             return back()->withErrors(['household' => 'This household is not currently checked in.']);
+        }
+
+        // PHASE 2 ITEM 8: a family committed to a shelter transfer must not be
+        // checked out from underneath it. The transfer counts on finding them
+        // still checked in at the origin -- that is the whole basis of the
+        // occupancy design -- so receiving one that had been checked out would
+        // resurrect a household nobody had counted.
+        if ($open = $household->openTransfer()) {
+            return back()->withErrors([
+                'household' => "This household has a shelter transfer in progress ({$open->statusLabel()}). Cancel or complete the transfer first.",
+            ]);
         }
 
         $center = $household->evacuationCenter;

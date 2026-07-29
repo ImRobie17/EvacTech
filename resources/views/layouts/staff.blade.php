@@ -50,6 +50,11 @@
     // and Reports get the switcher too without touching their controllers.
     $navCenters = $navCenters ?? collect();
     $navActiveCenter = $navCenters->firstWhere('id', $navActiveCenterId ?? null);
+
+    // PHASE 2 ITEM 8. Fed by the same composer as the alert bar. Defaults are
+    // set here so the layout still renders if the composer ever returns early.
+    $navTransferCount = (int) (($transferAlerts['needs_action'] ?? 0) + ($transferAlerts['overdue'] ?? 0));
+    $navTransferGlow = $navTransferCount > 0;
 @endphp
 <div class="staff-shell {{ $sidebarCollapsed ? 'sidebar-collapsed' : '' }}">
 
@@ -98,6 +103,12 @@
             </a>
             <a href="{{ route('barangay.relief.index') }}" class="nav-item {{ request()->routeIs('barangay.relief.*') ? 'active' : '' }}">
                 <span class="nav-icon" aria-hidden="true">&#128230;</span><span class="nav-label">Relief Distribution</span>
+            </a>
+            {{-- PHASE 2 ITEM 8. The glow is a Tailwind ring plus a count, never
+                 colour alone: the number of items needing this user's attention
+                 is printed as text beside the label. --}}
+            <a href="{{ route('barangay.transfers.index') }}" class="nav-item {{ request()->routeIs('barangay.transfers.*') ? 'active' : '' }} {{ $navTransferGlow ? 'ring-2 ring-red-500' : '' }}">
+                <span class="nav-icon" aria-hidden="true">&#8646;</span><span class="nav-label">Shelter Transfers @if($navTransferGlow)<span class="badge badge-danger">{{ $navTransferCount }}</span>@endif</span>
             </a>
             <a href="{{ route('barangay.reports.index') }}" class="nav-item {{ request()->routeIs('barangay.reports.*') ? 'active' : '' }}">
                 <span class="nav-icon" aria-hidden="true">&#128462;</span><span class="nav-label">Report Generation</span>
@@ -163,6 +174,10 @@
                 @endif
             </div>
         @endif
+
+        {{-- PHASE 2 ITEM 8 -- pinned below the shelter switcher, above the page
+             heading, on every barangay screen. --}}
+        @include('partials.transfer-alert-bar')
 
         <header class="page-head">
             <div>

@@ -9,9 +9,11 @@ use App\Models\HouseholdMember;
 use App\Models\ReliefGood;
 use App\Models\ReliefInventory;
 use App\Models\ReliefTransaction;
+use App\Models\ShelterTransfer;
 use App\Models\VulnerableClassification;
 use App\Services\AuditLogger;
 use App\Services\HouseholdMemberSync;
+use App\Services\TransferService;
 use App\Support\AgeTier;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -37,8 +39,10 @@ use Illuminate\Support\Facades\DB;
  */
 class ShelterDetailController extends Controller
 {
-    public function __construct(private HouseholdMemberSync $sync)
-    {
+    public function __construct(
+        private HouseholdMemberSync $sync,
+        private TransferService $transfers,
+    ) {
     }
 
     public const TABS = ['households', 'relief'];
@@ -58,6 +62,8 @@ class ShelterDetailController extends Controller
             // never appear as something a staff member can tick.
             'classifications' => VulnerableClassification::selectable()->orderBy('name')->get(),
             'ageGroups' => AgeTier::options(),
+            // PHASE 2 ITEM 8: destinations for the "Move to Shelter" modal.
+            'transferCenters' => $this->transfers->centerOptions(),
         ];
 
         $data += $tab === 'relief'
@@ -101,9 +107,17 @@ class ShelterDetailController extends Controller
             $query->latest('checked_in_at');
         }
 
+        $households = $query->paginate(15)->withQueryString();
+
         return [
-            'households' => $query->paginate(15)->withQueryString(),
+            'households' => $households,
             'originBarangays' => \App\Models\Barangay::orderBy('name')->get(),
+            // PHASE 2 ITEM 8: one query for the page, so each row knows whether
+            // a transfer is already in progress for that family.
+            'openTransferHouseholdIds' => ShelterTransfer::whereIn('household_id', $households->pluck('id'))
+                ->open()
+                ->pluck('household_id')
+                ->all(),
         ];
     }
 
@@ -156,6 +170,15 @@ class ShelterDetailController extends Controller
 
         if ($household->status !== 'checked_in') {
             return back()->withErrors(['household' => 'This household is not currently checked in.']);
+        }
+
+        // PHASE 2 ITEM 8: same guard as the barangay side. A family with a
+        // transfer in progress is still counted here on purpose, and checking
+        // them out would leave the destination with nothing to receive.
+        if ($open = $household->openTransfer()) {
+            return back()->withErrors([
+                'household' => "This household has a shelter transfer in progress ({$open->statusLabel()}). Cancel or complete the transfer first.",
+            ]);
         }
 
         DB::transaction(function () use ($household, $center) {

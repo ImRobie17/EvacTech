@@ -278,6 +278,17 @@ function initEvacueeForm() {
             row.appendChild(hidden);
         } else {
             row.querySelector('[data-remove-row]').addEventListener('click', () => row.remove());
+
+            // PHASE 3 ITEM 11b -- close the last half of item 9's surname
+            // inheritance. The row template carries required= because the SAME
+            // template is cloned for the head row, where a surname really is
+            // mandatory. On a MEMBER row the server rule is nullable (a blank
+            // surname is filled from the head's inside HouseholdMemberSync), so
+            // leaving the attribute on means the browser blocks the submit
+            // before the relaxed rule is ever reached: server says optional,
+            // browser says required. Stripping it HERE rather than in the
+            // template is what keeps the head row strict.
+            row.querySelector('[data-field="last_name"]')?.removeAttribute('required');
         }
 
         // Birthdate <-> age-group wiring. Birthdate wins and locks the
@@ -307,10 +318,68 @@ function initEvacueeForm() {
         if (transferBtn) transferBtn.hidden = true;
     }
 
+    /* PHASE 3 ITEM 9 -- surname inheritance, client side.
+       The server fills a blank member surname from the head's inside
+       HouseholdMemberSync; that is the guarantee. This is the affordance: the
+       operator SEES the inherited name and can type over it, so a mixed-surname
+       family is corrected before saving rather than discovered afterwards. */
+    function headLastNameInput() {
+        return headRow.querySelector('[data-field="last_name"]');
+    }
+
+    function memberLastNameInputs() {
+        return memberRows.querySelectorAll('[data-field="last_name"]');
+    }
+
+    /* Fill only the blanks. A surname the operator typed is never overwritten,
+       so correcting one child's name and then fixing a typo in the head's does
+       not silently undo the correction. */
+    function fillBlankSurnames() {
+        const head = headLastNameInput();
+        if (!head) return;
+        const surname = head.value.trim();
+        if (surname === '') return;
+
+        memberLastNameInputs().forEach((input) => {
+            if (input.value.trim() === '') input.value = surname;
+        });
+    }
+
     addBtn.addEventListener('click', () => {
-        memberRows.appendChild(makeRow(memberIndex, false));
+        const row = makeRow(memberIndex, false);
+        const head = headLastNameInput();
+        const surname = head ? head.value.trim() : '';
+        if (surname !== '') {
+            const field = row.querySelector('[data-field="last_name"]');
+            if (field) field.value = surname;
+        }
+        memberRows.appendChild(row);
         memberIndex++;
     });
+
+    /* Delegated on the form, not bound to the head input directly: resetForm()
+       and loadHouseholdIntoForm() both replace headRow's contents wholesale, so
+       a listener attached to the input itself would be thrown away with it. */
+    form.addEventListener('blur', (e) => {
+        if (typeof e.target.matches !== 'function') return;
+        if (!e.target.matches('[data-field="last_name"]')) return;
+
+        // Leaving the HEAD's surname: push it down into every blank member row.
+        if (headRow.contains(e.target)) {
+            fillBlankSurnames();
+            return;
+        }
+
+        // Leaving a MEMBER's surname: pull the head's down, but only into a
+        // field the operator left empty. A deliberately different surname --
+        // a married daughter, a fostered child -- is never overwritten.
+        if (!memberRows.contains(e.target)) return;
+        if (e.target.value.trim() !== '') return;
+
+        const head = headLastNameInput();
+        const surname = head ? head.value.trim() : '';
+        if (surname !== '') e.target.value = surname;
+    }, true);
 
     document.querySelectorAll('[data-open-modal="evacueeModal"]').forEach((btn) => {
         btn.addEventListener('click', async () => {

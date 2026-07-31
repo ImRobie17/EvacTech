@@ -11,11 +11,18 @@ use Illuminate\Database\Seeder;
  * Matched on 'code', never on 'name', so the display label can be edited to
  * match the official CSWDO wording without orphaning a single tagged row.
  *
- * NOTHING IS DELETED HERE. Senior Citizen and Infant / Young Child became age
- * tiers, so they are marked is_selectable = false: invisible in every dropdown
- * and excluded from every count, with their historical rows intact. The FK on
- * member_vulnerabilities is restrictOnDelete, so a hard delete would fail while
- * those rows exist anyway.
+ * PHASE 3 ITEM 11b -- Senior Citizen and Infant / Young Child are GONE.
+ *
+ * Phase 2 retired them with is_selectable = false when they became derived age
+ * tiers, keeping the rows so that anyone already tagged kept their history. A
+ * check before removal found that nobody was: zero rows in
+ * member_vulnerabilities pointed at either. With no history to preserve they
+ * were only confusing the raw table, so migration
+ * 2025_09_01_000001_delete_retired_vulnerable_classifications deletes them.
+ *
+ * THEY MUST NOT COME BACK HERE. updateOrCreate() below matches on 'code', so
+ * re-adding either entry would recreate the row on the next db:seed and quietly
+ * undo that migration.
  *
  * Person with Chronic Illness stays SELECTABLE on purpose. It does not appear
  * on the IDP Monitoring Form, but it is operationally useful to the medical
@@ -68,20 +75,6 @@ class VulnerableClassificationSeeder extends Seeder
                 'name' => 'Person with Chronic Illness',
                 'description' => 'Requires ongoing medical attention or medication (internal tag, not reported on the IDP form)',
                 'is_selectable' => true,
-            ],
-
-            // Retired: these are age tiers now. Rows preserved, never counted.
-            [
-                'code' => 'senior_citizen',
-                'name' => 'Senior Citizen',
-                'description' => 'Retired -- now derived as an age tier',
-                'is_selectable' => false,
-            ],
-            [
-                'code' => 'infant_young_child',
-                'name' => 'Infant / Young Child',
-                'description' => 'Retired -- now derived as an age tier',
-                'is_selectable' => false,
             ],
         ];
 

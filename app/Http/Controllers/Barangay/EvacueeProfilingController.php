@@ -257,7 +257,21 @@ class EvacueeProfilingController extends BarangayController
             'address' => ['required', 'string', 'max:255'],
             'members' => ['required', 'array', 'min:1'],
             'members.*.id' => ['nullable', 'integer'],
-            'members.*.last_name' => ['required', 'string', 'max:100'],
+            // PHASE 3 ITEM 9. Blank on a non-head row is allowed:
+            // HouseholdMemberSync fills it from the head's surname, which is
+            // the common case and saves retyping it for every child during a
+            // surge. The HEAD's surname stays required -- inheritance has to
+            // come from somewhere, and an empty one would build every
+            // full_name in the family as ", Juan".
+            //
+            // members.0 is the head on every form that posts here: the head row
+            // is rendered at index 0 and carries the is_head hidden input.
+            // HouseholdMemberSync resolves the head the same way and treats a
+            // blank head surname as "do not inherit", so a future form that
+            // flagged is_head elsewhere would degrade to a validation error
+            // rather than to silently wrong names.
+            'members.*.last_name' => ['nullable', 'string', 'max:100'],
+            'members.0.last_name' => ['required', 'string', 'max:100'],
             'members.*.first_name' => ['required', 'string', 'max:100'],
             'members.*.middle_name' => ['nullable', 'string', 'max:100'],
 

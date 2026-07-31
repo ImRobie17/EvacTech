@@ -63,6 +63,11 @@ Route::middleware(['auth', 'role:barangay_personnel', 'shelter.assigned'])
         Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
         Route::post('/reports/generate', [ReportController::class, 'generate'])->name('reports.generate');
 
+        // CSWDO IDP Monitoring Form (Phase 3 item 11a). A separate action from
+        // reports.generate: PDF only, fixed layout, its own Blade view. Scoped
+        // to the active shelter by ResolvesCenter.
+        Route::post('/reports/idp-form', [ReportController::class, 'idp'])->name('reports.idp');
+
         // ---- Shelter Transfers (Phase 2 item 8) ----
         //
         // Distinct from shelter.transfer above, which is the family-HEAD-role

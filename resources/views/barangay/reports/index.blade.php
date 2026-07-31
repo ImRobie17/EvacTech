@@ -19,6 +19,75 @@
 --}}
 
 @section('content')
+{{--
+    PHASE 3 ITEM 11a -- the CSWDO IDP Monitoring Form.
+
+    Its OWN panel and its OWN route, not another option in the dropdown below.
+    That dropdown validates against ReportController::TYPES and offers a PDF/xlsx
+    choice; this form is a fixed two-cross-tab layout that exists to be printed
+    and signed, so an xlsx of it would be a broken artifact. Keeping it separate
+    also means the five working report types are untouched.
+
+    Scoped to the ACTIVE shelter from the header switcher, resolved by
+    ResolvesCenter. The city-wide "Accumulated Shelters" variant is City Admin's.
+--}}
+<section class="card panel mb-4">
+    <h2 class="panel-title">CSWDO IDP Monitoring Form</h2>
+    <p class="mb-3 text-sm text-ink-muted">
+        The official CSWDO monitoring sheet for
+        <strong>{{ $center?->name ?? 'this shelter' }}</strong>, filled in from the
+        families checked in right now. Age groups and vulnerable categories are
+        counted for you. PDF only, ready to print and sign.
+    </p>
+
+    <form method="POST" action="{{ route('barangay.reports.idp') }}">
+        @csrf
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div class="field">
+                <label for="idp-disaster">Name of disaster</label>
+                <input type="text" id="idp-disaster" name="disaster_name" maxlength="150"
+                       placeholder="e.g. Typhoon Kristine"
+                       value="{{ old('disaster_name') }}" required>
+            </div>
+            <div class="field">
+                <label for="idp-date">Date of disaster</label>
+                <input type="date" id="idp-date" name="disaster_date"
+                       max="{{ now()->toDateString() }}"
+                       value="{{ old('disaster_date') }}" required>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div class="field">
+                <label for="idp-families">Number of affected families</label>
+                <input type="number" id="idp-families" name="affected_families" min="0"
+                       value="{{ old('affected_families', $idpCounts['families']) }}">
+                <p class="mt-1 text-xs text-ink-muted">
+                    Pre-filled with the {{ $idpCounts['families'] }} checked in here now.
+                    The form asks for the city-wide figure, so overwrite this if CDRRMO
+                    has given you one. Clear it to print a blank line instead.
+                </p>
+            </div>
+            <div class="field">
+                <label for="idp-persons">Number of affected persons</label>
+                <input type="number" id="idp-persons" name="affected_persons" min="0"
+                       value="{{ old('affected_persons', $idpCounts['persons']) }}">
+                <p class="mt-1 text-xs text-ink-muted">
+                    Pre-filled with the {{ $idpCounts['persons'] }} present here now.
+                    Same rule as families.
+                </p>
+            </div>
+        </div>
+
+        <p class="mb-3 text-xs text-ink-muted">
+            Prepared by and Noted by print as blank signature lines. Noted by carries
+            the OIC CSWDO designation.
+        </p>
+
+        <button type="submit" class="btn-primary w-full sm:w-auto">&darr; Generate IDP Form (PDF)</button>
+    </form>
+</section>
+
 {{-- The old .dash-columns gave both panels equal width at every size. The form
      is the task and the history is reference, so from 1024px the form takes two
      thirds. Below that they stack, form first. --}}
@@ -35,6 +104,10 @@
                     <option value="relief">Relief Distribution</option>
                     <option value="vulnerable">Vulnerable Population</option>
                     <option value="occupancy">Shelter Occupancy Summary</option>
+                    {{-- Item 11b. Every member at this shelter, tagged or not.
+                         Shelter Ranking is City Admin only -- ranking one
+                         shelter is not a report. --}}
+                    <option value="demographics">Evacuee Demographics</option>
                 </select>
             </div>
 
@@ -46,6 +119,61 @@
                 <div class="field">
                     <label for="rep-to">Date to <small>(optional)</small></label>
                     <input type="date" id="rep-to" name="date_to" max="{{ now()->toDateString() }}">
+                </div>
+            </div>
+
+
+            {{--
+                PHASE 3 ITEM 11b -- the three demographic filters.
+
+                They apply to EVERY report type, not just the member-level ones.
+                All three are properties of a member, so on a household or
+                shelter report they select which rows appear -- households or
+                shelters containing at least one matching member -- rather than
+                recomputing the figures inside those rows. The generated PDF says
+                so in its header, and a Matching Members column is added so the
+                distinction is visible in the table itself.
+
+                Leaving all three on "Any" produces exactly the report you got
+                before this feature existed.
+            --}}
+            <div class="field">
+                <label>Demographic filters <small>(optional)</small></label>
+                <p class="mt-1 mb-2 text-xs text-ink-muted">
+                    Narrow the report to a sex, an age group, a vulnerable category, or
+                    any combination. On household and shelter reports these choose which
+                    rows appear; totals stay whole-household and whole-shelter figures,
+                    and a Matching Members column is added.
+                </p>
+            </div>
+
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div class="field">
+                    <label for="rep-sex">Sex</label>
+                    <select id="rep-sex" name="sex">
+                        <option value="">Any</option>
+                        @foreach($filterOptions['sexes'] as $value => $label)
+                            <option value="{{ $value }}" @selected(old('sex') === $value)>{{ $label }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="field">
+                    <label for="rep-age-tier">Age group</label>
+                    <select id="rep-age-tier" name="age_tier">
+                        <option value="">Any</option>
+                        @foreach($filterOptions['tiers'] as $value => $label)
+                            <option value="{{ $value }}" @selected(old('age_tier') === $value)>{{ $label }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="field">
+                    <label for="rep-category">Vulnerable category</label>
+                    <select id="rep-category" name="category">
+                        <option value="">Any</option>
+                        @foreach($filterOptions['categories'] as $value => $label)
+                            <option value="{{ $value }}" @selected(old('category') === $value)>{{ $label }}</option>
+                        @endforeach
+                    </select>
                 </div>
             </div>
 

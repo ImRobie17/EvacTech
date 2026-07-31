@@ -161,6 +161,31 @@ h4 {
     height: auto;
 }
 
+/* Reference-shelter name labels in the City Admin location picker
+   (resources/js/shelter-picker.js). This is a THIRD-PARTY OVERRIDE, not new UI:
+   Leaflet ships .leaflet-tooltip as an opaque white box with its own border and
+   shadow, which is wrong in dark mode and unreachable from a utility class
+   because Leaflet's own selector wins. It belongs here, next to the tile
+   override above, for the same reason that one does. */
+.leaflet-tooltip.shelter-picker-label {
+    padding: 2px 6px;
+    font-family: var(--font-sans);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
+    color: var(--color-ink-soft);
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    box-shadow: none;
+    white-space: nowrap;
+}
+
+/* Leaflet draws a small arrow on every tooltip with a border trick. The picker
+   labels sit beside a 7px dot where the arrow only adds noise. */
+.leaflet-tooltip.shelter-picker-label::before {
+    display: none;
+}
+
 /* =========================================================================
    Accessibility baseline -- non-negotiable
    ========================================================================= */

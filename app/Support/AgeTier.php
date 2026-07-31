@@ -87,6 +87,29 @@ final class AgeTier
         self::UNKNOWN => 'Unknown',
     ];
 
+    /**
+     * The bracket text for the IDP Monitoring Form's Age column.
+     *
+     * The official form splits Category and Age into two columns, so the range
+     * cannot be baked into the label the way LABELS does it.
+     *
+     * TRANSCRIBED VERBATIM from the photographed CSWDO form, including the
+     * trailing "old" and the bare "60 and above". Do not tidy the wording:
+     * the printed sheet has to read the same as the one it replaces. Plain ASCII
+     * hyphens -- these strings reach a PDF and a raw glyph would come back as
+     * mojibake.
+     */
+    private const RANGES = [
+        self::INFANT => '0-6 months',
+        self::TODDLER => '7 months - 2 years old',
+        self::PRESCHOOL => '3-5 years old',
+        self::SCHOOL_AGE => '6-12 years old',
+        self::TEENAGE => '13-17 years old',
+        self::ADULT => '18-59 years old',
+        self::SENIOR => '60 and above',
+        self::UNKNOWN => 'Not stated',
+    ];
+
     /** The seven real tiers, in official form order. Excludes Unknown. */
     public static function keys(): array
     {
@@ -115,6 +138,53 @@ final class AgeTier
     public static function shortLabel(?string $key): string
     {
         return self::SHORT_LABELS[$key] ?? self::SHORT_LABELS[self::UNKNOWN];
+    }
+
+    /** The Age column of the IDP form, e.g. "7 months - 2 years". */
+    public static function range(?string $key): string
+    {
+        return self::RANGES[$key] ?? self::RANGES[self::UNKNOWN];
+    }
+
+    /**
+     * Phase 3 item 9 -- fold a sex matrix into labelled rows for a dashboard.
+     *
+     * Takes the output of sexMatrixFor() / emptySexMatrix() and returns
+     * [['key','label','male','female','total'], ...] using the SHORT labels,
+     * which are what fit under a chart segment and inside a narrow table cell.
+     *
+     * The Unknown bucket is dropped when it holds nobody. Registration has
+     * required a birthdate or an age group since Phase 2, so a populated
+     * Unknown can only come from a pre-Phase-2 row; charting an empty slice
+     * would put a permanent meaningless label on every dashboard in the city.
+     * A populated one is always shown, so nobody silently vanishes.
+     *
+     * Lives here, not in a Blade file, because both dashboards need it and no
+     * view in this codebase references a class directly -- controllers prepare,
+     * views render. Takes an array and runs no queries, so it stays a pure
+     * formatter.
+     */
+    public static function chartRows(array $matrix): array
+    {
+        $rows = [];
+
+        foreach ($matrix as $tier => $counts) {
+            $total = (int) ($counts['total'] ?? 0);
+
+            if ($tier === self::UNKNOWN && $total === 0) {
+                continue;
+            }
+
+            $rows[] = [
+                'key' => $tier,
+                'label' => self::shortLabel($tier),
+                'male' => (int) ($counts['male'] ?? 0),
+                'female' => (int) ($counts['female'] ?? 0),
+                'total' => $total,
+            ];
+        }
+
+        return $rows;
     }
 
     public static function isValid(?string $key): bool

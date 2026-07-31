@@ -71,6 +71,10 @@ Route::middleware(['auth', 'role:city_admin'])
         Route::get('/reports', [CityReport::class, 'index'])->name('reports.index');
         Route::post('/reports/generate', [CityReport::class, 'generate'])->name('reports.generate');
 
+        // CSWDO IDP Monitoring Form (Phase 3 item 11a). PDF only, fixed layout,
+        // its own Blade view. A blank `center` prints every shelter accumulated.
+        Route::post('/reports/idp-form', [CityReport::class, 'idp'])->name('reports.idp');
+
         // ---- Shelter Transfers (Phase 2 item 8) ----
         // City Admin sees every transfer between every shelter and may act at
         // either end. Cancelling a transfer that is already IN TRANSIT is a

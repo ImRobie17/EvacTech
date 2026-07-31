@@ -6,6 +6,7 @@ use App\Models\Household;
 use App\Models\HouseholdMember;
 use App\Models\ReliefInventory;
 use App\Support\AgeTier;
+use App\Support\IdpForm;
 use Illuminate\Support\Carbon;
 
 class DashboardController extends BarangayController
@@ -28,6 +29,9 @@ class DashboardController extends BarangayController
             'single_headed' => 0,
         ];
         $ageMatrix = AgeTier::emptySexMatrix(includeUnknown: true);
+        // Phase 3 item 9. Both empty until a shelter is resolved.
+        $ageRows = [];
+        $categoryRows = [];
         $chart = ['labels' => [], 'data' => []];
         $recent = collect();
 
@@ -84,6 +88,13 @@ class DashboardController extends BarangayController
                 includeUnknown: true
             );
 
+            // Phase 3 item 9. Vulnerable-category chart. Built by IdpForm, not
+            // by a query written here, so the chart and the signed CSWDO form
+            // are the same figures by construction. Chronic Illness is off this
+            // chart because it is off that form.
+            $ageRows = AgeTier::chartRows($ageMatrix);
+            $categoryRows = IdpForm::categoriesFor($center);
+
             // Daily registrations, past 7 days.
             // RESCOPED: was origin_barangay_id = auth()->user()->barangay_id. Staff
             // are no longer tied to a barangay, so this now counts households
@@ -121,6 +132,6 @@ class DashboardController extends BarangayController
                 ->take(5);
         }
 
-        return view('barangay.dashboard', compact('center', 'kpis', 'chart', 'recent', 'ageMatrix'));
+        return view('barangay.dashboard', compact('center', 'kpis', 'chart', 'recent', 'ageMatrix', 'ageRows', 'categoryRows'));
     }
 }

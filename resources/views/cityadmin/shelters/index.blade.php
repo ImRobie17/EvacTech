@@ -1,5 +1,31 @@
 @extends('layouts.cityadmin')
 
+@php
+    // PHASE 3 ITEM 10. Leaflet reaches this page ONLY through this entry, so the
+    // rest of the City Admin screens still download no map code. See the header
+    // of resources/js/shelter-picker.js for why it is a separate entry from
+    // resources/js/map.js.
+    $viteEntries = ['resources/js/shelter-picker.js'];
+
+    // Reference pins: EVERY shelter that has coordinates, deliberately NOT the
+    // filtered or paginated set. A picker showing 15 of 30 shelters would make
+    // the city look emptier than it is and invite a duplicate in a gap that is
+    // not really a gap. $mapShelters comes from ShelterController::index().
+    $pickerData = collect($mapShelters ?? [])->map(fn ($s) => [
+        'id' => $s->id,
+        'name' => $s->name,
+        'barangay_id' => $s->barangay_id,
+        'lat' => (float) $s->latitude,
+        'lng' => (float) $s->longitude,
+    ])->values();
+
+    // GOTCHA 1 and 2: built in a PHP block, never as an inline json directive
+    // containing arrows, and emitted with the RAW echo into a data island. The
+    // HEX flags mean a shelter named with a quote or an angle bracket cannot
+    // reshape the surrounding markup.
+    $pickerJson = json_encode($pickerData, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
+@endphp
+
 @section('title', 'Evacuation Shelters')
 @section('page-title', 'Evacuation Shelters')
 @section('page-subtitle', 'All evacuation centers across the city. A barangay may have several.')
@@ -132,6 +158,23 @@
             @csrf
             <input type="hidden" name="_method" id="shelterMethod" value="POST">
 
+            {{-- PHASE 3 ITEM 10 -- two columns: form on the left, map on the right,
+                 so the map is visible for the whole time the modal is open.
+
+                 ONE dialog, not two. A second modal beside this one would mean two
+                 elements carrying aria-modal="true" at the same time, which no
+                 screen reader can resolve, two competing focus traps, and two
+                 backdrops where staff.js's backdrop-click handler would close one
+                 and strand the other. It would also have no meaning at all on a
+                 phone, where there is no "right hand side".
+
+                 Default align-items (stretch) is deliberate: it makes this cell as
+                 tall as the form beside it, which is what gives the sticky panel
+                 inside it room to travel as the form scrolls. items-start would
+                 collapse the cell and the sticky would never move. --}}
+            <div class="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-6">
+            <div class="min-w-0">
+
             <div class="field"><label for="sh-name">Shelter name</label><input type="text" id="sh-name" name="name" required maxlength="255"></div>
 
             <div class="field" id="sh-barangay-field">
@@ -145,11 +188,11 @@
 
             <div class="field"><label for="sh-address">Address</label><input type="text" id="sh-address" name="address" required maxlength="255"></div>
 
-            <div class="member-grid">
-                <div class="field"><label for="sh-capacity">Capacity (persons)</label><input type="number" id="sh-capacity" name="capacity" min="1" required></div>
-                <div class="field"><label for="sh-lat">Latitude <small>(optional)</small></label><input type="number" step="any" id="sh-lat" name="latitude"></div>
-                <div class="field"><label for="sh-lng">Longitude <small>(optional)</small></label><input type="number" step="any" id="sh-lng" name="longitude"></div>
-            </div>
+            {{-- Capacity is alone here now. Latitude and longitude moved into the
+                 Location panel in the right-hand column, beside the map that
+                 writes them, so the numbers sit next to the thing that produces
+                 them instead of three columns away from it. --}}
+            <div class="field"><label for="sh-capacity">Capacity (persons)</label><input type="number" id="sh-capacity" name="capacity" min="1" required></div>
 
             <div class="field" id="sh-status-field" hidden>
                 <label for="sh-status">Status</label>
@@ -199,6 +242,59 @@
                 </div>
             </fieldset>
 
+            </div>{{-- end left column --}}
+
+            {{-- ---- Right column: the location picker ---- --}}
+            <div class="min-w-0">
+                <div class="lg:sticky lg:top-2">
+                    <fieldset class="member-fieldset">
+                        <legend>Location on map</legend>
+                        <p class="field-hint">
+                            Click the map to place this shelter, then drag the pin to adjust it.
+                            Grey dots are shelters that already have a location; their names appear
+                            as you zoom in. Choosing a barangay above moves the map to it.
+                        </p>
+
+                        {{-- Leaflet needs a definite height or it renders nothing, and it
+                             needs a rounded, clipped box or tiles bleed past the corners.
+                             Utilities, not a new stylesheet class. --}}
+                        {{-- role="group", not role="application". Application tells a
+                             screen reader to hand every keystroke to the widget, which
+                             would strand a keyboard user inside a map they cannot
+                             operate. The coordinate fields below are the keyboard path,
+                             and they are always present. --}}
+                        <div id="shelterPickerMap"
+                             class="h-72 w-full overflow-hidden rounded-md border border-border bg-surface lg:h-80"
+                             role="group"
+                             aria-label="Shelter location picker map"></div>
+
+                        {{-- The state is announced in words, never by the pin's colour
+                             alone, and aria-live means a screen reader hears each
+                             placement. --}}
+                        <p id="shelterPickerStatus" class="mt-2 text-sm text-ink-soft" role="status" aria-live="polite">
+                            No location set. Click the map to place this shelter.
+                        </p>
+
+                        {{-- The coordinate fields stay real, visible and editable. They are
+                             the read-out of the pin, the way to paste a surveyed figure, and
+                             the only way to set a location without a mouse. --}}
+                        <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            <div class="field"><label for="sh-lat">Latitude <small>(optional)</small></label><input type="number" step="any" id="sh-lat" name="latitude"></div>
+                            <div class="field"><label for="sh-lng">Longitude <small>(optional)</small></label><input type="number" step="any" id="sh-lng" name="longitude"></div>
+                        </div>
+
+                        <button type="button" class="btn-link" id="shelterPickerClear" disabled>Clear location</button>
+
+                        <p class="field-hint">
+                            A shelter with no location is saved normally. It simply does not
+                            appear on the public evacuation map until one is set.
+                        </p>
+                    </fieldset>
+                </div>
+            </div>
+
+            </div>{{-- end two-column grid --}}
+
             <div class="modal-actions">
                 <button type="button" class="btn-secondary" data-close-modal>Cancel</button>
                 <button type="submit" class="btn-primary" id="shelterSubmit">Add Shelter</button>
@@ -214,4 +310,9 @@
         storeUrl: "{{ route('city.shelters.store') }}",
     };
 </script>
+
+{{-- Data island, not a JS expression, exactly as the public map does it. The
+     browser never parses this as code, so a shelter name containing a quote or a
+     bracket is inert here. resources/js/shelter-picker.js reads it by id. --}}
+<script type="application/json" id="shelterPickerData">{!! $pickerJson !!}</script>
 @endpush

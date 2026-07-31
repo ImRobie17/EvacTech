@@ -12,8 +12,8 @@ use App\Models\ReliefGood;
 use App\Models\ReliefInventory;
 use App\Models\ReliefTransaction;
 use App\Support\AgeTier;
+use App\Support\IdpForm;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
@@ -51,19 +51,26 @@ class DashboardController extends Controller
             ->limit(5)
             ->get();
 
-        // ---- Vulnerable groups distribution (donut) ----
-        $vulnerableGroups = DB::table('member_vulnerabilities')
-            ->join('vulnerable_classifications', 'member_vulnerabilities.vulnerable_classification_id', '=', 'vulnerable_classifications.id')
-            ->join('household_members', 'member_vulnerabilities.household_member_id', '=', 'household_members.id')
-            ->where('household_members.is_present', true)
-            // Retired classifications are excluded: Senior Citizen and Infant
-            // are age tiers now and would otherwise be double-counted against
-            // the tier they became.
-            ->where('vulnerable_classifications.is_selectable', true)
-            ->groupBy('vulnerable_classifications.id', 'vulnerable_classifications.name')
-            ->selectRaw('vulnerable_classifications.name, COUNT(DISTINCT household_members.id) as total')
-            ->orderByDesc('total')
-            ->get();
+        // ---- Vulnerable categories (bar) ----
+        // PHASE 3 ITEM 9. Was a hand-written query here, grouped by
+        // vulnerable_classifications.NAME. Three things were wrong with it:
+        //
+        //   1. It keyed on name. The project rule is that all logic keys on
+        //      code -- names are editable, and the retired Senior Citizen /
+        //      Infant tags showed how fast name-keyed logic rots. This was the
+        //      last place still doing it.
+        //   2. It filtered on is_present alone, without households.status, so a
+        //      member of a checked-OUT family still counted. The IDP form has
+        //      always required checked_in. The two disagreed.
+        //   3. It was a doughnut. These categories OVERLAP -- one person can be
+        //      a pregnant solo parent on 4Ps -- so parts-of-a-whole is a claim
+        //      the data does not support. It is a bar chart now, and IdpForm
+        //      still refuses to print a column total for the same reason.
+        //
+        // includeChronicIllness: true is City Admin ONLY. It is a live internal
+        // medical-desk tag, deliberately absent from the CSWDO form, and the
+        // people coordinating medical response are the ones who need it.
+        $categoryRows = IdpForm::categoriesFor(null, includeChronicIllness: true);
 
         // ---- Age-tier distribution, bucketed in SQL, grouped by sex ----
         // Same query shape the Phase 3 IDP Monitoring Form needs.
@@ -75,6 +82,10 @@ class DashboardController extends Controller
                 ->whereHas('household', fn ($q) => $q->where('status', 'checked_in')),
             includeUnknown: true
         );
+
+        // Phase 3 item 9. Folded here, not in the view: no Blade file in this
+        // codebase references a class directly.
+        $ageRows = AgeTier::chartRows($ageMatrix);
 
         // ---- Heat map 1: Disaster risk by barangay (from barangays.risk_level) ----
         $riskHeatmap = Barangay::orderBy('name')->get()->map(fn ($b) => [
@@ -123,7 +134,7 @@ class DashboardController extends Controller
         $recent = AuditLog::with('user')->latest('created_at')->limit(6)->get();
 
         return view('cityadmin.dashboard', compact(
-            'kpis', 'topBarangays', 'vulnerableGroups', 'ageMatrix',
+            'kpis', 'topBarangays', 'categoryRows', 'ageMatrix', 'ageRows',
             'riskHeatmap', 'shelterHeatmap', 'reliefHeatmap', 'goods', 'recent'
         ));
     }

@@ -25,11 +25,32 @@
         ]],
     ];
 
-    $vulnerablePayload = [
-        'labels' => $vulnerableGroups->pluck('name')->values()->all(),
+    // PHASE 3 ITEM 9. Was $vulnerableGroups, keyed on classification NAME and
+    // drawn as a doughnut. Now IdpForm::categoriesFor(), keyed on code, drawn as
+    // a BAR: these categories overlap, so parts-of-a-whole was a claim the data
+    // never supported. City Admin's list carries a seventh bar, Chronic Illness,
+    // which is a live internal medical-desk tag and deliberately off the CSWDO
+    // form -- the barangay chart and the form both stop at six.
+    $categoryPayload = [
+        'labels' => array_column($categoryRows, 'label'),
         'datasets' => [[
-            'label' => 'Individuals',
-            'data' => $vulnerableGroups->pluck('total')->values()->all(),
+            'label' => 'Persons',
+            'data' => array_map(fn ($r) => (int) $r['total'], $categoryRows),
+            'colorToken' => '--color-primary-600',
+        ]],
+    ];
+
+    // Age tiers ARE mutually exclusive and do sum to the headcount, so a
+    // doughnut is honest here. Unknown is charted only when it holds someone:
+    // registration has required a birthdate or an age group since Phase 2, so a
+    // populated Unknown can only come from an older row.
+    // $ageRows is prepared by the controller via AgeTier::chartRows(): short
+    // labels, and the Unknown bucket already dropped when it holds nobody.
+    $agePayload = [
+        'labels' => array_column($ageRows, 'label'),
+        'datasets' => [[
+            'label' => 'Persons',
+            'data' => array_map(fn ($r) => (int) $r['total'], $ageRows),
         ]],
     ];
 
@@ -38,7 +59,8 @@
     // containing a quote or an angle bracket cannot close the tag early.
     $flags = JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT;
     $topBarangaysJson = json_encode($topBarangaysPayload, $flags);
-    $vulnerableJson = json_encode($vulnerablePayload, $flags);
+    $categoryJson = json_encode($categoryPayload, $flags);
+    $ageJson = json_encode($agePayload, $flags);
 @endphp
 
 @section('page-actions')
@@ -127,24 +149,86 @@
     </article>
 
     <article class="card panel">
-        <h2 class="panel-title">Vulnerable Groups Distribution</h2>
+        <h2 class="panel-title">Vulnerable Categories</h2>
+        {{-- A BAR, not the doughnut this used to be. These categories overlap --
+             one person can be a pregnant solo parent on 4Ps -- so a doughnut
+             asserted a whole that does not exist. IdpForm refuses to print a
+             column total for the same reason. --}}
         <div class="chart-wrap">
-            <canvas id="vulnerableChart"
-                    data-chart="doughnut"
-                    data-chart-data="vulnerableChartData"
+            <canvas id="categoryChart"
+                    data-chart="bar"
+                    data-chart-data="categoryChartData"
                     role="img"
-                    aria-label="Doughnut chart of vulnerable group distribution"></canvas>
+                    aria-label="Bar chart of checked-in persons by vulnerable category, city-wide"></canvas>
         </div>
         <details class="mt-3 text-sm text-ink-soft">
             <summary class="min-h-tap cursor-pointer py-2">View these figures as a table</summary>
-            <table class="data-table mt-2">
-                <caption class="visually-hidden">Individuals per vulnerable classification</caption>
-                <thead><tr><th scope="col">Classification</th><th scope="col">Individuals</th></tr></thead>
+            <table class="data-table mt-2" data-stack>
+                <caption class="visually-hidden">Checked-in persons by vulnerable category and sex, city-wide</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Category</th>
+                        <th scope="col">Male</th>
+                        <th scope="col">Female</th>
+                        <th scope="col">Total</th>
+                    </tr>
+                </thead>
                 <tbody>
-                    @forelse($vulnerableGroups as $g)
-                        <tr><td>{{ $g->name }}</td><td data-numeric>{{ number_format($g->total) }}</td></tr>
+                    @forelse($categoryRows as $row)
+                        <tr>
+                            <td data-label="Category">{{ $row['label'] }}</td>
+                            <td data-label="Male" data-numeric>{{ number_format($row['male']) }}</td>
+                            <td data-label="Female" data-numeric>{{ number_format($row['female']) }}</td>
+                            <td data-label="Total" data-numeric>{{ number_format($row['total']) }}</td>
+                        </tr>
                     @empty
-                        <tr><td colspan="2" class="empty-note">No vulnerability tags recorded yet.</td></tr>
+                        <tr><td colspan="4" class="empty-note">No vulnerability tags recorded yet.</td></tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </details>
+        <p class="field-hint">
+            A person can belong to several categories at once, so these figures
+            deliberately do not add up to a total. Chronic Illness is an internal
+            operational tag and does not appear on the CSWDO IDP form.
+        </p>
+    </article>
+</section>
+
+{{-- PHASE 3 ITEM 9. The city-wide age breakdown that feeds table 1 of the IDP
+     Monitoring Form, rendered for the first time. --}}
+<section class="mt-4 grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+    <article class="card panel">
+        <h2 class="panel-title">Age Group Distribution</h2>
+        <div class="chart-wrap">
+            <canvas id="ageGroupChart"
+                    data-chart="doughnut"
+                    data-chart-data="ageGroupChartData"
+                    role="img"
+                    aria-label="Doughnut chart of checked-in persons by age group, city-wide"></canvas>
+        </div>
+        <details class="mt-3 text-sm text-ink-soft">
+            <summary class="min-h-tap cursor-pointer py-2">View these figures as a table</summary>
+            <table class="data-table mt-2" data-stack>
+                <caption class="visually-hidden">Checked-in persons by age group and sex, city-wide</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Age group</th>
+                        <th scope="col">Male</th>
+                        <th scope="col">Female</th>
+                        <th scope="col">Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @forelse($ageRows as $row)
+                        <tr>
+                            <td data-label="Age group">{{ $row['label'] }}</td>
+                            <td data-label="Male" data-numeric>{{ number_format($row['male']) }}</td>
+                            <td data-label="Female" data-numeric>{{ number_format($row['female']) }}</td>
+                            <td data-label="Total" data-numeric>{{ number_format($row['total']) }}</td>
+                        </tr>
+                    @empty
+                        <tr><td colspan="4" class="empty-note">No one is checked in yet.</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -271,5 +355,6 @@
 {{-- Data islands read by resources/js/charts.js. Inert to the HTML parser, so
      nothing in the data can break the page or inject script. --}}
 <script type="application/json" id="topBarangaysChartData">{!! $topBarangaysJson !!}</script>
-<script type="application/json" id="vulnerableChartData">{!! $vulnerableJson !!}</script>
+<script type="application/json" id="categoryChartData">{!! $categoryJson !!}</script>
+<script type="application/json" id="ageGroupChartData">{!! $ageJson !!}</script>
 @endpush

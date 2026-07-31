@@ -248,6 +248,14 @@ function makeMemberRow(prefix, isHead) {
         row.appendChild(hidden);
     } else {
         row.querySelector('[data-remove-row]')?.addEventListener('click', () => row.remove());
+
+        // PHASE 3 ITEM 11b. The template carries required= because the same
+        // template is cloned for the head row, where a surname is mandatory. The
+        // server rule for a MEMBER surname is nullable -- a blank one is filled
+        // from the head's inside HouseholdMemberSync -- so leaving the attribute
+        // on lets the browser block the submit before the relaxed rule is ever
+        // reached.
+        row.querySelector('[data-field="last_name"]')?.removeAttribute('required');
     }
 
     // Birthdate wins and locks the age-group dropdown; with no birthdate the
@@ -336,15 +344,79 @@ document.addEventListener('click', async (e) => {
     cdOpen('cdEditModal');
 });
 
+/* PHASE 3 ITEM 11b -- surname inheritance, client side.
+
+   Item 9 relaxed the server rule and taught HouseholdMemberSync to fill a blank
+   member surname from the head's; that is the guarantee. This is the affordance
+   the City Admin screens never got: the operator SEES the inherited name and can
+   type over it, so a mixed-surname family is corrected before saving rather than
+   discovered afterwards. */
+function cdHeadLastNameInput() {
+    const headBox = document.getElementById('cd-ed-head');
+    return headBox ? headBox.querySelector('[data-field="last_name"]') : null;
+}
+
+function cdHeadSurname() {
+    const head = cdHeadLastNameInput();
+    return head ? head.value.trim() : '';
+}
+
+/* Fill only the blanks, so correcting one child's surname and then fixing a typo
+   in the head's does not silently undo the correction. */
+function cdFillBlankSurnames() {
+    const memberBox = document.getElementById('cd-ed-members');
+    const surname = cdHeadSurname();
+    if (!memberBox || surname === '') return;
+
+    memberBox.querySelectorAll('[data-field="last_name"]').forEach((input) => {
+        if (input.value.trim() === '') input.value = surname;
+    });
+}
+
 document.addEventListener('click', (e) => {
     if (!e.target.closest('#cdAddMemberBtn')) return;
     const memberBox = document.getElementById('cd-ed-members');
     const row = makeMemberRow(editIndex, false);
     if (memberBox && row) {
+        const surname = cdHeadSurname();
+        if (surname !== '') {
+            const field = row.querySelector('[data-field="last_name"]');
+            if (field) field.value = surname;
+        }
         memberBox.appendChild(row);
         editIndex++;
     }
 });
+
+/* Delegated on document, in line with this file's hardening note: the edit modal
+   is rebuilt from scratch every time a household is loaded, so a listener bound
+   to an input would be thrown away with it. Capture phase, because blur does not
+   bubble. The head/member containment checks keep this off every other
+   last_name field on the page. */
+document.addEventListener('blur', (e) => {
+    const field = e.target;
+    if (!field || typeof field.matches !== 'function') return;
+    if (!field.matches('[data-field="last_name"]')) return;
+
+    const headBox = document.getElementById('cd-ed-head');
+    const memberBox = document.getElementById('cd-ed-members');
+    if (!headBox || !memberBox) return;
+
+    // Leaving the HEAD's surname: push it down into every blank member row.
+    if (headBox.contains(field)) {
+        cdFillBlankSurnames();
+        return;
+    }
+
+    // Leaving a MEMBER's surname: pull the head's down, but only into a field
+    // the operator left empty. A deliberately different surname is never
+    // overwritten.
+    if (!memberBox.contains(field)) return;
+    if (field.value.trim() !== '') return;
+
+    const surname = cdHeadSurname();
+    if (surname !== '') field.value = surname;
+}, true);
 
 // ---------------------------------------------------------------------
 // Distribute Relief

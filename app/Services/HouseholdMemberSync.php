@@ -40,6 +40,11 @@ class HouseholdMemberSync
         $keptIds = [];
         $anyHeadFlagged = collect($members)->contains(fn ($x) => ! empty($x['is_head']));
 
+        // Phase 3 item 9. Resolved ONCE, before the loop, because a member row
+        // can be written before the head row is reached when is_head is flagged
+        // on something other than index 0.
+        $headLastName = $this->headLastName($members, $anyHeadFlagged);
+
         foreach ($members as $i => $m) {
             $isHead = ! $headSet && ! empty($m['is_head']);
             if ($i === 0 && ! $anyHeadFlagged) {
@@ -49,7 +54,7 @@ class HouseholdMemberSync
                 $headSet = true;
             }
 
-            $member = $this->writeMember($household, $m, $isHead, $checkin, $keepPresence);
+            $member = $this->writeMember($household, $m, $isHead, $checkin, $keepPresence, $headLastName);
             $keptIds[] = $member->id;
 
             $this->applyTags($member, $m['tags'] ?? []);
@@ -64,14 +69,57 @@ class HouseholdMemberSync
         }
     }
 
+    /**
+     * Phase 3 item 9 -- the surname a blank member row inherits.
+     *
+     * Head detection MIRRORS sync() exactly: the first row flagged is_head, or
+     * row 0 when nothing is flagged. Written as its own method so the two can
+     * never drift into disagreeing about which row is the head.
+     *
+     * Returns '' when the head's own surname is blank. Validation requires it,
+     * so that should not happen -- but inheriting an empty string would build a
+     * full_name beginning ", ", and a family whose every member displayed as
+     * ", Juan" would be worse than the validation error the operator is about
+     * to see anyway.
+     */
+    private function headLastName(array $members, bool $anyHeadFlagged): string
+    {
+        $head = null;
+
+        if ($anyHeadFlagged) {
+            foreach ($members as $m) {
+                if (! empty($m['is_head'])) {
+                    $head = $m;
+                    break;
+                }
+            }
+        } else {
+            $head = $members[array_key_first($members)] ?? null;
+        }
+
+        return trim($head['last_name'] ?? '');
+    }
+
     private function writeMember(
         Household $household,
         array $m,
         bool $isHead,
         bool $checkin,
-        bool $keepPresence
+        bool $keepPresence,
+        string $headLastName = ''
     ): HouseholdMember {
-        $fullName = trim($m['last_name'] . ', ' . $m['first_name'] . ' ' . ($m['middle_name'] ?? ''));
+        // Phase 3 item 9. A blank surname inherits the head's, which is the
+        // overwhelmingly common case and saves retyping it for every child in a
+        // surge. Applied at WRITE TIME ONLY: once a member is saved, that name
+        // is theirs, and editing the head's surname later never rewrites it.
+        // Mixed-surname families stay correct because the operator can type
+        // over the value the form pre-fills.
+        $lastName = trim($m['last_name'] ?? '');
+        if ($lastName === '' && ! $isHead) {
+            $lastName = $headLastName;
+        }
+
+        $fullName = trim($lastName . ', ' . $m['first_name'] . ' ' . ($m['middle_name'] ?? ''));
 
         // Birthdate is OPTIONAL as of Phase 2: staff can tag a family fast during
         // a surge and fill birthdays in later. When it is absent the manually

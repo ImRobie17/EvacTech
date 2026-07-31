@@ -25,6 +25,43 @@
         ]],
     ];
     $chartJson = json_encode($chartPayload, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
+
+    // ---- PHASE 3 ITEM 9: age-group and vulnerable-category charts ----
+    // Same rule as above: arrays are built here, never inline in a Blade json
+    // directive containing arrows or spanning several lines.
+    //
+    // AGE: a doughnut is legitimate here because the seven tiers are mutually
+    // exclusive and sum to the headcount, so parts-of-a-whole is a true claim.
+    // The Unknown bucket is charted only when it holds someone -- registration
+    // has required a birthdate or an age group since Phase 2, so a populated
+    // Unknown can only come from an older row, and an empty slice would be
+    // noise on every dashboard in the city.
+    // $ageRows is prepared by the controller via AgeTier::chartRows(): short
+    // labels, and the Unknown bucket already dropped when it holds nobody.
+    $agePayload = [
+        'labels' => array_column($ageRows, 'label'),
+        'datasets' => [[
+            'label' => 'Persons',
+            'data' => array_map(fn ($r) => (int) $r['total'], $ageRows),
+        ]],
+    ];
+
+    // CATEGORIES: a BAR, never a pie. These categories overlap -- one person can
+    // be a pregnant solo parent on 4Ps -- so a pie would assert a whole that
+    // does not exist. IdpForm refuses to print a column total for the same
+    // reason. Rows come from IdpForm so the chart and the signed CSWDO form are
+    // the same figures by construction.
+    $categoryPayload = [
+        'labels' => array_column($categoryRows, 'label'),
+        'datasets' => [[
+            'label' => 'Persons',
+            'data' => array_map(fn ($r) => (int) $r['total'], $categoryRows),
+            'colorToken' => '--color-primary-600',
+        ]],
+    ];
+
+    $ageJson = json_encode($agePayload, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
+    $categoryJson = json_encode($categoryPayload, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
 @endphp
 
 @section('page-actions')
@@ -188,9 +225,101 @@
         </div>
     </div>
 </section>
+
+{{-- PHASE 3 ITEM 9. Two charts over the same checked-in, present population the
+     IDP Monitoring Form reports on, so a barangay operator sees on screen what
+     CSWDO will read on the printed sheet. --}}
+<section class="mt-4 grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+    <article class="card panel">
+        <h2 class="panel-title">Age Group Distribution</h2>
+        <div class="chart-wrap">
+            <canvas id="ageGroupChart"
+                    data-chart="doughnut"
+                    data-chart-data="ageGroupChartData"
+                    role="img"
+                    aria-label="Doughnut chart of checked-in persons by age group"></canvas>
+        </div>
+        <details class="mt-3 text-sm text-ink-soft">
+            <summary class="min-h-tap cursor-pointer py-2">View these figures as a table</summary>
+            {{-- Four columns, so data-stack plus a data-label on every cell. This
+                 table also carries the male/female split, which a doughnut
+                 cannot show -- nothing is lost by charting totals only. --}}
+            <table class="data-table mt-2" data-stack>
+                <caption class="visually-hidden">Checked-in persons by age group and sex</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Age group</th>
+                        <th scope="col">Male</th>
+                        <th scope="col">Female</th>
+                        <th scope="col">Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @forelse($ageRows as $row)
+                        <tr>
+                            <td data-label="Age group">{{ $row['label'] }}</td>
+                            <td data-label="Male" data-numeric>{{ number_format($row['male']) }}</td>
+                            <td data-label="Female" data-numeric>{{ number_format($row['female']) }}</td>
+                            <td data-label="Total" data-numeric>{{ number_format($row['total']) }}</td>
+                        </tr>
+                    @empty
+                        <tr><td colspan="4" class="empty-note">No one is checked in yet.</td></tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </details>
+    </article>
+
+    <article class="card panel">
+        <h2 class="panel-title">Vulnerable Categories</h2>
+        {{-- A BAR, not a pie. These categories overlap -- one person can be a
+             pregnant solo parent on 4Ps -- so parts-of-a-whole would be a claim
+             the data does not support. Single-Headed is a household with exactly
+             one person present, so its bar counts the same way the others do. --}}
+        <div class="chart-wrap">
+            <canvas id="categoryChart"
+                    data-chart="bar"
+                    data-chart-data="categoryChartData"
+                    role="img"
+                    aria-label="Bar chart of checked-in persons by vulnerable category"></canvas>
+        </div>
+        <details class="mt-3 text-sm text-ink-soft">
+            <summary class="min-h-tap cursor-pointer py-2">View these figures as a table</summary>
+            <table class="data-table mt-2" data-stack>
+                <caption class="visually-hidden">Checked-in persons by vulnerable category and sex</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Category</th>
+                        <th scope="col">Male</th>
+                        <th scope="col">Female</th>
+                        <th scope="col">Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @forelse($categoryRows as $row)
+                        <tr>
+                            <td data-label="Category">{{ $row['label'] }}</td>
+                            <td data-label="Male" data-numeric>{{ number_format($row['male']) }}</td>
+                            <td data-label="Female" data-numeric>{{ number_format($row['female']) }}</td>
+                            <td data-label="Total" data-numeric>{{ number_format($row['total']) }}</td>
+                        </tr>
+                    @empty
+                        <tr><td colspan="4" class="empty-note">No one is checked in yet.</td></tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </details>
+        <p class="field-hint">
+            A person can belong to several categories at once, so these figures
+            deliberately do not add up to a total.
+        </p>
+    </article>
+</section>
 @endsection
 
 @push('scripts')
 {{-- Data island read by resources/js/charts.js. Inert to the HTML parser. --}}
 <script type="application/json" id="registrationsChartData">{!! $chartJson !!}</script>
+<script type="application/json" id="ageGroupChartData">{!! $ageJson !!}</script>
+<script type="application/json" id="categoryChartData">{!! $categoryJson !!}</script>
 @endpush

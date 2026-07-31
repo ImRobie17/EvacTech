@@ -40,7 +40,21 @@ class ShelterController extends Controller
         // pool is offered, grouped by their nominal barangay for orientation.
         $staffPool = $this->staffPool();
 
-        return view('cityadmin.shelters.index', compact('centers', 'barangays', 'staffPool'));
+        // PHASE 3 ITEM 10. Reference markers for the location picker: every
+        // shelter that has coordinates, city-wide.
+        //
+        // Deliberately NOT $centers. That collection is filtered by the search
+        // bar and paginated at 15, and a picker that showed only the current page
+        // would present gaps that are not gaps -- inviting a duplicate shelter to
+        // be placed on top of one that was simply on page 2. Four columns, no
+        // eager loads, no pagination: the query is small even with every shelter
+        // in the city in it.
+        $mapShelters = EvacuationCenter::whereNotNull('latitude')
+            ->whereNotNull('longitude')
+            ->orderBy('name')
+            ->get(['id', 'name', 'barangay_id', 'latitude', 'longitude']);
+
+        return view('cityadmin.shelters.index', compact('centers', 'barangays', 'staffPool', 'mapShelters'));
     }
 
     public function store(Request $request)

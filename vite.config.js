@@ -22,11 +22,20 @@ export default defineConfig({
             // and could not be linted or syntax-checked. It is now an entry that
             // ONLY the Super Admin layout opts into, so City Admin's bundle
             // stops loading on Super Admin pages entirely.
+            //
+            // shelter-picker.js (Phase 3 item 10) is the City Admin location
+            // picker. It is a SECOND Leaflet entry, and deliberately not folded
+            // into map.js: that file is the citizen read-only map, and the two
+            // share only a CSS-variable reader and a tile layer. Two entries
+            // importing Leaflet do not ship it twice -- Rollup hoists the shared
+            // dependency into a common chunk -- so the cost is one extra chunk
+            // in the manifest, not a duplicated library.
             input: [
                 'resources/css/app.css',
                 'resources/js/app.js',
                 'resources/js/charts.js',
                 'resources/js/map.js',
+                'resources/js/shelter-picker.js',
                 'resources/js/superadmin.js',
             ],
             refresh: true,

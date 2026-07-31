@@ -24,6 +24,17 @@
 @endphp
 
 @section('page-actions')
+    {{-- PHASE 3 ITEM 9. A link, not a second copy of the registration modal.
+         The evacuees page already auto-opens its Register modal when the query
+         string carries open=register -- EvacueeConfig.autoOpen reads exactly
+         that -- so this needs no controller data, no duplicated member-row
+         template, and no second place for the tags[] input naming to go wrong.
+         Same pattern as the existing ?edit={id} link into that page.
+
+         An anchor, not a button: the 44px floor in design-system.css applies to
+         button and input elements, NOT to <a>, so the tap target is set here. --}}
+    <a class="btn-secondary inline-flex min-h-tap w-full items-center justify-center sm:w-auto"
+       href="{{ route('barangay.evacuees.index', ['open' => 'register']) }}">+ Register New Household</a>
     <button type="button" class="btn-primary w-full sm:w-auto" data-open-modal="checkinModal">&check; Check-in Existing Family</button>
 @endsection
 

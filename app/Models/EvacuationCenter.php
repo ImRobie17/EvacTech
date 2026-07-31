@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 
 class EvacuationCenter extends Model
 {
@@ -46,6 +47,19 @@ class EvacuationCenter extends Model
     public function households(): HasMany
     {
         return $this->hasMany(Household::class);
+    }
+
+    /**
+     * PHASE 3 ITEM 11b -- every member registered at this shelter.
+     *
+     * Exists so a filtered report can count MATCHING MEMBERS per shelter in one
+     * query. withCount('households') counts FAMILIES, which is the wrong unit
+     * for "how many people here matched your filter", and counting per row in
+     * PHP would be a query per shelter.
+     */
+    public function householdMembers(): HasManyThrough
+    {
+        return $this->hasManyThrough(HouseholdMember::class, Household::class);
     }
 
     public function inventories(): HasMany

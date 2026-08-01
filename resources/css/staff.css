@@ -500,19 +500,11 @@
 }
 
 /* =========================================================================
-   KPI grid
-   Mobile-first: one column, then two, then the full row. The old sheet was
-   desktop-first with max-width overrides, which meant a phone had to parse and
-   then undo the five-column rule.
+   KPI cards
+   PHASE 4 item 14: .kpi-grid and .kpi-grid-4 deleted. The grid wrapper is
+   Tailwind utilities in the markup now; only the card internals below are still
+   component CSS, and they are used on five screens.
    ========================================================================= */
-.kpi-grid {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: var(--space-3);
-    margin-bottom: var(--space-4);
-    align-items: stretch;
-}
-
 .kpi-card {
     display: flex;
     flex-direction: column;
@@ -566,24 +558,8 @@
 }
 
 @media (min-width: 640px) {
-    .kpi-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: var(--space-4);
-    }
-
     .kpi-value {
         font-size: var(--text-3xl);
-    }
-}
-
-@media (min-width: 1280px) {
-    .kpi-grid {
-        grid-template-columns: repeat(5, minmax(0, 1fr));
-        margin-bottom: var(--space-6);
-    }
-
-    .kpi-grid-4 {
-        grid-template-columns: repeat(4, minmax(0, 1fr));
     }
 }
 
@@ -1126,20 +1102,11 @@
 }
 
 /* =========================================================================
-   Dashboard columns / activity / actions
+   Dashboard actions
+   PHASE 4 item 14: .dash-columns, .dash-side and the .activity-* row classes
+   deleted. Every dashboard lays its panels out with Tailwind grid utilities and
+   renders activity rows as .data-table rows.
    ========================================================================= */
-.dash-columns {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: var(--space-4);
-    align-items: start;
-}
-
-.dash-side {
-    display: flex;
-    flex-direction: column;
-}
-
 .action-card {
     display: flex;
     align-items: center;
@@ -1173,28 +1140,6 @@
 
 .activity-panel {
     padding: var(--space-3);
-}
-
-.activity-row {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    padding: var(--space-3);
-    border-bottom: 1px solid var(--color-border);
-    font-size: var(--text-sm);
-}
-
-.activity-row:last-child {
-    border-bottom: none;
-}
-
-.activity-name {
-    flex: 1;
-}
-
-.activity-time {
-    color: var(--color-ink-muted);
-    font-size: var(--text-xs);
 }
 
 .empty-note {
@@ -1266,13 +1211,6 @@
 
 .status-list li strong {
     font-weight: var(--weight-semibold);
-}
-
-@media (min-width: 1280px) {
-    .dash-columns {
-        grid-template-columns: 1.6fr 1fr;
-        gap: var(--space-6);
-    }
 }
 
 /* =========================================================================

@@ -1,4 +1,7 @@
 import { wireAgeGroup, tierShortLabel } from './age-tiers';
+// PHASE 4 item B.4: initTheme() moved to its own module so the public bundle
+// can have it without pulling in this file. Behaviour is unchanged.
+import { initTheme } from './theme';
 // EvacTech staff UI behavior. No build step assumptions beyond Vite bundling this file.
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -48,19 +51,8 @@ function initConnectivity() {
     window.addEventListener('offline', render);
 }
 
-// ---------------------------------------------------------------------
-// Theme toggle (server-persisted via cookie, no localStorage)
-// ---------------------------------------------------------------------
-function initTheme() {
-    const toggle = document.getElementById('themeToggle');
-    if (!toggle) return;
-    toggle.addEventListener('click', () => {
-        const html = document.documentElement;
-        const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
-        html.setAttribute('data-theme', next);
-        document.cookie = `theme=${next};path=/;max-age=31536000`;
-    });
-}
+// Theme toggle now lives in ./theme.js -- see the import at the top of this
+// file. It is still called from the DOMContentLoaded block above.
 
 // ---------------------------------------------------------------------
 // Sidebar collapse (roadmap item 13)

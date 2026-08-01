@@ -27,9 +27,6 @@
     </table>
 </div>
 
-{{-- The two approval queues sit side by side from 1024px and stack below.
-     .dash-columns did this before; it gave both equal width at every size
-     including 380px, where two five-column tables side by side were unusable. --}}
 <section class="mt-4 grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
     {{-- Restock requests --}}
     <div class="card panel table-panel">

@@ -114,8 +114,6 @@
     </article>
 </section>
 
-{{-- Two charts side by side from 1024px, stacked below. .dash-columns used to
-     do this; it gave both panels equal width at every size including 380px. --}}
 <section class="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
     <article class="card panel">
         <h2 class="panel-title">Evacuees per Barangay (Top 5)</h2>

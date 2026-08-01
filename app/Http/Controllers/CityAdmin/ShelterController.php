@@ -147,21 +147,11 @@ class ShelterController extends Controller
         return back()->with('success', 'Evacuation center updated.');
     }
 
-    /**
-     * Barangay personnel available to staff a shelter (JSON).
-     * Replaces managersForBarangay(): assignment is a roster, and staff are no
-     * longer filtered to a single barangay.
-     */
-    public function assignableStaff(Request $request)
-    {
-        return response()->json(
-            $this->staffPool()->map(fn ($u) => [
-                'id' => $u->id,
-                'name' => $u->name,
-                'barangay' => $u->barangay?->name,
-            ])->values()
-        );
-    }
+    // PHASE 4 item 15: assignableStaff() deleted, along with the
+    // city.personnel.assignable route that was its only way in. It returned the
+    // staff roster as JSON for a picker that no longer exists -- shelters/index
+    // renders the roster server side from $staffPool, so nothing ever called
+    // the endpoint. staffPool() below stays; index() uses it.
 
     // -----------------------------------------------------------------
 

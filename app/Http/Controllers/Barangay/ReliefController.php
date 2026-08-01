@@ -192,29 +192,13 @@ class ReliefController extends BarangayController
         return back()->with('success', 'Stock received and inventory updated.');
     }
 
-    /** Relief history for one household (search function in the spec). */
-    public function history(Household $household)
-    {
-        $this->authorizeHousehold($household);
+    // PHASE 4 item 15: history() deleted, along with the barangay.relief.history
+    // route that was its only way in. It returned one household's distribution
+    // history as JSON for a lookup that index() now answers directly -- the
+    // relief page has a server-rendered, searchable history panel, so nothing
+    // ever called the endpoint.
 
-        $rows = ReliefTransaction::with('reliefGood', 'recordedBy')
-            ->where('household_id', $household->id)
-            ->where('type', 'distributed')
-            ->latest('transaction_date')
-            ->get()
-            ->map(fn ($t) => [
-                'date' => $t->transaction_date->format('M d, Y'),
-                'good' => $t->reliefGood->name,
-                'quantity' => $t->quantity,
-                'unit' => $t->reliefGood->unit,
-                'by' => $t->recordedBy?->name,
-                'remarks' => $t->remarks,
-            ]);
-
-        return response()->json($rows);
-    }
-
-        public function requestRestock(Request $request)
+    public function requestRestock(Request $request)
     {
         $center = $this->centerOrFail();
 

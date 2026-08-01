@@ -55,7 +55,6 @@ Route::middleware(['auth', 'role:barangay_personnel', 'shelter.assigned'])
         Route::get('/relief', [ReliefController::class, 'index'])->name('relief.index');
         Route::post('/relief/distribute', [ReliefController::class, 'distribute'])->name('relief.distribute');
         Route::post('/relief/receive', [ReliefController::class, 'receive'])->name('relief.receive');
-        Route::get('/relief/history/{household}', [ReliefController::class, 'history'])->name('relief.history');
         Route::post('/relief/request-restock', [ReliefController::class, 'requestRestock'])->name('relief.request-restock');
         Route::post('/relief/request-special', [ReliefController::class, 'requestSpecial'])->name('relief.request-special');
 

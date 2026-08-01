@@ -55,12 +55,10 @@ function ageFromBirthdateCA(dateStr) {
     if (m < 0 || (m === 0 && t.getDate() < dob.getDate())) age--;
     return age;
 }
-function ageTagLabelCA(age) {
-    if (age === null) return '';
-    if (age <= 5) return 'Infant / Young Child';
-    if (age >= 60) return 'Senior Citizen';
-    return 'Adult';
-}
+// PHASE 4 item 15b: ageTagLabelCA() deleted here. It returned the two
+// classifications Phase 2 retired (Senior Citizen, Infant / Young Child), which
+// are age tiers now, not tickable categories -- and it was called from nowhere.
+// Age labels come from AgeTier via ./age-tiers.
 
 // ---------------------------------------------------------------------
 // Reusable roster picker (checkbox list + filter + live count)

@@ -4,9 +4,11 @@
 |--------------------------------------------------------------------------
 | Public Citizen routes (no authentication)
 |--------------------------------------------------------------------------
-| Register alongside web.php (see README). Also REMOVE the old root route
-|     Route::get('/', fn () => redirect()->route('login'));
-| from routes/web.php -- the map below replaces it as the landing page.
+| Loaded by the `then:` closure in bootstrap/app.php, inside the `web`
+| middleware group. Citizens have no login: nothing in this file carries auth.
+|
+| The map is the landing page. `/` does NOT redirect to the login screen -- a
+| resident checking which shelters are open should never be asked who they are.
 */
 
 use App\Http\Controllers\PublicSite\FindFamilyController;

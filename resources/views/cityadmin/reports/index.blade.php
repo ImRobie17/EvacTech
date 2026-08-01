@@ -84,9 +84,6 @@
     </form>
 </section>
 
-{{-- The form gets two thirds and the history one third from 1024px. The old
-     .dash-columns gave both equal width at every size, which left a form of
-     five controls sharing the screen with a short list. --}}
 <section class="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
     <div class="card panel lg:col-span-2">
         <h2 class="panel-title">Generate a Report</h2>
@@ -188,7 +185,7 @@
         <div class="card panel activity-panel">
             @forelse($recent ?? [] as $r)
                 <div class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border p-3 text-sm last:border-b-0">
-                    <span class="min-w-0 flex-1 font-medium">{{ \App\Models\GeneratedReport::typeLabel($r->report_type) }} <small class="text-ink-muted">.{{ $r->format }}</small></span>
+                    <span class="min-w-0 flex-1 font-medium">{{ $r->type_label }} <small class="text-ink-muted">.{{ $r->format }}</small></span>
                     <time class="text-ink-muted">{{ $r->created_at->diffForHumans() }}</time>
                 </div>
             @empty

@@ -52,12 +52,8 @@ function cdAge(dateStr) {
     return age;
 }
 
-function cdAgeLabel(age) {
-    if (age === null) return '';
-    if (age <= 5) return 'Infant / Young Child';
-    if (age >= 60) return 'Senior Citizen';
-    return 'Adult';
-}
+// PHASE 4 item 15b: cdAgeLabel() deleted here -- the same retired-classification
+// helper as ageTagLabelCA() in cityadmin.js, likewise called from nowhere.
 
 function cdOpen(id) {
     const el = document.getElementById(id);

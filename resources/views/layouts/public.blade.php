@@ -22,7 +22,12 @@
          naming that directive inside a Blade comment opens a real one, since
          storeUncompiledBlocks() runs before compileComments(). It broke
          layouts/staff exactly that way. Do not reintroduce it. --}}
-    @vite(array_merge(['resources/css/app.css', 'resources/js/app.js'], (array) ($viteEntries ?? [])))
+    {{-- PHASE 4 item B.4: public.js, NOT app.js. app.js imports staff.js,
+         cityadmin.js, cityadmin-shelter.js and transfers.js, so this layout was
+         shipping the entire staff interface to citizens in order to get one
+         theme toggle. public.js carries the toggle and the form-trim fix and
+         nothing else. The stylesheet is still shared -- one cached bundle. --}}
+    @vite(array_merge(['resources/css/app.css', 'resources/js/public.js'], (array) ($viteEntries ?? [])))
     @stack('head')
 </head>
 <body class="public-body">

@@ -88,9 +88,6 @@
     </form>
 </section>
 
-{{-- The old .dash-columns gave both panels equal width at every size. The form
-     is the task and the history is reference, so from 1024px the form takes two
-     thirds. Below that they stack, form first. --}}
 <section class="grid grid-cols-1 gap-4 lg:grid-cols-3">
     <div class="card panel lg:col-span-2">
         <h2 class="panel-title">Generate a Report</h2>
@@ -196,7 +193,7 @@
                 {{-- Wraps instead of truncating below 640px: the type and the
                      format are both needed to tell two downloads apart. --}}
                 <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-surface-alt py-2 last:border-b-0">
-                    <span>{{ \App\Models\GeneratedReport::typeLabel($r->report_type) }}
+                    <span>{{ $r->type_label }}
                         <small class="text-ink-muted">.{{ $r->format }}</small></span>
                     <time class="text-sm text-ink-muted">{{ $r->created_at->diffForHumans() }}</time>
                 </div>

@@ -29,7 +29,6 @@ class DashboardController extends BarangayController
             'single_headed' => 0,
         ];
         $ageMatrix = AgeTier::emptySexMatrix(includeUnknown: true);
-        // Phase 3 item 9. Both empty until a shelter is resolved.
         $ageRows = [];
         $categoryRows = [];
         $chart = ['labels' => [], 'data' => []];

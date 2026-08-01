@@ -29,6 +29,21 @@ class GeneratedReport extends Model
         return $this->belongsTo(EvacuationCenter::class);
     }
 
+    /**
+     * PHASE 4 item 15c. Both report history panels used to call
+     * \App\Models\GeneratedReport::typeLabel($r->report_type) straight from
+     * Blade, against the project rule that a view never references a class.
+     * An accessor keeps the mapping in one place and lets the views read
+     * {{ $r->type_label }}, which is ordinary attribute access.
+     *
+     * typeLabel() stays public and static: the controllers call it to build the
+     * report-type dropdowns, where there is no model instance to ask.
+     */
+    public function getTypeLabelAttribute(): string
+    {
+        return self::typeLabel($this->report_type);
+    }
+
     public static function typeLabel(string $type): string
     {
         return match ($type) {

@@ -2,8 +2,14 @@
 
 /*
 |--------------------------------------------------------------------------
-| Super Admin routes (register in bootstrap/app.php's then: closure)
+| Super Admin routes
 |--------------------------------------------------------------------------
+| Loaded by the `then:` closure in bootstrap/app.php, inside the `web`
+| middleware group.
+|
+| `role:super_admin` only. NEVER add `verified` here -- seeded accounts have no
+| verified email and the redirect loop that causes is one of the project's
+| recorded gotchas.
 */
 
 use App\Http\Controllers\SuperAdmin\AuditLogController;

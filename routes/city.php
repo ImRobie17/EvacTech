@@ -37,9 +37,6 @@ Route::middleware(['auth', 'role:city_admin'])
         Route::post('/shelters', [CityShelter::class, 'store'])->name('shelters.store');
         Route::put('/shelters/{center}', [CityShelter::class, 'update'])->name('shelters.update');
 
-        // Barangay personnel available to staff a shelter.
-        Route::get('/personnel', [CityShelter::class, 'assignableStaff'])->name('personnel.assignable');
-
         // ---- Single shelter detail (City Admin's own page) ----
         // Tabs are ?tab=households|relief on the show route.
         Route::get('/shelters/{center}/detail', [CityShelterDetail::class, 'show'])->name('shelters.show');

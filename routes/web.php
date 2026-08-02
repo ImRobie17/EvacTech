@@ -51,6 +51,14 @@ Route::middleware(['auth', 'role:barangay_personnel', 'shelter.assigned'])
         Route::post('/shelter/{household}/check-out', [ShelterController::class, 'checkOut'])->name('shelter.checkout');
         Route::post('/shelter/{household}/transfer-head', [ShelterController::class, 'transferHead'])->name('shelter.transfer');
 
+        // PHASE 5 ITEM 8b -- presence correction. GET returns the tick list plus
+        // the reason it may be blocked; POST writes it. Sits beside check-in and
+        // check-out because it is the third member of that family of actions:
+        // check-in sets presence, check-out clears it, and this is the only way
+        // to correct it in between.
+        Route::get('/shelter/{household}/presence', [ShelterController::class, 'presence'])->name('shelter.presence');
+        Route::post('/shelter/{household}/presence', [ShelterController::class, 'updatePresence'])->name('shelter.presence.update');
+
         // Relief Distribution
         Route::get('/relief', [ReliefController::class, 'index'])->name('relief.index');
         Route::post('/relief/distribute', [ReliefController::class, 'distribute'])->name('relief.distribute');
@@ -84,5 +92,10 @@ Route::middleware(['auth', 'role:barangay_personnel', 'shelter.assigned'])
         Route::post('/transfers/{transfer}/refuse', [TransferController::class, 'refuse'])->name('transfers.refuse');
         Route::post('/transfers/{transfer}/depart', [TransferController::class, 'depart'])->name('transfers.depart');
         Route::post('/transfers/{transfer}/receive', [TransferController::class, 'receive'])->name('transfers.receive');
+
+        // PHASE 5 ITEM 8b -- record what happened to someone who did not
+        // arrive. Reachable from BOTH ends of the transfer: the origin put
+        // those people on the truck and is likeliest to know where they went.
+        Route::post('/transfers/{transfer}/resolve-absence', [TransferController::class, 'resolveAbsence'])->name('transfers.resolve');
         Route::post('/transfers/{transfer}/cancel', [TransferController::class, 'cancel'])->name('transfers.cancel');
     });

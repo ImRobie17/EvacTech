@@ -228,6 +228,8 @@ async function openReceive(btn) {
         fill('tx-rc-expected', data.expected + ' people departed the origin shelter');
 
         (data.members || []).forEach((m) => {
+            const row = document.createElement('div');
+
             const label = document.createElement('label');
             label.className = 'checkbox-row';
             const head = m.is_head ? ' (head)' : '';
@@ -237,11 +239,104 @@ async function openReceive(btn) {
             label.innerHTML =
                 '<input type="checkbox" name="present[]" value="' + m.id + '"' + checked + '> ' +
                 m.name + head;
-            list.appendChild(label);
+            row.appendChild(label);
+
+            // PHASE 5 ITEM 8b -- the reason, but ONLY for someone who was
+            // actually present at the origin. A member who was already absent
+            // before the transfer was never on the truck, so asking why they did
+            // not arrive would be asking about a journey they never started. The
+            // server applies the same rule.
+            //
+            // Name is reasons[<id>]: ONE bracket pair. PHP closes a form key at
+            // the first ], so reasons[<id>[]] would arrive as the literal string
+            // key "reasons[" and nothing would ever reach the server.
+            if (m.is_present) {
+                const select = document.createElement('select');
+                select.name = 'reasons[' + m.id + ']';
+                select.className = 'mt-1';
+                select.setAttribute('aria-label', 'Reason ' + m.name + ' did not arrive');
+                select.innerHTML =
+                    '<option value="">Why did they not arrive?</option>' +
+                    ABSENCE_REASONS.map(
+                        (r) => '<option value="' + r.code + '">' + r.label + '</option>'
+                    ).join('');
+                row.appendChild(select);
+            }
+
+            list.appendChild(row);
         });
+
+        syncReceiveReasons();
     } catch (err) {
         console.error(TAG + ' arrival checklist error', err);
     }
+}
+
+// Reason codes must match ShelterTransfer::ABSENCE_REASONS. Only 'unknown'
+// raises anything: three of the four answers mean nothing is wrong, which is
+// what keeps the alert rare enough to still mean something.
+const ABSENCE_REASONS = [
+    { code: 'separate', label: 'Travelled separately, expected later' },
+    { code: 'returned_home', label: 'Returned home' },
+    { code: 'other_shelter', label: 'Went to another shelter' },
+    { code: 'unknown', label: 'Unknown' },
+];
+
+// A reason select is shown ONLY for someone who is not ticked, and is disabled
+// whenever it is hidden.
+//
+// The disabling is not cosmetic: a hidden field carrying `required` blocks form
+// submission in Chrome with no visible message and no console error, which is
+// exactly the class of silent failure this project keeps hitting. Disabling also
+// keeps the field out of the POST entirely, so the server never receives a
+// reason for somebody who did arrive.
+function syncReceiveReasons() {
+    const list = document.getElementById('tx-rc-members');
+    if (!list) return;
+
+    list.querySelectorAll('select[name^="reasons["]').forEach((select) => {
+        const row = select.parentElement;
+        const box = row ? row.querySelector('input[type="checkbox"]') : null;
+        if (!box) return;
+
+        const arrived = box.checked;
+        select.hidden = arrived;
+        select.disabled = arrived;
+        select.required = !arrived;
+        if (arrived) select.value = '';
+    });
+}
+
+// ---------------------------------------------------------------------
+// PHASE 5 ITEM 8b -- Resolve an absence.
+// ---------------------------------------------------------------------
+function openResolve(btn) {
+    const c = cfg();
+    if (!c) return;
+
+    if (!c.resolve) {
+        console.error(
+            TAG + ' TransferConfig.resolve is missing. The page built its $tx ' +
+            'array without the resolve route template.'
+        );
+        return;
+    }
+
+    const form = document.getElementById('transferResolveForm');
+    const memberField = document.getElementById('tx-rs-member-id');
+    if (!form || !memberField) {
+        modal('transferResolveModal');
+        return;
+    }
+
+    form.action = c.resolve.replace(':id', btn.dataset.txResolve);
+    memberField.value = btn.dataset.txMember || '';
+    fill('tx-rs-name', btn.dataset.txMemberName || 'This person');
+
+    const select = document.getElementById('tx-rs-resolution');
+    if (select) select.value = '';
+
+    show('transferResolveModal');
 }
 
 // ---------------------------------------------------------------------
@@ -291,9 +386,127 @@ function openCancel(btn) {
 }
 
 // ---------------------------------------------------------------------
+// PHASE 5 ITEM 8b -- Update Presence.
+//
+// Lives in THIS file rather than staff.js or cityadmin-shelter.js because
+// transfers.js is imported by app.js and is therefore already loaded on both
+// shelter screens. Putting it in either of the others would mean one of the two
+// roles could not open the modal, or would mean calling openModal()/cdOpen()
+// across an ES module boundary by bare name -- a ReferenceError, and the exact
+// bug that hid three features for a whole phase.
+//
+// The URLs ride on the SAME window.TransferConfig the transfer modals use, so
+// the page still has exactly one raw JSON echo in it.
+// ---------------------------------------------------------------------
+
+// Enables or disables Save from the live tick count, so the "at least one
+// person" rule is visible before submit rather than only after a round trip.
+// The server enforces it regardless -- this is convenience, not the guard.
+function syncPresenceState() {
+    const list = document.getElementById('pr-members');
+    const save = document.getElementById('pr-save');
+    const warning = document.getElementById('pr-none-warning');
+    if (!list) return;
+
+    const ticked = list.querySelectorAll('input[type="checkbox"]:checked').length;
+
+    if (save) save.disabled = ticked === 0;
+    if (warning) warning.hidden = ticked !== 0;
+}
+
+async function openPresence(btn) {
+    const c = cfg();
+    if (!c) return;
+
+    const form = document.getElementById('presenceForm');
+    const list = document.getElementById('pr-members');
+    const blocked = document.getElementById('pr-blocked');
+    if (!form || !list || !blocked) {
+        modal('presenceModal');
+        return;
+    }
+
+    if (!c.presence || !c.presenceSave) {
+        console.error(
+            TAG + ' TransferConfig.presence / .presenceSave are missing. The page ' +
+            'built its $txConfig array without the presence route templates.'
+        );
+        return;
+    }
+
+    const id = btn.dataset.presence;
+
+    // Reset before showing: a modal reopened on a second household must never
+    // display the first one's tick list while the fetch is in flight.
+    list.innerHTML = '';
+    form.hidden = true;
+    blocked.hidden = true;
+    fill('pr-code', '');
+    fill('pr-head', '');
+    fill('pr-summary', 'Loading...');
+    show('presenceModal');
+
+    try {
+        const res = await fetch(c.presence.replace(':id', id), {
+            headers: { Accept: 'application/json' },
+        });
+        if (!res.ok) {
+            console.error(TAG + ' could not load the presence list, HTTP ' + res.status);
+            fill('pr-summary', 'Could not load this household. Reload the page and try again.');
+            return;
+        }
+        const data = await res.json();
+
+        fill('pr-code', data.code || '');
+        fill('pr-head', data.head ? '\u00B7 ' + data.head : '');
+        fill('pr-summary', data.present + ' of ' + data.total + ' currently counted present at ' +
+            (data.center || 'this shelter'));
+
+        // Blocked: show why and never render the form. Almost always an open
+        // shelter transfer, which has already snapshotted the headcount.
+        if (data.blocked) {
+            fill('pr-blocked-text', data.blocked);
+            blocked.hidden = false;
+            return;
+        }
+
+        form.action = c.presenceSave.replace(':id', id);
+
+        (data.members || []).forEach((m) => {
+            const label = document.createElement('label');
+            label.className = 'checkbox-row';
+            const head = m.is_head ? ' (head)' : '';
+            const checked = m.is_present ? ' checked' : '';
+            label.innerHTML =
+                '<input type="checkbox" name="present[]" value="' + m.id + '"' + checked + '> ' +
+                m.name + head;
+            list.appendChild(label);
+        });
+
+        form.hidden = false;
+        syncPresenceState();
+    } catch (err) {
+        console.error(TAG + ' presence list error', err);
+        fill('pr-summary', 'Could not load this household. Reload the page and try again.');
+    }
+}
+
+// ---------------------------------------------------------------------
 // Delegation. One click listener for the whole module.
 // ---------------------------------------------------------------------
 document.addEventListener('click', (e) => {
+    const resolve = e.target.closest('[data-tx-resolve]');
+    if (resolve) {
+        openResolve(resolve);
+        return;
+    }
+
+    const presence = e.target.closest('[data-presence]');
+    if (presence) {
+        openPresence(presence);
+        return;
+    }
+
     const create = e.target.closest('[data-tx-create]');
     if (create) {
         openCreate(create);
@@ -321,6 +534,17 @@ document.addEventListener('click', (e) => {
     if (e.target.closest('#tx-search-btn')) {
         const search = document.getElementById('tx-search');
         runHouseholdSearch(search ? search.value.trim() : '');
+    }
+});
+
+// Delegated, so both work on checkboxes that did not exist at load time.
+document.addEventListener('change', (e) => {
+    if (e.target.closest('#pr-members')) {
+        syncPresenceState();
+        return;
+    }
+    if (e.target.closest('#tx-rc-members')) {
+        syncReceiveReasons();
     }
 });
 

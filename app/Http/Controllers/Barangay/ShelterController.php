@@ -8,6 +8,7 @@ use App\Models\HouseholdMember;
 use App\Models\HouseholdTransfer;
 use App\Models\ShelterTransfer;
 use App\Services\AuditLogger;
+use App\Services\PresenceService;
 use App\Services\TransferService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -63,8 +64,14 @@ class ShelterController extends BarangayController
             ->pluck('household_id')
             ->all();
 
+        // PHASE 5 ITEM 8b: people this shelter has not accounted for after a
+        // transfer. Derived on read, like everything else here.
+        $unaccounted = $center
+            ? app(TransferService::class)->unaccountedCountFor($center)
+            : 0;
+
         return view('barangay.shelter.index', compact(
-            'center', 'households', 'recent', 'transferCenters', 'openTransferHouseholdIds'
+            'center', 'households', 'recent', 'transferCenters', 'openTransferHouseholdIds', 'unaccounted'
         ));
     }
 
@@ -121,6 +128,52 @@ class ShelterController extends BarangayController
             "Checked in household {$household->household_code} at {$center->name} ({$household->members_present} present)");
 
         return $this->backToShelter($center, "Household {$household->household_code} checked in.");
+    }
+
+    /**
+     * PHASE 5 ITEM 8b -- the tick list for the Update Presence modal.
+     *
+     * Returns the reason the household cannot be corrected rather than aborting,
+     * so the modal can explain itself instead of showing a form the server would
+     * only reject. PresenceService::update() re-checks the same conditions under
+     * a lock, so this is presentation, never the guard.
+     */
+    public function presence(Household $household)
+    {
+        $this->authorizeHousehold($household);
+
+        $service = app(PresenceService::class);
+
+        return response()->json([
+            'id' => $household->id,
+            'code' => $household->household_code,
+            'head' => $household->headMember?->full_name,
+            'center' => $household->evacuationCenter?->name,
+            'present' => (int) $household->members_present,
+            'total' => $household->members()->count(),
+            'blocked' => $service->blockedReason($household, auth()->user()),
+            'members' => $service->checklist($household),
+        ]);
+    }
+
+    /** PHASE 5 ITEM 8b -- write the corrected presence. */
+    public function updatePresence(Request $request, Household $household)
+    {
+        $this->authorizeHousehold($household);
+
+        $data = $request->validate([
+            'present' => ['required', 'array', 'min:1'],
+            'present.*' => ['integer'],
+        ], [
+            'present.required' => 'Tick at least one person who is present at the shelter.',
+        ]);
+
+        app(PresenceService::class)->update($household, $data['present'], $request->user());
+
+        $household->refresh();
+
+        return back()->with('success',
+            "Presence updated. {$household->household_code} now has {$household->members_present} present.");
     }
 
     public function checkOut(Household $household)

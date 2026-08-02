@@ -35,9 +35,13 @@
         $tParts[] = $tAlerts['awaiting_receipt'] . ' arriving, not yet received';
     }
     $tSentence = implode(', ', $tParts);
+
+    // PHASE 5 ITEM 8b. Counted in PEOPLE, matching the capacity panel, so the
+    // same idea does not carry two units one screen apart.
+    $tUnaccounted = (int) ($tAlerts['unaccounted_people'] ?? 0);
 @endphp
 
-@if ($tAlerts && $tUrl && ($tNeeds > 0 || $tOverdue > 0))
+@if ($tAlerts && $tUrl && ($tNeeds > 0 || $tOverdue > 0 || $tUnaccounted > 0))
     <div class="{{ $tOverdue > 0 ? 'alert alert-danger' : 'alert alert-warning' }} flex flex-wrap items-center gap-x-3 gap-y-2"
          role="status">
         <span aria-hidden="true">&#9888;</span>
@@ -52,6 +56,13 @@
                      out in words as well as carrying the red treatment. --}}
                 <strong>{{ $tOverdue }} overdue</strong>
                 <span>(in transit longer than {{ $transferOverdueMinutes ?? 60 }} minutes).</span>
+            @endif
+            @if ($tUnaccounted > 0)
+                {{-- NEVER "missing". That is a formal NDRRMC category that travels
+                     upward beside dead and injured, and all the system knows is
+                     that a headcount did not reconcile. --}}
+                <strong>{{ $tUnaccounted }}</strong>
+                <span>{{ $tUnaccounted === 1 ? 'person' : 'people' }} not yet accounted for after a transfer.</span>
             @endif
         </span>
 

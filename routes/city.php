@@ -50,6 +50,12 @@ Route::middleware(['auth', 'role:city_admin'])
             Route::post('/households/{household}/check-in', [CityShelterDetail::class, 'checkIn'])->name('households.checkin');
             Route::post('/households/{household}/check-out', [CityShelterDetail::class, 'checkOut'])->name('households.checkout');
 
+            // PHASE 5 ITEM 8b -- presence correction. The /presence suffix keeps
+            // these clear of the /households/search literal above; the model
+            // binding cannot swallow a segment that follows {household}.
+            Route::get('/households/{household}/presence', [CityShelterDetail::class, 'presence'])->name('households.presence');
+            Route::post('/households/{household}/presence', [CityShelterDetail::class, 'updatePresence'])->name('households.presence.update');
+
             Route::get('/relief/recipients', [CityShelterDetail::class, 'searchReliefRecipients'])->name('relief.recipients');
             Route::post('/relief/receive', [CityShelterDetail::class, 'receiveRelief'])->name('relief.receive');
             Route::post('/relief/distribute', [CityShelterDetail::class, 'distributeRelief'])->name('relief.distribute');
@@ -85,6 +91,11 @@ Route::middleware(['auth', 'role:city_admin'])
         Route::post('/transfers/{transfer}/refuse', [CityTransfer::class, 'refuse'])->name('transfers.refuse');
         Route::post('/transfers/{transfer}/depart', [CityTransfer::class, 'depart'])->name('transfers.depart');
         Route::post('/transfers/{transfer}/receive', [CityTransfer::class, 'receive'])->name('transfers.receive');
+
+        // PHASE 5 ITEM 8b -- record what happened to someone who did not
+        // arrive. Reachable from BOTH ends of the transfer: the origin put
+        // those people on the truck and is likeliest to know where they went.
+        Route::post('/transfers/{transfer}/resolve-absence', [CityTransfer::class, 'resolveAbsence'])->name('transfers.resolve');
         Route::post('/transfers/{transfer}/cancel', [CityTransfer::class, 'cancel'])->name('transfers.cancel');
 
         // ---- User Management (barangay personnel only) ----

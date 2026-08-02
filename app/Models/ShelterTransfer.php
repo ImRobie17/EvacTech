@@ -62,6 +62,75 @@ class ShelterTransfer extends Model
      */
     public const OVERDUE_MINUTES = 60;
 
+    // -----------------------------------------------------------------
+    // PHASE 5 ITEM 8b -- absence reasons.
+    //
+    // All logic keys on CODE, never on label -- the same rule the vulnerable
+    // classifications follow, and for the same reason: a label is a display
+    // string somebody will eventually reword.
+    //
+    // WHY REASONS AT ALL: three of these four answers mean nothing is wrong.
+    // Recording which one applies, at the moment the only person who might know
+    // is standing at the desk, is what stops every straggler looking equally
+    // alarming. An alert bar that fires on all of them is an alert bar staff
+    // learn to ignore.
+    // -----------------------------------------------------------------
+
+    public const REASON_SEPARATE = 'separate';
+    public const REASON_RETURNED_HOME = 'returned_home';
+    public const REASON_OTHER_SHELTER = 'other_shelter';
+    public const REASON_UNKNOWN = 'unknown';
+
+    /** @var array<string, string> code to label */
+    public const ABSENCE_REASONS = [
+        self::REASON_SEPARATE => 'Travelled separately, expected later',
+        self::REASON_RETURNED_HOME => 'Returned home',
+        self::REASON_OTHER_SHELTER => 'Went to another shelter',
+        self::REASON_UNKNOWN => 'Unknown',
+    ];
+
+    /**
+     * The only reason that means nobody at the desk could answer the question.
+     * Everything else has already been answered by a human and needs no chasing.
+     */
+    public const ALERTING_REASONS = [self::REASON_UNKNOWN];
+
+    /**
+     * Resolutions offered by the Resolve control on the Transfers pages.
+     *
+     * 'separate' is deliberately absent: "expected later" is a reason, not a
+     * resolution, and it never raised anything to resolve.
+     *
+     * RESOLUTION_ARRIVED is never written to the row. Arrival is carried by
+     * household_members.is_present alone, so that if presence is later corrected
+     * back to absent the person legitimately reappears as unaccounted for --
+     * they are absent again, and nobody has said why. Writing a resolution for
+     * it would silence that permanently.
+     *
+     * @var array<string, string>
+     */
+    public const RESOLUTION_ARRIVED = 'arrived';
+
+    /** @var array<string, string> resolutions that ARE stored on the row */
+    public const RECORDED_RESOLUTIONS = [
+        self::REASON_RETURNED_HOME => 'Returned home',
+        self::REASON_OTHER_SHELTER => 'Went to another shelter',
+    ];
+
+    public static function absenceReasonLabel(?string $code): string
+    {
+        return self::ABSENCE_REASONS[$code] ?? 'Not recorded';
+    }
+
+    public static function resolutionLabel(?string $code): string
+    {
+        if ($code === self::RESOLUTION_ARRIVED) {
+            return 'Arrived at the shelter';
+        }
+
+        return self::RECORDED_RESOLUTIONS[$code] ?? 'Not resolved';
+    }
+
     protected $fillable = [
         'household_id',
         'from_center_id',
@@ -71,6 +140,10 @@ class ShelterTransfer extends Model
         'origin_checked_in_at',
         'members_expected',
         'members_received',
+        // PHASE 5 ITEM 8b. In $fillable AND cast below. A new column that is not
+        // in $fillable is dropped silently by Laravel -- that is what caused the
+        // headcount-stuck-at-0 bug.
+        'did_not_arrive',
         'requested_by',
         'requested_at',
         'confirmed_by',
@@ -99,6 +172,7 @@ class ShelterTransfer extends Model
             'received_at' => 'datetime',
             'refused_at' => 'datetime',
             'cancelled_at' => 'datetime',
+            'did_not_arrive' => 'array',
         ];
     }
 
@@ -213,6 +287,119 @@ class ShelterTransfer extends Model
     public function minutesInTransit(): ?int
     {
         return $this->departed_at ? $this->departed_at->diffInMinutes(now()) : null;
+    }
+
+    // -----------------------------------------------------------------
+    // PHASE 5 ITEM 8b -- the did-not-arrive set, DERIVED on read.
+    //
+    // "Unaccounted for" is never stored. It holds when all three of these are
+    // true at once:
+    //
+    //   1. the person is in a COMPLETED transfer's did-not-arrive set with an
+    //      alerting reason (i.e. unknown), and has no recorded resolution,
+    //   2. household_members.is_present is still false,
+    //   3. the household is still checked_in.
+    //
+    // Condition 2 is what makes it self-clearing: ticking the person present
+    // through PresenceService drops them out with no second action to remember.
+    // Condition 3 matters because check-out sets every member is_present = false
+    // -- without it, an entire checked-out family would read as unaccounted for
+    // forever.
+    //
+    // NEVER call any of this "missing". In Philippine DRRM reporting that is a
+    // formal category that travels upward beside dead and injured. What the
+    // system knows is only that a headcount did not reconcile.
+    // -----------------------------------------------------------------
+
+    /**
+     * The did-not-arrive set with names and labels folded in, ready for a view.
+     *
+     * Needs household.members loaded; listQuery() eager-loads them. A member who
+     * has since been deleted from the family is skipped rather than printed as a
+     * blank row.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function didNotArriveDetails(): array
+    {
+        $entries = $this->did_not_arrive;
+
+        if (! is_array($entries) || empty($entries)) {
+            return [];
+        }
+
+        $members = $this->household?->members;
+        $checkedIn = $this->household?->status === 'checked_in';
+        $out = [];
+
+        foreach ($entries as $entry) {
+            $memberId = (int) ($entry['member_id'] ?? 0);
+            if ($memberId === 0) {
+                continue;
+            }
+
+            $member = $members?->firstWhere('id', $memberId);
+            if (! $member) {
+                continue;
+            }
+
+            $reason = $entry['reason'] ?? null;
+            $resolved = $entry['resolved'] ?? null;
+            $present = (bool) $member->is_present;
+
+            $out[] = [
+                'member_id' => $memberId,
+                'name' => $member->full_name,
+                'reason' => $reason,
+                'reason_label' => self::absenceReasonLabel($reason),
+                'resolved' => $resolved,
+                'resolution_label' => $resolved ? self::resolutionLabel($resolved) : null,
+                'is_present' => $present,
+                'unaccounted' => $this->status === self::COMPLETED
+                    && in_array($reason, self::ALERTING_REASONS, true)
+                    && empty($resolved)
+                    && ! $present
+                    && $checkedIn,
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Member ids currently unaccounted for on this transfer.
+     *
+     * @return array<int, int>
+     */
+    public function unaccountedMemberIds(): array
+    {
+        return array_values(array_map(
+            fn ($d) => $d['member_id'],
+            array_filter($this->didNotArriveDetails(), fn ($d) => $d['unaccounted'])
+        ));
+    }
+
+    public function hasUnaccounted(): bool
+    {
+        return ! empty($this->unaccountedMemberIds());
+    }
+
+    /**
+     * May this user record what happened to someone who did not arrive?
+     *
+     * BOTH ENDS, deliberately. The origin put those people on the truck and is
+     * likeliest to know where they went. canAccessCenter() returns true for
+     * every non-barangay role, so City Admin is covered by either clause.
+     *
+     * Marking someone ARRIVED is not authorised here -- that goes through
+     * PresenceService, which checks access to the shelter the family is actually
+     * in now, which may no longer be either end of this transfer.
+     */
+    public function canResolveAbsenceBy(User $user): bool
+    {
+        return $this->status === self::COMPLETED
+            && ($user->canAccessCenter($this->to_center_id)
+                || $user->canAccessCenter($this->from_center_id));
     }
 
     // -----------------------------------------------------------------

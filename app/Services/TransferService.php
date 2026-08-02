@@ -193,10 +193,16 @@ class TransferService
      * household actually moves and the only point at which occupancy changes.
      *
      * @param  array<int, int>  $presentMemberIds  the members who actually arrived
+     * @param  array<int|string, string>  $reasons  member id to absence reason code,
+     *                                              REQUIRED for everyone not ticked
      */
-    public function receive(ShelterTransfer $transfer, User $actor, array $presentMemberIds): ShelterTransfer
-    {
-        return DB::transaction(function () use ($transfer, $actor, $presentMemberIds) {
+    public function receive(
+        ShelterTransfer $transfer,
+        User $actor,
+        array $presentMemberIds,
+        array $reasons = []
+    ): ShelterTransfer {
+        return DB::transaction(function () use ($transfer, $actor, $presentMemberIds, $reasons) {
             $transfer = $this->lock($transfer);
             $this->authorize($transfer->canBeReceivedBy($actor), 'receive');
 
@@ -210,6 +216,43 @@ class TransferService
 
             if (empty($valid)) {
                 $this->fail('present', 'Tick at least one person who arrived at the shelter.');
+            }
+
+            // PHASE 5 ITEM 8b. An absence is someone who WAS present at the
+            // origin and is not ticked on arrival. Scoped to is_present = true
+            // deliberately: a member who was already absent before the transfer
+            // (registered with the family but never in the shelter) was never on
+            // the truck, so asking staff why they "did not arrive" would be
+            // asking about a journey that person never started.
+            //
+            // is_present still holds the ORIGIN state at this point, which is why
+            // this is built BEFORE the writes below. After them nobody could tell
+            // an arrival from an absence.
+            $absent = $household->members()
+                ->where('is_present', true)
+                ->whereNotIn('id', $valid)
+                ->pluck('full_name', 'id')
+                ->all();
+
+            $didNotArrive = [];
+            foreach ($absent as $memberId => $memberName) {
+                $code = $reasons[$memberId] ?? $reasons[(string) $memberId] ?? null;
+
+                if (! array_key_exists($code, ShelterTransfer::ABSENCE_REASONS)) {
+                    $this->fail('reasons',
+                        "Choose a reason for {$memberName}, who is not ticked as arrived.");
+                }
+
+                $didNotArrive[] = [
+                    'member_id' => (int) $memberId,
+                    'reason' => $code,
+                    // Filled in later by resolveAbsence(). Present from the start
+                    // so every entry has the same shape and nothing has to guard
+                    // for a missing key.
+                    'resolved' => null,
+                    'resolved_by' => null,
+                    'resolved_at' => null,
+                ];
             }
 
             $household->members()->update(['is_present' => false]);
@@ -238,6 +281,7 @@ class TransferService
                 'received_by' => $actor->id,
                 'received_at' => now(),
                 'members_received' => $present,
+                'did_not_arrive' => $didNotArrive ?: null,
             ]);
 
             $note = sprintf(
@@ -248,21 +292,35 @@ class TransferService
                 (int) $transfer->members_expected
             );
 
+            if ($didNotArrive) {
+                $note .= ' Did not arrive: ' . $this->describeAbsences($didNotArrive, $absent) . '.';
+            }
+
             AuditLogger::log('updated', $transfer, $note);
             AuditLogger::log('updated', $household, $note);
 
             // A short arrival is not an error, but it is worth a Super Admin
             // alert: it means people left the origin and are unaccounted for.
+            //
+            // Reaches Super Admins ONLY, by email, and only where
+            // EVACTECH_ALERT_EMAILS is configured. It is NOT a City Admin
+            // channel -- what City Admin has to see lives in the alert bar and
+            // on the Transfers page.
             if ($present < (int) $transfer->members_expected) {
                 SystemAlerter::raise(
                     'Fewer evacuees arrived than departed',
                     sprintf(
-                        '%s left %s with %d people but %d were received at %s.',
+                        '%s left %s with %d people but %d were received at %s.%s',
                         $household->household_code,
                         $transfer->fromCenter?->name,
                         (int) $transfer->members_expected,
                         $present,
-                        $destination->name
+                        $destination->name,
+                        // ITEM 8b section 4.6: name them and give the reasons.
+                        // A count on its own is not something anybody can act on.
+                        $didNotArrive
+                            ? ' Did not arrive: ' . $this->describeAbsences($didNotArrive, $absent) . '.'
+                            : ''
                     ),
                     'warning',
                     'other',
@@ -273,6 +331,100 @@ class TransferService
             return $transfer;
         });
     }
+
+    /**
+     * PHASE 5 ITEM 8b -- record what happened to someone who did not arrive.
+     *
+     * Two different things behind one control:
+     *
+     *  - ARRIVED delegates to PresenceService. Nothing is written to the
+     *    transfer row, because arrival is carried by is_present alone. If
+     *    presence is later corrected back to absent the person correctly
+     *    reappears as unaccounted for.
+     *  - Everything else is a record-only resolution. It changes NO counts. The
+     *    person was already absent from members_present and from occupancy; the
+     *    only thing that changes is that the system stops asking.
+     *
+     * The reason recorded at receipt is NEVER overwritten. At that moment, on
+     * that hop, the desk honestly did not know -- that stays true, and the row
+     * keeps saying "3 of 4 arrived".
+     */
+    public function resolveAbsence(
+        ShelterTransfer $transfer,
+        User $actor,
+        int $memberId,
+        string $resolution
+    ): ShelterTransfer {
+        if ($resolution === ShelterTransfer::RESOLUTION_ARRIVED) {
+            // Not inside the transaction below: PresenceService opens its own,
+            // takes its own locks and writes its own audit entry. Nesting them
+            // would give one action two overlapping locks on the same household
+            // for no benefit.
+            $household = Household::findOrFail($transfer->household_id);
+
+            $this->authorize(
+                in_array($memberId, $this->absentMemberIds($transfer), true),
+                'resolve'
+            );
+
+            $present = $household->members()
+                ->where('is_present', true)
+                ->pluck('id')
+                ->push($memberId)
+                ->unique()
+                ->all();
+
+            // PresenceService checks access to the shelter the family is in NOW,
+            // which after a further transfer may be neither end of this row.
+            app(PresenceService::class)->update($household, $present, $actor);
+
+            return $transfer->refresh();
+        }
+
+        return DB::transaction(function () use ($transfer, $actor, $memberId, $resolution) {
+            $transfer = $this->lock($transfer);
+            $this->authorize($transfer->canResolveAbsenceBy($actor), 'resolve');
+
+            if (! array_key_exists($resolution, ShelterTransfer::RECORDED_RESOLUTIONS)) {
+                $this->fail('resolution', 'Choose what happened to this person.');
+            }
+
+            $entries = $transfer->did_not_arrive;
+            if (! is_array($entries) || empty($entries)) {
+                $this->fail('resolution', 'This transfer has no absence to resolve.');
+            }
+
+            $found = false;
+            foreach ($entries as $i => $entry) {
+                if ((int) ($entry['member_id'] ?? 0) !== $memberId) {
+                    continue;
+                }
+                $entries[$i]['resolved'] = $resolution;
+                $entries[$i]['resolved_by'] = $actor->id;
+                $entries[$i]['resolved_at'] = now()->toDateTimeString();
+                $found = true;
+            }
+
+            if (! $found) {
+                $this->fail('resolution', 'That person is not on this transfer\'s absence list.');
+            }
+
+            $transfer->update(['did_not_arrive' => $entries]);
+
+            $name = $transfer->household?->members()->whereKey($memberId)->value('full_name') ?? 'a member';
+
+            AuditLogger::log('updated', $transfer, sprintf(
+                'Recorded %s as "%s" after transfer of %s. No headcount change: this person was '
+                . 'already not counted present at the shelter.',
+                $name,
+                ShelterTransfer::resolutionLabel($resolution),
+                $transfer->household?->household_code ?? 'a household'
+            ));
+
+            return $transfer;
+        });
+    }
+
 
     /**
      * Call the whole thing off. Nothing to recalculate: the household never
@@ -342,7 +494,10 @@ class TransferService
     public function listQuery(User $user, array $filters = []): Builder
     {
         $query = ShelterTransfer::with([
-            'household.headMember', 'fromCenter', 'toCenter',
+            // PHASE 5 ITEM 8b: household.members is loaded so the table can print
+            // the NAMES of people who did not arrive. Without it, every row would
+            // fire its own query for a handful of names.
+            'household.headMember', 'household.members', 'fromCenter', 'toCenter',
             'requestedBy', 'confirmedBy', 'departedBy', 'receivedBy', 'refusedBy', 'cancelledBy',
         ])->visibleTo($user);
 
@@ -352,6 +507,12 @@ class TransferService
             $query->open();
         } elseif ($status === 'overdue') {
             $query->overdue();
+        } elseif ($status === 'unaccounted') {
+            // PHASE 5 ITEM 8b. Not a real status, like 'open' and 'overdue'
+            // before it. The id set is computed first and applied with whereIn
+            // rather than filtered after the fact, because filtering a paginated
+            // result in PHP gives wrong page counts.
+            $query->whereIn('id', $this->unaccountedTransferIds($user));
         } elseif ($status && $status !== 'all') {
             $query->where('status', $status);
         }
@@ -418,6 +579,15 @@ class TransferService
             }
         }
 
+        // PHASE 5 ITEM 8b. A SECOND query, because unaccounted-for people live on
+        // COMPLETED transfers, which the open() scope above excludes by
+        // definition. Counted in PEOPLE rather than transfers: that is the unit
+        // staff and CSWDO think in, and it matches the count on the capacity
+        // panel, so the same idea does not carry two units one screen apart.
+        $unaccounted = $this->unaccountedRows(
+            ShelterTransfer::visibleTo($user)
+        );
+
         return [
             'open' => $open->count(),
             'awaiting_confirmation' => $awaitingConfirmation,
@@ -425,7 +595,127 @@ class TransferService
             'awaiting_receipt' => $awaitingReceipt,
             'overdue' => $overdue,
             'needs_action' => $awaitingConfirmation + $awaitingDeparture + $awaitingReceipt,
+            'unaccounted_people' => $unaccounted['people'],
+            'unaccounted_transfers' => $unaccounted['transfers']->count(),
         ];
+    }
+
+    /**
+     * PHASE 5 ITEM 8b -- ids of transfers that currently have somebody
+     * unaccounted for, for the Transfers-page filter.
+     *
+     * @return array<int, int>
+     */
+    public function unaccountedTransferIds(User $user): array
+    {
+        return $this->unaccountedRows(ShelterTransfer::visibleTo($user))['transfers']->all();
+    }
+
+    /**
+     * PHASE 5 ITEM 8b -- how many people this ONE shelter has not accounted for.
+     *
+     * Scoped by where the household is NOW, not by which end of the transfer
+     * this shelter was. A family received here and then moved on is somebody
+     * else's reconciliation.
+     */
+    public function unaccountedCountFor(EvacuationCenter $center): int
+    {
+        return $this->unaccountedRows(
+            ShelterTransfer::query(),
+            fn ($q) => $q->where('evacuation_center_id', $center->id)
+        )['people'];
+    }
+
+    /**
+     * The one fold that every unaccounted-for figure comes from.
+     *
+     * WHY A FOLD RATHER THAN SQL: the set is stored as JSON, and the JSON
+     * functions that could filter it in the database are MySQL-only. The repo
+     * ships an sqlite copy, which is the same reason listQuery() orders with a
+     * CASE instead of FIELD().
+     *
+     * The cost is bounded on purpose. The whereHas clause is BOTH half of the
+     * derived rule (section 4.4 requires the household to still be checked in)
+     * AND the thing that stops this growing without limit across a long
+     * disaster: families check out, and when they do they leave this set.
+     *
+     * @param  callable|null  $householdFilter  extra constraint on the household
+     * @return array{transfers: Collection, people: int}
+     */
+    private function unaccountedRows(Builder $base, ?callable $householdFilter = null): array
+    {
+        $rows = $base
+            ->where('status', ShelterTransfer::COMPLETED)
+            ->whereNotNull('did_not_arrive')
+            ->whereHas('household', function ($q) use ($householdFilter) {
+                $q->where('status', 'checked_in');
+                if ($householdFilter) {
+                    $householdFilter($q);
+                }
+            })
+            ->with('household.members')
+            ->get();
+
+        $memberIds = [];
+        $transferIds = [];
+
+        foreach ($rows as $row) {
+            $ids = $row->unaccountedMemberIds();
+            if (empty($ids)) {
+                continue;
+            }
+            $transferIds[] = $row->id;
+            foreach ($ids as $id) {
+                $memberIds[$id] = true;
+            }
+        }
+
+        return [
+            'transfers' => collect($transferIds),
+            // Distinct people: someone could in principle appear on two hops.
+            'people' => count($memberIds),
+        ];
+    }
+
+    /**
+     * "Dela Cruz, Maria (Unknown); Santos, Jose (Returned home)" for the audit
+     * entry and the Super Admin alert.
+     *
+     * @param  array<int, array<string, mixed>>  $didNotArrive
+     * @param  array<int, string>  $names  member id to full name
+     */
+    private function describeAbsences(array $didNotArrive, array $names): string
+    {
+        $parts = [];
+
+        foreach ($didNotArrive as $entry) {
+            $id = (int) ($entry['member_id'] ?? 0);
+            $parts[] = sprintf(
+                '%s (%s)',
+                $names[$id] ?? 'a member',
+                ShelterTransfer::absenceReasonLabel($entry['reason'] ?? null)
+            );
+        }
+
+        return implode('; ', $parts);
+    }
+
+    /**
+     * Member ids recorded as not having arrived on this transfer, whatever the
+     * reason. Used to check that a Resolve request names somebody who really is
+     * on this row's absence list.
+     *
+     * @return array<int, int>
+     */
+    private function absentMemberIds(ShelterTransfer $transfer): array
+    {
+        $entries = $transfer->did_not_arrive;
+
+        if (! is_array($entries)) {
+            return [];
+        }
+
+        return array_values(array_map(fn ($e) => (int) ($e['member_id'] ?? 0), $entries));
     }
 
     /**

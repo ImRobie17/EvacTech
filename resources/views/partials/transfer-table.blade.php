@@ -76,6 +76,27 @@
                         @if ($t->status === \App\Models\ShelterTransfer::COMPLETED && $t->members_received !== null && $t->members_received < $t->members_expected)
                             <span class="block text-sm text-ink-muted">{{ $t->members_received }} of {{ $t->members_expected }} arrived</span>
                         @endif
+
+                        {{-- PHASE 5 ITEM 8b. The names, not just the shortfall. A
+                             count on its own is not something anybody can act on.
+                             "Not yet accounted for" is the wording, never
+                             "missing" -- that is a formal NDRRMC category and all
+                             this system knows is that a headcount did not
+                             reconcile. --}}
+                        @foreach ($t->didNotArriveDetails() as $txAbsence)
+                            <span class="block text-sm text-ink-muted">
+                                @if ($txAbsence['unaccounted'])
+                                    <span class="badge badge-warning">Not yet accounted for</span>
+                                @endif
+                                {{ $txAbsence['name'] }}
+                                <span class="text-ink-muted">({{ $txAbsence['reason_label'] }})</span>
+                                @if ($txAbsence['resolution_label'])
+                                    <span class="text-ink-muted">Resolved: {{ $txAbsence['resolution_label'] }}</span>
+                                @elseif ($txAbsence['is_present'])
+                                    <span class="text-ink-muted">Since marked present</span>
+                                @endif
+                            </span>
+                        @endforeach
                         @if ($t->reason)
                             <span class="block text-sm text-ink-muted">Reason: {{ $t->reason }}</span>
                         @endif
@@ -130,6 +151,23 @@
                                     data-tx-cancel="{{ $t->id }}"
                                     data-tx-label="{{ $t->household?->household_code }}"
                                     data-tx-in-transit="{{ $t->status === \App\Models\ShelterTransfer::IN_TRANSIT ? '1' : '0' }}">Cancel</button>
+                        @endif
+
+                        {{-- PHASE 5 ITEM 8b. One Resolve control per person still
+                             unaccounted for. Shown at BOTH ends: the origin put
+                             them on the truck and is likeliest to know where they
+                             went. Without this the alert bar would accumulate
+                             entries that nobody could ever clear, which is
+                             precisely how staff learn to ignore an alert bar. --}}
+                        @if (isset($tx['resolve']) && $t->canResolveAbsenceBy($txUser))
+                            @foreach ($t->didNotArriveDetails() as $txAbsence)
+                                @if ($txAbsence['unaccounted'])
+                                    <button type="button" class="btn-link"
+                                            data-tx-resolve="{{ $t->id }}"
+                                            data-tx-member="{{ $txAbsence['member_id'] }}"
+                                            data-tx-member-name="{{ $txAbsence['name'] }}">Resolve: {{ $txAbsence['name'] }}</button>
+                                @endif
+                            @endforeach
                         @endif
 
                         @if (! $t->isOpen())

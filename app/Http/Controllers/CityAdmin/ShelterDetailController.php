@@ -13,6 +13,7 @@ use App\Models\ShelterTransfer;
 use App\Models\VulnerableClassification;
 use App\Services\AuditLogger;
 use App\Services\HouseholdMemberSync;
+use App\Services\PresenceService;
 use App\Services\TransferService;
 use App\Support\AgeTier;
 use Illuminate\Http\Request;
@@ -64,6 +65,10 @@ class ShelterDetailController extends Controller
             'ageGroups' => AgeTier::options(),
             // PHASE 2 ITEM 8: destinations for the "Move to Shelter" modal.
             'transferCenters' => $this->transfers->centerOptions(),
+            // PHASE 5 ITEM 8b: people this shelter has not accounted for after a
+            // transfer. Separate from occupancy on purpose -- they are already
+            // excluded from it.
+            'unaccounted' => $this->transfers->unaccountedCountFor($center),
         ];
 
         $data += $tab === 'relief'
@@ -159,6 +164,56 @@ class ShelterDetailController extends Controller
             "City Admin checked in {$household->household_code} at {$center->name} ({$household->members_present} present)");
 
         return $this->backToTab($center, 'households', "Household {$household->household_code} checked in.");
+    }
+
+    /**
+     * PHASE 5 ITEM 8b -- the tick list for the Update Presence modal.
+     *
+     * Same contract as the barangay twin: the block reason is RETURNED, not
+     * thrown, so the modal explains itself. PresenceService::update() re-checks
+     * it under a lock.
+     */
+    public function presence(EvacuationCenter $center, Household $household)
+    {
+        // Consistency guard only -- City Admin may operate any shelter, but the
+        // household must actually belong to the one in the URL. Same check the
+        // check-out path makes.
+        abort_if($household->evacuation_center_id !== $center->id, 404,
+            'This household is not registered at this shelter.');
+
+        $service = app(PresenceService::class);
+
+        return response()->json([
+            'id' => $household->id,
+            'code' => $household->household_code,
+            'head' => $household->headMember?->full_name,
+            'center' => $center->name,
+            'present' => (int) $household->members_present,
+            'total' => $household->members()->count(),
+            'blocked' => $service->blockedReason($household, auth()->user()),
+            'members' => $service->checklist($household),
+        ]);
+    }
+
+    /** PHASE 5 ITEM 8b -- write the corrected presence. */
+    public function updatePresence(Request $request, EvacuationCenter $center, Household $household)
+    {
+        abort_if($household->evacuation_center_id !== $center->id, 404,
+            'This household is not registered at this shelter.');
+
+        $data = $request->validate([
+            'present' => ['required', 'array', 'min:1'],
+            'present.*' => ['integer'],
+        ], [
+            'present.required' => 'Tick at least one person who is present at the shelter.',
+        ]);
+
+        app(PresenceService::class)->update($household, $data['present'], $request->user());
+
+        $household->refresh();
+
+        return $this->backToTab($center, 'households',
+            "Presence updated. {$household->household_code} now has {$household->members_present} present.");
     }
 
     public function checkOut(EvacuationCenter $center, Household $household)

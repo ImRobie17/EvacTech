@@ -7,6 +7,7 @@ use App\Models\Household;
 use App\Models\ShelterTransfer;
 use App\Services\TransferService;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 /**
  * PHASE 2 ITEM 8 -- Barangay Personnel's Shelter Transfers screen.
@@ -113,16 +114,60 @@ class TransferController extends BarangayController
 
     public function receive(ShelterTransfer $transfer, Request $request)
     {
+        // PHASE 5 ITEM 8b: reasons[<member_id>] -- ONE bracket pair. PHP closes a
+        // form key at the first ], so a nested name like reasons[<id>[]] would
+        // arrive as the literal string key "reasons[" and nothing would ever
+        // reach the server. That shipped once already and cost a whole phase.
         $data = $request->validate([
             'present' => ['required', 'array', 'min:1'],
             'present.*' => ['integer'],
+            'reasons' => ['nullable', 'array'],
+            'reasons.*' => ['string', Rule::in(array_keys(ShelterTransfer::ABSENCE_REASONS))],
         ], [
             'present.required' => 'Tick at least one person who arrived at the shelter.',
+            'reasons.*.in' => 'Choose a valid reason for anyone who did not arrive.',
         ]);
 
-        $this->transfers->receive($transfer, $request->user(), $data['present']);
+        $this->transfers->receive(
+            $transfer,
+            $request->user(),
+            $data['present'],
+            $data['reasons'] ?? []
+        );
 
         return back()->with('success', 'Arrival recorded. Both shelter headcounts have been updated.');
+    }
+
+    /**
+     * PHASE 5 ITEM 8b -- record what happened to someone who did not arrive.
+     *
+     * "Arrived" changes the headcount through PresenceService. The other two
+     * change NO counts at all: the person was already absent from
+     * members_present and from occupancy, and the only thing that changes is
+     * that the system stops asking.
+     */
+    public function resolveAbsence(ShelterTransfer $transfer, Request $request)
+    {
+        $data = $request->validate([
+            'member_id' => ['required', 'integer'],
+            'resolution' => ['required', 'string', Rule::in(array_merge(
+                [ShelterTransfer::RESOLUTION_ARRIVED],
+                array_keys(ShelterTransfer::RECORDED_RESOLUTIONS)
+            ))],
+        ], [
+            'resolution.required' => 'Choose what happened to this person.',
+        ]);
+
+        $this->transfers->resolveAbsence(
+            $transfer,
+            $request->user(),
+            (int) $data['member_id'],
+            $data['resolution']
+        );
+
+        return back()->with('success', $data['resolution'] === ShelterTransfer::RESOLUTION_ARRIVED
+            ? 'Marked as arrived. The shelter headcount has been updated.'
+            : 'Recorded. This does not change any headcount.');
     }
 
     public function cancel(ShelterTransfer $transfer, Request $request)

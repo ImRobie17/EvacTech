@@ -90,8 +90,9 @@
             <div id="tx-rc-members" class="checkbox-list"></div>
 
             <p class="text-sm text-ink-muted">
-                Anyone left unticked is recorded as not present. If fewer people arrive than departed,
-                City Admin is alerted automatically.
+                Anyone left unticked needs a reason. Choosing "Unknown" is what raises a flag for
+                follow-up, so the other three answers keep the alert meaningful. Nobody is ever
+                labelled missing: the system only records that a headcount did not reconcile.
             </p>
 
             <div class="modal-actions flex flex-col gap-2 sm:flex-row sm:justify-end">
@@ -160,6 +161,57 @@
             <div class="modal-actions flex flex-col gap-2 sm:flex-row sm:justify-end">
                 <button type="button" class="btn-secondary" data-close-modal>Keep Transfer</button>
                 <button type="submit" class="btn-danger">Cancel Transfer</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{{-- ======== Resolve an absence (PHASE 5 ITEM 8b) ======== --}}
+{{--
+    Records what happened to someone who did not arrive. Only "Arrived" changes
+    a headcount -- it routes through PresenceService. The other two change NO
+    counts at all: the person was already absent from members_present and from
+    the shelter's occupancy, and the only thing that changes is that the system
+    stops asking.
+
+    "Travelled separately" is deliberately not offered. That is a reason, not a
+    resolution, and it never raised anything to resolve.
+
+    The wording never says "missing". In Philippine DRRM reporting that is a
+    formal category that travels upward beside dead and injured.
+--}}
+<div class="modal-backdrop" id="transferResolveModal" hidden>
+    <div class="modal modal-narrow" role="dialog" aria-modal="true" aria-labelledby="txResolveTitle">
+        <div class="modal-head">
+            <h2 id="txResolveTitle">Record What Happened</h2>
+            <button type="button" class="icon-btn" data-close-modal aria-label="Close">&times;</button>
+        </div>
+
+        <p><strong id="tx-rs-name"></strong> did not arrive at the destination shelter.</p>
+
+        <form method="POST" id="transferResolveForm">
+            @csrf
+            <input type="hidden" name="member_id" id="tx-rs-member-id">
+
+            <div class="field">
+                <label for="tx-rs-resolution">What happened?</label>
+                <select name="resolution" id="tx-rs-resolution" required>
+                    <option value="">Choose one</option>
+                    <option value="{{ \App\Models\ShelterTransfer::RESOLUTION_ARRIVED }}">They arrived at the shelter</option>
+                    @foreach (\App\Models\ShelterTransfer::RECORDED_RESOLUTIONS as $rsCode => $rsLabel)
+                        <option value="{{ $rsCode }}">{{ $rsLabel }}</option>
+                    @endforeach
+                </select>
+            </div>
+
+            <p class="text-sm text-ink-muted" id="tx-rs-note">
+                Only "They arrived at the shelter" changes the headcount. The others are recorded as
+                a fact and leave every count unchanged.
+            </p>
+
+            <div class="modal-actions flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <button type="button" class="btn-secondary" data-close-modal>Cancel</button>
+                <button type="submit" class="btn-primary">Save</button>
             </div>
         </form>
     </div>

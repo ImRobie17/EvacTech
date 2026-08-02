@@ -17,8 +17,19 @@
         'depart' => route('barangay.transfers.depart', ':id'),
         'receive' => route('barangay.transfers.receive', ':id'),
         'cancel' => route('barangay.transfers.cancel', ':id'),
+        // PHASE 5 ITEM 8b. No Resolve button on this page, but the shared
+        // transfer-modals partial carries the Resolve modal, so the template
+        // is supplied rather than leaving a half-configured modal behind.
+        'resolve' => route('barangay.transfers.resolve', ':id'),
     ];
+    // PHASE 5 ITEM 8b. Presence correction rides on the SAME config object as
+    // the transfer modals, so this page still contains exactly one raw JSON
+    // echo. A second echo would be a second place for the escaped-echo bug
+    // (gotcha 2) to come back. Not added to $tx itself: that array is passed to
+    // partials/transfer-table, which has no use for these two.
     $txConfig = $tx;
+    $txConfig['presence'] = route('barangay.shelter.presence', ':id');
+    $txConfig['presenceSave'] = route('barangay.shelter.presence.update', ':id');
     $txConfig['centers'] = $transferCenters ?? [];
     $txOpenIds = $openTransferHouseholdIds ?? [];
 @endphp
@@ -54,7 +65,7 @@
              by cityadmin/shelters/show, which Chat C has not converted. It is
              styled entirely by staff.css classes, so it renders exactly as
              before. Chat C owns its conversion. --}}
-        @include('partials.capacity-panel', ['center' => $center])
+        @include('partials.capacity-panel', ['center' => $center, 'unaccounted' => $unaccounted ?? 0])
 
         <form method="GET" class="filter-bar sm:grid sm:grid-cols-2 sm:items-end lg:grid-cols-4" role="search">
             <input type="search" name="q" value="{{ request('q') }}" placeholder="Search household head&hellip;" aria-label="Search household head name">
@@ -122,6 +133,16 @@
                                 <a class="btn-link inline-flex min-h-tap items-center"
                                    href="{{ route('barangay.evacuees.index') }}?edit={{ $h->id }}">Edit Family Group</a>
                                 @if($h->status === 'checked_in')
+                                    {{-- PHASE 5 ITEM 8b. Deliberately shown even
+                                         when a transfer is in progress, unlike
+                                         "Move to Shelter" below. The modal reports
+                                         WHY it is blocked, which is more useful
+                                         than a control that silently is not there
+                                         -- and it is the only way a staff member
+                                         can find out that the transfer is what is
+                                         stopping them. --}}
+                                    <button type="button" class="btn-link"
+                                            data-presence="{{ $h->id }}">Update Presence</button>
                                     {{-- PHASE 2 ITEM 8. Named "Move to Shelter", not
                                          "Transfer": the Transfer Head flow already
                                          lives on this page and two unrelated
@@ -274,6 +295,10 @@
 @push('modals')
     {{-- PHASE 2 ITEM 8 -- the same four modals the Transfers page uses. --}}
     @include('partials.transfer-modals', ['tx' => $tx])
+    {{-- PHASE 5 ITEM 8b. Not folded into transfer-modals: presence correction is
+         not a transfer action, and the Transfers pages include that partial but
+         have no household rows to correct. --}}
+    @include('partials.presence-modal')
 @endpush
 
 @push('scripts')

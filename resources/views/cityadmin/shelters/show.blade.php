@@ -26,8 +26,19 @@
         'depart' => route('city.transfers.depart', ':id'),
         'receive' => route('city.transfers.receive', ':id'),
         'cancel' => route('city.transfers.cancel', ':id'),
+        // PHASE 5 ITEM 8b. No Resolve button on this page, but the shared
+        // transfer-modals partial carries the Resolve modal, so the template
+        // is supplied rather than leaving a half-configured modal behind.
+        'resolve' => route('city.transfers.resolve', ':id'),
     ];
+    // PHASE 5 ITEM 8b. Same config object as the transfer modals, so this page
+    // still has exactly one raw JSON echo (gotcha 2). These two routes are bound
+    // to {center} as well as {household}, which is why they are built here and
+    // not inside the shared partial -- a partial that called route() would be
+    // exactly the role-coupled shared view the Phase 1 rewrite removed.
     $txConfig = $tx;
+    $txConfig['presence'] = route('city.shelters.households.presence', [$center, ':id']);
+    $txConfig['presenceSave'] = route('city.shelters.households.presence.update', [$center, ':id']);
     $txConfig['centers'] = $transferCenters ?? [];
     $txOpenIds = $openTransferHouseholdIds ?? [];
 @endphp
@@ -50,7 +61,7 @@
      an auto-fit grid; the explicit breakpoint stops a 20rem minimum from
      dropping to one column at sizes where two still fit comfortably. --}}
 <section class="shelter-summary">
-    @include('partials.capacity-panel', ['center' => $center])
+    @include('partials.capacity-panel', ['center' => $center, 'unaccounted' => $unaccounted ?? 0])
 
     <article class="card panel">
         <h2 class="panel-title">Shelter Details</h2>
@@ -148,6 +159,11 @@
                             <button type="button" class="btn-link"
                                     data-cd-edit-household="{{ $h->id }}">Edit Family Group</button>
                             @if ($h->status === 'checked_in')
+                                {{-- PHASE 5 ITEM 8b. Shown even when a transfer is
+                                     in progress: the modal explains why it is
+                                     blocked, which a missing button cannot. --}}
+                                <button type="button" class="btn-link"
+                                        data-presence="{{ $h->id }}">Update Presence</button>
                                 {{-- PHASE 2 ITEM 8 -- shelter-to-shelter move. --}}
                                 @if (in_array($h->id, $txOpenIds))
                                     <span class="text-sm text-ink-muted">Transfer in progress</span>
@@ -524,6 +540,8 @@
 @push('modals')
     {{-- PHASE 2 ITEM 8 -- shared transfer modals. --}}
     @include('partials.transfer-modals', ['tx' => $tx])
+    {{-- PHASE 5 ITEM 8b -- shared Update Presence modal. --}}
+    @include('partials.presence-modal')
 @endpush
 
 @push('scripts')

@@ -16,6 +16,8 @@
         'depart' => route('city.transfers.depart', ':id'),
         'receive' => route('city.transfers.receive', ':id'),
         'cancel' => route('city.transfers.cancel', ':id'),
+        // PHASE 5 ITEM 8b -- Resolve an absence.
+        'resolve' => route('city.transfers.resolve', ':id'),
     ];
     $txConfig = $tx;
     $txConfig['centers'] = $centers;
@@ -33,6 +35,7 @@
         <select name="status" aria-label="Filter status">
             <option value="open" @selected(request('status', 'open') === 'open')>In progress</option>
             <option value="overdue" @selected(request('status') === 'overdue')>Overdue only</option>
+            <option value="unaccounted" @selected(request('status') === 'unaccounted')>People not yet accounted for</option>
             <option value="pending" @selected(request('status') === 'pending')>Awaiting confirmation</option>
             <option value="approved" @selected(request('status') === 'approved')>Approved</option>
             <option value="in_transit" @selected(request('status') === 'in_transit')>In transit</option>

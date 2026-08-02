@@ -167,12 +167,34 @@ class ShelterController extends Controller
     /**
      * Replace the shelter's roster. Only barangay personnel may be assigned;
      * anything else in the request is silently dropped rather than trusted.
+     *
+     * PHASE 6 -- assignment is EXCLUSIVE per staff account. A staff member is
+     * physically inside one shelter for one shift, so putting them on this
+     * roster takes them off every other one. The user modal enforces the same
+     * rule from the other direction with a radio group; enforcing it on only
+     * one side would let City Admin produce a two-shelter account through the
+     * back door, and with the header switcher removed in item 7 that account
+     * would have no way to reach its second shelter.
+     *
+     * The detach runs BEFORE the sync so that a staff member already on THIS
+     * roster is removed and immediately re-added with fresh pivot values,
+     * rather than being detached after the sync has just put them back.
+     *
+     * The pivot itself stays many-to-many. The rule is policy, not schema, and
+     * a future surge-staffing feature can relax it here without a migration.
      */
     private function syncStaff(EvacuationCenter $center, array $userIds): void
     {
         $valid = User::whereIn('id', $userIds)
             ->whereHas('role', fn ($q) => $q->where('name', Role::BARANGAY_PERSONNEL))
             ->pluck('id');
+
+        if ($valid->isNotEmpty()) {
+            DB::table('evacuation_center_user')
+                ->whereIn('user_id', $valid)
+                ->where('evacuation_center_id', '!=', $center->id)
+                ->delete();
+        }
 
         $center->assignedStaff()->sync(
             $valid->mapWithKeys(fn ($id) => [$id => [

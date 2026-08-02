@@ -255,7 +255,27 @@ class ShelterController extends BarangayController
         AuditLogger::log('updated', $household,
             "Transferred head of {$household->household_code} to {$newHead->full_name}");
 
-        return back()->with('success', "Family head transferred to {$newHead->full_name}.");
+        $message = "Family head transferred to {$newHead->full_name}.";
+
+        /* PHASE 6. Confirming a head transfer used to navigate, which closed the
+           Edit Family modal it was launched from and dropped the operator back
+           on the list. Answering JSON to an XHR lets the browser stay where it
+           is, so the transfer completes and editing continues in the same modal.
+
+           The redirect below is kept for a non-XHR post -- a submit with
+           JavaScript unavailable still works exactly as it did. This is an
+           ADDITIONAL response shape, not a replacement. */
+        if ($request->expectsJson()) {
+            return response()->json([
+                'ok' => true,
+                'message' => $message,
+                'household_id' => $household->id,
+                'new_head_member_id' => $newHead->id,
+                'new_head_name' => $newHead->full_name,
+            ]);
+        }
+
+        return back()->with('success', $message);
     }
 
     /**

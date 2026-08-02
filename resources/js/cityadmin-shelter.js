@@ -215,7 +215,7 @@ document.addEventListener('click', (e) => {
 });
 
 // ---------------------------------------------------------------------
-// Edit Family Group -- opens IN PLACE on this page
+// Edit Family -- opens IN PLACE on this page
 // ---------------------------------------------------------------------
 let editIndex = 1; // 0 reserved for the household head
 

@@ -20,7 +20,7 @@
         <option value="active" @selected(request('status') === 'active')>Active</option>
         <option value="inactive" @selected(request('status') === 'inactive')>Inactive</option>
     </select>
-    <button type="submit" class="btn-secondary">Filter</button>
+    <button type="submit" class="btn-secondary">Apply</button>
 </form>
 
 <div class="card panel table-panel">
@@ -44,14 +44,14 @@
                     $editUserJson = json_encode($editUser);
                 @endphp
                 <tr>
-                    <td data-label="Name">{{ $u->name }}</td>
+                    <td data-label="Name" data-fit>{{ $u->name }}</td>
                     {{-- break-all, not break-words: an email address has no
                          spaces to break at, so it would otherwise force the
                          stacked card wider than a 380px screen. --}}
-                    <td data-label="Email" class="break-all">{{ $u->email }}</td>
+                    <td data-label="Email" class="break-all" data-fit>{{ $u->email }}</td>
                     <td data-label="Role"><span class="badge badge-info">{{ $u->role?->display_name }}</span></td>
-                    <td data-label="Barangay">{{ $u->barangay?->name ?? '-' }}</td>
-                    <td data-label="Last Login" data-numeric>{{ $u->last_login_at?->diffForHumans() ?? 'Never' }}</td>
+                    <td data-label="Barangay" data-fit>{{ $u->barangay?->name ?? '-' }}</td>
+                    <td data-label="Last Login" data-numeric class="whitespace-nowrap">{{ $u->last_login_at?->diffForHumans() ?? 'Never' }}</td>
                     <td data-label="Status"><span class="badge {{ $u->status === 'active' ? 'badge-success' : 'badge-warning' }}">{{ ucfirst($u->status) }}</span></td>
                     <td class="actions-cell" data-label="Actions">
                         <button type="button" class="btn-link" data-edit-user="{{ $editUserJson }}">Edit</button>
@@ -87,11 +87,15 @@
         <form method="POST" action="{{ route('super.users.store') }}" id="userForm">
             @csrf
             <input type="hidden" name="_method" id="userMethod" value="POST">
-            <div class="member-grid">
-                <div class="field"><label for="u-name">Full name</label><input type="text" id="u-name" name="name" required maxlength="255"></div>
-                <div class="field"><label for="u-email">Email</label><input type="email" id="u-email" name="email" required></div>
-                <div class="field"><label for="u-contact">Contact number <small>(optional)</small></label><input type="text" id="u-contact" name="contact_number" maxlength="20"></div>
-            </div>
+            {{-- PHASE 6 ITEM 8. These three sat inside .member-grid, which is a
+                 MEMBER ROW layout: two columns from 768px and FIVE from 1280px.
+                 On a wide screen that squeezed a full name, an email address and
+                 a phone number into narrow side-by-side boxes where none of them
+                 could show their own contents. They are plain stacked fields
+                 now, one per row, which is what an account form wants. --}}
+            <div class="field"><label for="u-name">Full name</label><input type="text" id="u-name" name="name" required maxlength="255"></div>
+            <div class="field"><label for="u-email">Email</label><input type="email" id="u-email" name="email" required></div>
+            <div class="field"><label for="u-contact">Contact number <small>(optional)</small></label><input type="text" id="u-contact" name="contact_number" maxlength="20"></div>
             <div class="field">
                 <label for="u-role">Role</label>
                 <select id="u-role" name="role" required>

@@ -42,16 +42,23 @@
         <div class="public-header-right">
             <button type="button" class="icon-btn" id="themeToggle" aria-label="Toggle dark mode">&#9680;</button>
 
-            {{-- Inline style attributes removed: the button is styled by
-                 .staff-login-link in public.css, which also gives it the 44px
-                 tap target the inline version was missing. --}}
+            {{-- PHASE 6 ITEM 9. The "Staff Login" anchor that used to sit here is
+                 gone. The citizen pages are the one part of EvacTech with no
+                 authentication at all, and advertising the staff entrance from
+                 them serves nobody: a citizen cannot use it, and staff reach
+                 /login directly. Removing the link does not remove the route --
+                 it is one less thing pointed at the login form from a page
+                 anyone on the internet can open.
+
+                 The Logout form STAYS. It renders only for an already
+                 authenticated session, so no citizen ever sees it, and without
+                 it a staff member who wandered onto the public map would have no
+                 way to sign out from there. --}}
             @auth
                 <form method="POST" action="{{ route('logout') }}" class="inline-form">
                     @csrf
                     <button type="submit" class="staff-login-link">Logout</button>
                 </form>
-            @else
-                <a href="{{ route('login') }}" class="staff-login-link">Staff Login</a>
             @endauth
         </div>
 

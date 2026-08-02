@@ -25,7 +25,7 @@
         <input type="checkbox" name="unassigned" value="1" @checked(request('unassigned'))>
         Unassigned only
     </label>
-    <button type="submit" class="btn-secondary">Filter</button>
+    <button type="submit" class="btn-secondary">Apply</button>
 </form>
 
 <div class="card panel table-panel">
@@ -56,11 +56,11 @@
                     $editUserJson = json_encode($editUser);
                 @endphp
                 <tr>
-                    <td data-label="Name">{{ $u->name }}</td>
+                    <td data-label="Name" data-fit>{{ $u->name }}</td>
                     {{-- Long addresses must wrap rather than force the card wide
                          at 380px. break-all is deliberate: an email has no spaces
                          to break at, so break-words alone would not help. --}}
-                    <td data-label="Email" class="break-all">{{ $u->email }}</td>
+                    <td data-label="Email" class="break-all" data-fit>{{ $u->email }}</td>
                     <td data-label="Shelters">
                         @if ($u->assignedCenters->isEmpty())
                             <span class="badge badge-danger">No shelter assigned</span>
@@ -75,7 +75,7 @@
                             </details>
                         @endif
                     </td>
-                    <td data-label="Last Login" data-numeric>{{ $u->last_login_at?->diffForHumans() ?? 'Never' }}</td>
+                    <td data-label="Last Login" data-numeric class="whitespace-nowrap">{{ $u->last_login_at?->diffForHumans() ?? 'Never' }}</td>
                     <td data-label="Status"><span class="badge {{ $u->status === 'active' ? 'badge-success' : 'badge-warning' }}">{{ ucfirst($u->status) }}</span></td>
                     <td class="actions-cell" data-label="Actions">
                         <button type="button" class="btn-link" data-edit-user="{{ $editUserJson }}">Edit</button>
@@ -116,29 +116,46 @@
         <form method="POST" action="{{ route('city.users.store') }}" id="userForm">
             @csrf
             <input type="hidden" name="_method" id="userMethod" value="POST">
-            <div class="member-grid">
-                <div class="field"><label for="u-name">Full name</label><input type="text" id="u-name" name="name" required maxlength="255"></div>
-                <div class="field"><label for="u-email">Email</label><input type="email" id="u-email" name="email" required></div>
-                <div class="field"><label for="u-contact">Contact number <small>(optional)</small></label><input type="text" id="u-contact" name="contact_number" maxlength="20"></div>
-            </div>
+            {{-- PHASE 6 ITEM 8. These three sat inside .member-grid, which is a
+                 MEMBER ROW layout: two columns from 768px and FIVE from 1280px.
+                 On a wide screen that squeezed a full name, an email address and
+                 a phone number into narrow side-by-side boxes where none of them
+                 could show their own contents. They are plain stacked fields
+                 now, one per row, which is what an account form wants. --}}
+            <div class="field"><label for="u-name">Full name</label><input type="text" id="u-name" name="name" required maxlength="255"></div>
+            <div class="field"><label for="u-email">Email</label><input type="email" id="u-email" name="email" required></div>
+            <div class="field"><label for="u-contact">Contact number <small>(optional)</small></label><input type="text" id="u-contact" name="contact_number" maxlength="20"></div>
 
             {{-- Shelter assignment REPLACES the old "Assigned barangay" dropdown.
-                 Access follows the shelter roster, not the barangay. Editing this
-                 list is how reassignment happens: unticking a shelter revokes it. --}}
+                 Access follows the shelter roster, not the barangay.
+
+                 PHASE 6. Radio, not checkbox. A staff member is physically inside
+                 ONE shelter for one shift; moving them to another is a
+                 REASSIGNMENT, so picking the new shelter must release the old one
+                 in the same action rather than quietly granting both. This is
+                 also what makes removing the header switcher safe -- with exactly
+                 one shelter on the roster there is nothing left to switch between.
+
+                 The input NAME stays `shelters[]`. A radio group posts a
+                 single-element array, so the controller's existing
+                 `array|min:1` rules and syncShelters() need no change, and the
+                 pivot stays many-to-many for any future surge-staffing case. --}}
             <fieldset class="member-fieldset">
-                <legend>Assigned shelters</legend>
+                <legend>Assigned shelter</legend>
                 <p class="field-hint">
-                    This staff member can operate every shelter ticked below, with equal
-                    rights, across any barangay. At least one is required.
+                    The one shelter this staff member operates. Choosing a different
+                    shelter here reassigns them and revokes the previous one.
                 </p>
                 <div class="roster-toolbar">
                     <input type="search" id="u-shelter-search" class="roster-search" placeholder="Filter shelters" aria-label="Filter shelter list">
-                    <span class="roster-count" id="u-shelter-count">0 selected</span>
+                    <span class="roster-count" id="u-shelter-count">None selected</span>
                 </div>
-                <div class="roster-list" id="u-shelter-list" role="group" aria-label="Assigned shelters">
+                {{-- radiogroup, not group: one choice, and screen readers should
+                     say so. --}}
+                <div class="roster-list" id="u-shelter-list" role="radiogroup" aria-label="Assigned shelter">
                     @forelse($shelters as $s)
-                        <label class="checkbox-row roster-row" data-shelter-name="{{ strtolower($s->name . ' ' . ($s->barangay?->name ?? '')) }}">
-                            <input type="checkbox" name="shelters[]" value="{{ $s->id }}">
+                        <label class="radio-row roster-row" data-shelter-name="{{ strtolower($s->name . ' ' . ($s->barangay?->name ?? '')) }}">
+                            <input type="radio" name="shelters[]" value="{{ $s->id }}">
                             <span class="roster-name">{{ $s->name }}</span>
                             <span class="roster-meta">
                                 {{ $s->barangay?->name ? 'Brgy. ' . $s->barangay->name : '' }}

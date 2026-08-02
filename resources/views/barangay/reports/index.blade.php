@@ -28,7 +28,7 @@
     and signed, so an xlsx of it would be a broken artifact. Keeping it separate
     also means the five working report types are untouched.
 
-    Scoped to the ACTIVE shelter from the header switcher, resolved by
+    Scoped to the ACTIVE shelter for this account, resolved by
     ResolvesCenter. The city-wide "Accumulated Shelters" variant is City Admin's.
 --}}
 <section class="card panel mb-4">

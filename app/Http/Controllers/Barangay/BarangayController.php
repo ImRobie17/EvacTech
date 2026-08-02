@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Barangay;
 use App\Http\Controllers\Concerns\ResolvesCenter;
 use App\Http\Controllers\Controller;
 use App\Models\EvacuationCenter;
-use Illuminate\Http\Request;
 
 /**
  * Base for the Barangay Personnel screens.
@@ -36,23 +35,17 @@ abstract class BarangayController extends Controller
         return $this->resolveCenterOrFail();
     }
 
-    /**
-     * Switch the active shelter, then return to where the user came from. Lives on
-     * the base controller so every barangay screen shares one endpoint.
+    /*
+     * PHASE 6 ITEM 7 -- switchCenter() removed.
+     *
+     * It backed the header shelter switcher, which is gone: a staff account
+     * holds exactly one shelter, and moving it is a reassignment performed by
+     * City Admin, not a choice made from the header. Its route
+     * (barangay.shelter.switch) went with it.
+     *
+     * Nothing else called it. resolveCenter() in ResolvesCenter still persists
+     * the active id, and still falls back to the first roster entry when the
+     * stored one is no longer assigned -- which is what makes a reassignment
+     * take effect on the staff member's next page load with nothing to click.
      */
-    public function switchCenter(Request $request)
-    {
-        $data = $request->validate([
-            'center_id' => ['required', 'integer'],
-        ]);
-
-        $user = $request->user();
-        abort_if(! $user->canAccessCenter($data['center_id']), 403,
-            'You are not assigned to this evacuation shelter.');
-
-        $this->setActiveCenterId((int) $data['center_id']);
-        $center = EvacuationCenter::find($data['center_id']);
-
-        return back()->with('success', 'Now working in ' . ($center?->name ?? 'the selected shelter') . '.');
-    }
 }

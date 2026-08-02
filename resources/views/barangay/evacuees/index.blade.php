@@ -9,9 +9,18 @@
 @endsection
 
 @section('content')
-{{-- Four filters. Stacked on a phone, two up from 640px, four across from
-     1024px -- four side by side at 380px would make every control unusable. --}}
-<form method="GET" class="filter-bar sm:grid sm:grid-cols-2 sm:items-end lg:grid-cols-7" role="search">
+{{-- PHASE 6 ITEM F. This was `sm:grid sm:grid-cols-2 lg:grid-cols-7`. Seven
+     equal columns gave every control one seventh of the row regardless of how
+     much text it held, so "All origin barangays" and "All vulnerable
+     categories" were clipped mid-word on a 1920px screen -- the overlap that
+     was reported.
+
+     The grid utilities are gone. .filter-bar's own rule already stacks on a
+     phone and becomes a wrapping flex row from 768px, where each control takes
+     the width its longest option needs and the row wraps when it runs out.
+     Nothing is clipped at any width, and a filter added later needs no column
+     count updating. --}}
+<form method="GET" class="filter-bar" role="search">
     <input type="search" name="q" value="{{ request('q') }}" placeholder="Search household head&hellip;" aria-label="Search household head">
     <select name="status" aria-label="Filter by status">
         <option value="">All statuses</option>
@@ -48,7 +57,7 @@
         <input type="checkbox" name="single_headed" value="1" class="h-5 w-5 shrink-0" @checked(request()->boolean('single_headed'))>
         <span>Single-headed only</span>
     </label>
-    <button type="submit" class="btn-secondary">Filter</button>
+    <button type="submit" class="btn-secondary">Apply</button>
 </form>
 
 <div class="card panel table-panel">
@@ -70,20 +79,29 @@
         <tbody>
             @forelse($households as $h)
                 <tr>
-                    <td data-label="Household ID" data-numeric>{{ $h->household_code }}</td>
-                    <td data-label="Household Head">{{ $h->headMember?->full_name ?? '-' }}</td>
-                    <td data-label="Family Size" data-numeric>
-                        {{ $h->number_of_members }}
+                    <td data-label="Household ID" data-numeric class="whitespace-nowrap">{{ $h->household_code }}</td>
+                    <td data-label="Household Head" data-fit>
+                        {{ $h->headMember?->full_name ?? '-' }}
                         {{-- Derived, never stored: one person present, currently
-                             checked in. Not a vulnerable classification -- it is a
-                             household-level fact, so it lives here rather than in
-                             the per-member tag pivot. --}}
+                             checked in. Still NOT a vulnerable classification --
+                             it is a household-level fact, which is why it is not
+                             in the tag column either.
+
+                             PHASE 6. It used to sit in Family Size. That column
+                             holds a one- or two-digit number, so a badge reading
+                             "Single-headed" set the column's minimum width and
+                             made Family Size wider than Household Head -- a
+                             count taking more room than a person's name. On its
+                             own line under the head it costs no width at all,
+                             and it sits beside the household's identity, which
+                             is what it actually describes. --}}
                         @if($h->isSingleHeaded())
-                            <span class="badge badge-warning">Single-headed</span>
+                            <span class="block"><span class="badge badge-warning">Single-headed</span></span>
                         @endif
                     </td>
-                    <td data-label="Address">{{ $h->origin_address }}</td>
-                    <td data-label="Shelter">{{ $h->evacuationCenter?->name ?? '-' }}</td>
+                    <td data-label="Family Size" data-numeric class="whitespace-nowrap">{{ $h->number_of_members }}</td>
+                    <td data-label="Address" data-fit>{{ $h->origin_address }}</td>
+                    <td data-label="Shelter" data-fit>{{ $h->evacuationCenter?->name ?? '-' }}</td>
                     <td data-label="Vulnerable Tags">
                         @php
                             // Retired classifications (Senior Citizen, Infant) are
@@ -102,7 +120,7 @@
                         </span>
                     </td>
                     <td class="actions-cell" data-label="Actions">
-                        <button type="button" class="btn-link" data-open-modal="evacueeModal" data-mode="edit" data-household="{{ $h->id }}">Edit Family Group</button>
+                        <button type="button" class="btn-link" data-open-modal="evacueeModal" data-mode="edit" data-household="{{ $h->id }}">Edit Family</button>
                         <form method="POST" action="{{ route('barangay.evacuees.destroy', $h) }}" class="inline-form" data-confirm="Remove household {{ $h->household_code }}? This cannot be undone.">
                             @csrf @method('DELETE')
                             <button type="submit" class="btn-link btn-link-danger">Remove</button>
@@ -126,6 +144,12 @@
             <h2 id="evacueeModalTitle">Add New Evacuee Profile</h2>
             <button type="button" class="icon-btn" data-close-modal aria-label="Close">&times;</button>
         </div>
+
+        {{-- PHASE 6. Confirming a head transfer no longer navigates, so there is
+             no page reload to carry a flash message. This is where that
+             confirmation lands instead. Hidden until staff.js fills it, cleared
+             by resetForm() so it can never appear over a different family. --}}
+        <p class="alert alert-success" id="evacueeNote" role="status" hidden></p>
 
         <form method="POST" id="evacueeForm" action="{{ route('barangay.evacuees.store') }}">
             @csrf

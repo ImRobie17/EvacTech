@@ -17,7 +17,7 @@
     </select>
     <input type="date" name="date_from" value="{{ request('date_from') }}" aria-label="From date">
     <input type="date" name="date_to" value="{{ request('date_to') }}" aria-label="To date">
-    <button type="submit" class="btn-secondary">Filter</button>
+    <button type="submit" class="btn-secondary">Apply</button>
 </form>
 
 <div class="card panel table-panel">
@@ -41,11 +41,11 @@
                          calls, where it is plain HTML. The ASCII-entity
                          convention is right; it simply cannot be applied inside
                          a format string. --}}
-                    <td data-label="Date" data-numeric>{{ $log->created_at?->format('M d, Y') }} &middot; {{ $log->created_at?->format('h:i A') }}</td>
-                    <td data-label="User">{{ $log->user?->name ?? 'System' }}</td>
+                    <td data-label="Date" data-numeric class="whitespace-nowrap">{{ $log->created_at?->format('M d, Y') }} &middot; {{ $log->created_at?->format('h:i A') }}</td>
+                    <td data-label="User" data-fit>{{ $log->user?->name ?? 'System' }}</td>
                     <td data-label="Action"><span class="badge badge-info">{{ ucfirst($log->action) }}</span></td>
-                    <td data-label="Description">{{ $log->description ?? '-' }}</td>
-                    <td data-label="IP" data-numeric class="text-muted">{{ $log->ip_address ?? '-' }}</td>
+                    <td data-label="Description" data-fit>{{ $log->description ?? '-' }}</td>
+                    <td data-label="IP" data-numeric class="text-muted whitespace-nowrap">{{ $log->ip_address ?? '-' }}</td>
                 </tr>
             @empty
                 <tr><td colspan="5" class="empty-note">No audit logs match your filters.</td></tr>

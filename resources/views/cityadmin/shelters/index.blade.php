@@ -47,7 +47,7 @@
         <option value="active" @selected(request('status') === 'active')>Active</option>
         <option value="inactive" @selected(request('status') === 'inactive')>Inactive</option>
     </select>
-    <button type="submit" class="btn-secondary">Filter</button>
+    <button type="submit" class="btn-secondary">Apply</button>
 </form>
 
 <div class="card panel table-panel">
@@ -96,10 +96,10 @@
                     $editShelterJson = json_encode($editShelter);
                 @endphp
                 <tr>
-                    <td data-label="Shelter">{{ $c->name }}</td>
-                    <td data-label="Barangay">{{ $c->barangay?->name }}</td>
-                    <td data-label="Location">{{ $c->address }}</td>
-                    <td data-label="Capacity" data-numeric>{{ number_format($c->capacity) }}</td>
+                    <td data-label="Shelter" data-fit>{{ $c->name }}</td>
+                    <td data-label="Barangay" data-fit>{{ $c->barangay?->name }}</td>
+                    <td data-label="Location" data-fit>{{ $c->address }}</td>
+                    <td data-label="Capacity" data-numeric class="whitespace-nowrap">{{ number_format($c->capacity) }}</td>
                     {{-- data-label is allowed to be shorter than its <th>: there
                          is less room on a phone and the full heading is still in
                          the accessibility tree. --}}
@@ -211,9 +211,17 @@
                  equal, always-on rights over the shelter. ---- --}}
             <fieldset class="member-fieldset">
                 <legend>Assigned staff</legend>
+                {{-- PHASE 6. The second sentence used to read "Staff may be
+                     assigned to more than one shelter". They may not: assignment
+                     is exclusive, so ticking someone here removes them from
+                     whichever shelter they were on. syncStaff() enforces it, and
+                     the user modal's radio group enforces the same rule from the
+                     other end. Saying so here is the difference between a
+                     deliberate reassignment and a surprise. --}}
                 <p class="field-hint">
                     Every staff member ticked here has equal rights over this shelter.
-                    Staff may be assigned to more than one shelter, in any barangay.
+                    A staff member works one shelter at a time, so adding someone here
+                    removes them from any shelter they are currently assigned to.
                 </p>
                 <div class="roster-toolbar">
                     <input type="search" id="sh-staff-search" class="roster-search" placeholder="Filter staff by name" aria-label="Filter staff list">

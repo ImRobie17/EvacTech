@@ -63,7 +63,7 @@
     <div class="lg:col-span-2">
         <form method="GET" class="filter-bar sm:grid sm:grid-cols-[1fr_auto] sm:items-end" role="search">
             <input type="search" name="q" value="{{ request('q') }}" placeholder="Search household head's relief history&hellip;" aria-label="Search household head">
-            <button type="submit" class="btn-secondary">Search</button>
+            <button type="submit" class="btn-secondary">Apply</button>
         </form>
 
         <div class="card panel table-panel">
@@ -121,7 +121,7 @@
                     @forelse($inventory as $inv)
                         @php $isLow = $inv->reorder_level > 0 && $inv->quantity_on_hand <= $inv->reorder_level; @endphp
                         <tr>
-                            <td data-label="Item">{{ $inv->reliefGood->name }} <small class="text-ink-muted">({{ $inv->reliefGood->unit }})</small></td>
+                            <td data-label="Item" data-fit>{{ $inv->reliefGood->name }} <small class="text-ink-muted">({{ $inv->reliefGood->unit }})</small></td>
                             <td data-label="On Hand" data-numeric>{{ number_format($inv->quantity_on_hand) }}</td>
                             <td data-label="Reorder Level" data-numeric>{{ number_format($inv->reorder_level) }}</td>
                             <td data-label="Status">

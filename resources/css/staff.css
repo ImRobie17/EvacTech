@@ -317,9 +317,25 @@
         font-size: var(--text-lg);
     }
 
+    /* PHASE 6 ITEM 1 -- the 1400px cap used to sit here with no
+       `margin-inline: auto`. The shell is `grid-template-columns: sidebar 1fr`,
+       so above roughly 1700px every screen pinned itself to the left and left a
+       dead band down the right-hand side. Centring it instead would look
+       lopsided beside a left sidebar, so the cap is gone entirely and the
+       padding scales with the viewport: 2rem of breathing room at 1024px,
+       growing to 5rem on a wide monitor, with the content using whatever is
+       left. Tables were the worst affected and gain the most. */
     .staff-main {
-        padding: var(--space-8) var(--space-12);
-        max-width: 1400px;
+        padding: var(--space-8) clamp(2rem, 3.5vw, 5rem);
+    }
+
+    /* PHASE 6 ITEM 6 -- the close control is a MOBILE affordance. It lives in
+       .sidebar-controls, which is rendered at every width, so on desktop it
+       showed as a third icon that closed a drawer which was never open: a
+       visible no-op. staff.js keeps its listener; only the desktop rendering
+       goes. */
+    #mobileNavClose {
+        display: none;
     }
 }
 
@@ -361,93 +377,26 @@
 }
 
 /* =========================================================================
-   Active shelter context bar   (Phase 1 item 1)
+   Active shelter context bar -- REMOVED IN PHASE 6 (item 7)
 
-   A barangay can hold many shelters and staff can be rostered to several, so
-   every screen states which shelter it is acting on. It is sticky and sits
-   directly under the mobile bar, so on a 380px phone it is visible without
-   scrolling -- switching shelters mid-emergency must never require hunting.
+   This held `.shelter-context`, `.shelter-context-label`,
+   `.shelter-context-name`, `.shelter-switch`, `.shelter-switch-select`,
+   `.shelter-switch-btn` and `.shelter-context-meta`: a sticky strip pinned to
+   the top of every barangay screen carrying a "Working in" caption, a shelter
+   switcher and a live occupancy readout.
+
+   It went for two reasons. It cost a permanent band of vertical space on a
+   380px phone, which is the primary device. And the switcher it carried had no
+   role left: a staff member is physically inside one shelter for one shift, and
+   moving them to another shelter is a REASSIGNMENT performed by City Admin, not
+   a choice the staff member makes. See ResolvesCenter::resolveCenter(), which
+   already falls back to the first roster entry when the stored session id is no
+   longer on the user's roster -- so a reassigned account lands on its new
+   shelter by itself, with nothing to click.
+
+   The shelter name now sits in .page-head, non-sticky, built from Tailwind
+   utilities in layouts/staff.blade.php. Nothing replaces these rules.
    ========================================================================= */
-.shelter-context {
-    position: sticky;
-    top: 0;
-    z-index: 55;
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: var(--space-3);
-    padding: var(--space-3) var(--space-4);
-    margin-bottom: var(--space-4);
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-left: 4px solid var(--color-primary);
-    border-radius: var(--radius-md);
-}
-
-.shelter-context-label {
-    font-size: var(--text-xs);
-    font-weight: var(--weight-semibold);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--color-ink-muted);
-}
-
-.shelter-context-name {
-    font-size: var(--text-base);
-    font-weight: var(--weight-semibold);
-    color: var(--color-ink);
-}
-
-.shelter-switch {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    margin: 0;
-    flex: 1;
-    min-width: 0;
-}
-
-.shelter-switch-select {
-    min-height: var(--spacing-tap);
-    flex: 1;
-    min-width: 0;
-    max-width: 100%;
-    padding: var(--space-2) var(--space-3);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    background: var(--color-bg);
-    color: var(--color-ink);
-    font-size: var(--text-base);
-    font-weight: var(--weight-semibold);
-}
-
-/* JS submits on change, so the button is a keyboard / no-JS fallback only. */
-.shelter-switch-btn {
-    min-height: var(--spacing-tap);
-}
-
-.shelter-context-meta {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    font-family: var(--font-mono);
-    font-size: var(--text-sm);
-    font-weight: var(--weight-semibold);
-}
-
-@media (min-width: 768px) {
-    .shelter-switch {
-        flex: 0 1 auto;
-    }
-
-    .shelter-switch-select {
-        min-width: 16rem;
-    }
-
-    .shelter-context-meta {
-        margin-left: auto;
-    }
-}
 
 /* =========================================================================
    Alerts, cards, panels
@@ -735,12 +684,77 @@
     padding: var(--space-3);
     border-bottom: 1px solid var(--color-border);
     font-size: var(--text-base);
-    vertical-align: top;
+    /* PHASE 6 ITEM 2. Was `top`. With cells of wildly different heights in one
+       row -- a one-line name beside a two-line address beside a wrapped badge --
+       top alignment made every row look ragged even when the row height itself
+       was correct. Middle is what reads as an even row. */
+    vertical-align: middle;
+    /* PHASE 6 ITEM 3. The last line of defence against a single long value
+       widening the whole table: a long email address or an unbroken address
+       string now breaks rather than setting the column's minimum width.
+       `anywhere` rather than `break-word` deliberately -- only `anywhere`
+       affects min-content sizing, which is the number the table layout
+       algorithm actually consults. */
+    overflow-wrap: anywhere;
 }
 
+/* PHASE 6 ITEM 2. Header cells stay on one line. "Check-in Date & Time" was
+   wrapping to four lines and dragging the whole header band down with it; on
+   one line it also asks the column for the width its dates actually need.
+   Harmless on a phone, where the stacked layout hides thead entirely. */
+.data-table th {
+    white-space: nowrap;
+}
+
+/* =========================================================================
+   PHASE 6 ITEM 2 -- the actions column
+
+   This was `display: flex` on the <td> itself, and that was the bug behind the
+   "the row line of that column is not synced with other rows" report. A flex
+   container is not a table cell: it leaves the table's column-width negotiation
+   entirely, sizes itself to its own content, and draws its border to its own
+   width. So the border under Actions ran past the panel while the four cells
+   beside it stopped at the table's width.
+
+   The cell is a table-cell again. The controls are laid out as inline-flex
+   children instead, which keeps them on one line, keeps them vertically
+   centred, and lets them WRAP when the column is narrow rather than forcing an
+   overflow. gap does not apply without a flex container, so the spacing is a
+   margin between siblings.
+   ========================================================================= */
 .actions-cell {
-    display: flex;
-    gap: var(--space-3);
+    white-space: normal;
+}
+
+.actions-cell > * {
+    display: inline-flex;
+    align-items: center;
+    vertical-align: middle;
+}
+
+.actions-cell > * + * {
+    margin-left: var(--space-3);
+}
+
+/* PHASE 6 -- vertical column separators.
+
+   Written as a border-LEFT on every cell that follows another one, rather than
+   a border-right with a `:last-child` exception. Same result, but it cannot
+   leave a stray line down the outside edge of the table if a row ever ends
+   early -- a colspan empty-state row has no `td + td` at all, so it is skipped
+   automatically instead of needing its own rule.
+
+   Reuses --color-border, the same token as the row lines, so the grid stays one
+   weight and dark mode follows without a second value to keep in step. */
+.data-table th + th,
+.data-table td + td {
+    border-left: 1px solid var(--color-border);
+}
+
+/* PHASE 6 ITEM 2. A status badge is a label, not a sentence. "Single-headed"
+   was wrapping onto two lines inside a narrow Family Size column and taking the
+   row height with it. */
+.badge {
     white-space: nowrap;
 }
 
@@ -809,6 +823,13 @@
         border-bottom: none;
     }
 
+    /* PHASE 6. The vertical separators are a COLUMN device. In the stacked view
+       each cell is a full-width row inside a card, so a left border would draw a
+       line down the side of the card rather than between two columns. */
+    .data-table[data-stack] td + td {
+        border-left: none;
+    }
+
     /* Row actions become full-width labelled buttons. Icon-only controls are
        the single most reliable way to lose a non-technical user. */
     .data-table[data-stack] td.actions-cell {
@@ -819,6 +840,18 @@
         white-space: normal;
         text-align: center;
         padding-top: var(--space-3);
+    }
+
+    /* PHASE 6 ITEM 2. The desktop rules above lay the controls out as
+       inline-flex siblings with a left margin. In the stacked view they are
+       full-width stacked blocks instead, so both of those have to be undone or
+       every button after the first sits indented by one gap. */
+    .data-table[data-stack] td.actions-cell > * {
+        display: flex;
+    }
+
+    .data-table[data-stack] td.actions-cell > * + * {
+        margin-left: 0;
     }
 
     .data-table[data-stack] td.actions-cell::before {
@@ -1011,6 +1044,31 @@
     background: var(--color-bg);
     color: var(--color-ink);
     font-size: var(--text-base);
+}
+
+/* PHASE 6 ITEM 5 / F -- one control size in a filter toolbar.
+   .btn-secondary carries `min-height: var(--spacing-tap)` AND
+   `padding: var(--space-3) var(--space-6)`, which resolves to about 55px, while
+   the selects beside it resolve to exactly 44px. Same width, different height,
+   and the row read as broken. Reducing the BLOCK padding only, inside a filter
+   bar, lands the button on the same 44px floor without touching the button
+   component anywhere else in the system. */
+.filter-bar .btn-primary,
+.filter-bar .btn-secondary {
+    padding-top: var(--space-2);
+    padding-bottom: var(--space-2);
+}
+
+/* A <select> sizes to its widest option by default. Inside a grid or flex
+   track that becomes an overflow rather than a shrink, which is why
+   "All origin barangays" and "All vulnerable categories" were being clipped
+   mid-word. min-width: 0 lets the track win; the label then truncates
+   gracefully instead of spilling over its neighbour. */
+.filter-bar input,
+.filter-bar select,
+.filter-bar .btn-primary,
+.filter-bar .btn-secondary {
+    min-width: 0;
 }
 
 @media (min-width: 768px) {

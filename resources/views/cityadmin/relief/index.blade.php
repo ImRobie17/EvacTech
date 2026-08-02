@@ -37,7 +37,7 @@
                 @forelse($restockRequests as $r)
                     <tr>
                         <td data-label="Shelter">{{ $r->evacuationCenter?->name }}</td>
-                        <td data-label="Item">{{ $r->reliefGood?->name }}</td>
+                        <td data-label="Item" data-fit>{{ $r->reliefGood?->name }}</td>
                         <td data-label="Qty" data-numeric>{{ $r->requested_quantity }}</td>
                         <td data-label="Requested By">{{ $r->requestedBy?->name ?? '-' }}</td>
                         {{-- Approving a restock auto-increments inventory and
@@ -77,7 +77,7 @@
                             @if($r->remarks)<br><small class="text-muted">{{ $r->remarks }}</small>@endif
                         </td>
                         <td data-label="Shelter">{{ $r->evacuationCenter?->name }}</td>
-                        <td data-label="Item">{{ $r->item_description }}</td>
+                        <td data-label="Item" data-fit>{{ $r->item_description }}</td>
                         <td data-label="Qty" data-numeric>{{ $r->quantity }}</td>
                         <td class="actions-cell" data-label="Decision">
                             <form method="POST" action="{{ route('city.relief.special.review', $r) }}" class="inline-form">

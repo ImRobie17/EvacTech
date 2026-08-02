@@ -43,7 +43,7 @@
         <input type="checkbox" name="single_headed" value="1" class="h-5 w-5 shrink-0" @checked(request()->boolean('single_headed'))>
         <span>Single-headed only</span>
     </label>
-    <button type="submit" class="btn-secondary">Filter</button>
+    <button type="submit" class="btn-secondary">Apply</button>
 </form>
 
 <div class="card panel table-panel">
@@ -54,14 +54,22 @@
         <tbody>
             @forelse($households as $h)
                 <tr>
-                    <td data-label="Household ID" data-numeric>{{ $h->household_code }}</td>
-                    <td data-label="Head">{{ $h->headMember?->full_name ?? '-' }}</td>
-                    <td data-label="Size" data-numeric>
-                        {{ $h->number_of_members }}
-                        @if($h->isSingleHeaded())<span class="badge badge-warning">Single-headed</span>@endif
+                    <td data-label="Household ID" data-numeric class="whitespace-nowrap">{{ $h->household_code }}</td>
+                    {{-- PHASE 6. Single-headed moved off Size and onto its own line
+                         under the head's name. Size carries a one- or two-digit
+                         number; a badge in it set the column's minimum width and
+                         left Size wider than Head. It is a household-level fact
+                         rather than a vulnerable classification, so it does not
+                         belong in the Tags column either. --}}
+                    <td data-label="Head" data-fit>
+                        {{ $h->headMember?->full_name ?? '-' }}
+                        @if($h->isSingleHeaded())
+                            <span class="block"><span class="badge badge-warning">Single-headed</span></span>
+                        @endif
                     </td>
-                    <td data-label="Barangay">{{ $h->originBarangay?->name }}</td>
-                    <td data-label="Shelter">{{ $h->evacuationCenter?->name ?? '-' }}</td>
+                    <td data-label="Size" data-numeric class="whitespace-nowrap">{{ $h->number_of_members }}</td>
+                    <td data-label="Barangay" data-fit>{{ $h->originBarangay?->name }}</td>
+                    <td data-label="Shelter" data-fit>{{ $h->evacuationCenter?->name ?? '-' }}</td>
                     {{-- Tags wrap onto their own lines in a stacked card rather
                          than forcing the row wide. flex-wrap with a gap keeps
                          them legible at 380px. --}}

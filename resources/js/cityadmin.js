@@ -72,12 +72,21 @@ function initRoster(listId, searchId, countId, nameAttr) {
 
     const search = document.getElementById(searchId);
     const count = document.getElementById(countId);
-    const boxes = () => Array.from(list.querySelectorAll('input[type="checkbox"]'));
+    /* PHASE 6 -- the two rosters no longer use the same input type. A shelter
+       still takes MANY staff (checkboxes on the shelter modal), but a staff
+       account now takes exactly ONE shelter (radios on the user modal), because
+       a person works one shelter per shift and moving them is a reassignment.
+       Selecting on [type="checkbox"] alone silently returned an empty list on
+       the user modal, so set() and clear() would have stopped working there.
+       Matching either type keeps one picker serving both. */
+    const boxes = () => Array.from(list.querySelectorAll('input[type="checkbox"], input[type="radio"]'));
 
     function refreshCount() {
         if (!count) return;
         const n = boxes().filter((b) => b.checked).length;
-        count.textContent = `${n} selected`;
+        // "None selected" rather than "0 selected": with a radio group the
+        // count is only ever none or one, and a bare 0 reads like an error.
+        count.textContent = n === 0 ? 'None selected' : `${n} selected`;
         count.classList.toggle('roster-count-empty', n === 0);
     }
 

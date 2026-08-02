@@ -33,9 +33,13 @@ Route::middleware(['auth', 'role:barangay_personnel', 'shelter.assigned'])
     ->group(function () {
         Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
-        // Active shelter switcher (header dropdown). Persists the choice in the
-        // session so every screen agrees on which shelter is being operated.
-        Route::post('/active-shelter', [DashboardController::class, 'switchCenter'])->name('shelter.switch');
+        // PHASE 6 ITEM 7 -- the POST /active-shelter route (barangay.shelter.switch)
+        // was removed along with the header switcher that was its only caller. A
+        // staff account is assigned to exactly one shelter and moving it is a
+        // City Admin reassignment, so there is nothing for a staff member to
+        // switch to. Leaving a live endpoint with no interface is how a rule
+        // ends up enforced in the UI and not on the server.
+        // ResolvesCenter::resolveCenter() still persists the active id itself.
 
         // Evacuee Profiling
         Route::get('/evacuees', [EvacueeProfilingController::class, 'index'])->name('evacuees.index');

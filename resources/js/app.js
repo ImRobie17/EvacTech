@@ -12,5 +12,11 @@ import './cityadmin-shelter.js';
 // modals appear on both Transfers pages AND on both shelter pages, and the file
 // no-ops when window.TransferConfig is absent.
 import './transfers.js';
+// PHASE 6 item 3. Steps the font size down on cells marked data-fit when a
+// table would otherwise be wider than its panel. A module, not a Vite entry:
+// vite.config.js is unchanged, and public.js imports the same file so the
+// citizen tables behave identically. No-ops when no data-fit cell is present.
+import { initTextFit } from './text-fit';
 
 initFormHygiene();
+initTextFit();

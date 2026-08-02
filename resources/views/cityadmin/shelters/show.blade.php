@@ -5,7 +5,7 @@
     presentation.
 
     Every action posts to a city.shelters.* route bound to {center}, and every
-    modal lives ON THIS PAGE -- Edit Family Group opens in place instead of
+    modal lives ON THIS PAGE -- Edit Family opens in place instead of
     navigating to Evacuee Profiling.
 --}}
 @extends('layouts.cityadmin')
@@ -123,7 +123,7 @@
             <option value="recent" @selected(request('sort') !== 'name')>Most recent</option>
             <option value="name" @selected(request('sort') === 'name')>Head name (A-Z)</option>
         </select>
-        <button type="submit" class="btn-secondary">Filter</button>
+        <button type="submit" class="btn-secondary">Apply</button>
     </form>
 
     <div class="card panel table-panel">
@@ -143,9 +143,9 @@
             <tbody>
                 @forelse($households as $h)
                     <tr>
-                        <td data-label="Household ID" data-numeric>{{ $h->household_code }}</td>
-                        <td data-label="Head">{{ $h->headMember?->full_name ?? '-' }}</td>
-                        <td data-label="Origin">{{ $h->originBarangay?->name ?? '-' }}</td>
+                        <td data-label="Household ID" data-numeric class="whitespace-nowrap">{{ $h->household_code }}</td>
+                        <td data-label="Head" data-fit>{{ $h->headMember?->full_name ?? '-' }}</td>
+                        <td data-label="Origin" data-fit>{{ $h->originBarangay?->name ?? '-' }}</td>
                         <td data-label="Size" data-numeric>{{ $h->number_of_members }}</td>
                         <td data-label="Present" data-numeric>{{ $h->members_present }}</td>
                         <td data-label="Status">
@@ -153,11 +153,11 @@
                                 {{ ucfirst(str_replace('_', ' ', $h->status)) }}
                             </span>
                         </td>
-                        <td data-label="Checked In" data-numeric>{{ $h->checked_in_at?->format('M d, Y - h:i A') ?? '-' }}</td>
+                        <td data-label="Checked In" data-numeric class="whitespace-nowrap">{{ $h->checked_in_at?->format('M d, Y - h:i A') ?? '-' }}</td>
                         <td class="actions-cell" data-label="Actions">
                             {{-- Opens the modal on THIS page. No navigation. --}}
                             <button type="button" class="btn-link"
-                                    data-cd-edit-household="{{ $h->id }}">Edit Family Group</button>
+                                    data-cd-edit-household="{{ $h->id }}">Edit Family</button>
                             @if ($h->status === 'checked_in')
                                 {{-- PHASE 5 ITEM 8b. Shown even when a transfer is
                                      in progress: the modal explains why it is
@@ -175,7 +175,7 @@
                                             data-household-head="{{ $h->headMember?->full_name }}"
                                             data-household-present="{{ $h->members_present }}"
                                             data-center-id="{{ $center->id }}"
-                                            data-center-name="{{ $center->name }}">Move to Shelter</button>
+                                            data-center-name="{{ $center->name }}">Transfer</button>
                                 @endif
                                 <form method="POST" action="{{ route('city.shelters.households.checkout', [$center, $h]) }}"
                                       class="inline-form" data-confirm="Check out {{ $h->household_code }}?">
@@ -254,7 +254,7 @@
     <form method="GET" class="filter-bar" role="search">
         <input type="hidden" name="tab" value="relief">
         <input type="search" name="q" value="{{ request('q') }}" placeholder="Search household head" aria-label="Search distribution log">
-        <button type="submit" class="btn-secondary">Filter</button>
+        <button type="submit" class="btn-secondary">Apply</button>
     </form>
 
     <div class="card panel table-panel">
@@ -266,12 +266,12 @@
             <tbody>
                 @forelse($log as $t)
                     <tr>
-                        <td data-label="Date" data-numeric>{{ $t->transaction_date?->format('M d, Y') }}</td>
-                        <td data-label="Household">{{ $t->household?->headMember?->full_name ?? '-' }}</td>
+                        <td data-label="Date" data-numeric class="whitespace-nowrap">{{ $t->transaction_date?->format('M d, Y') }}</td>
+                        <td data-label="Household" data-fit>{{ $t->household?->headMember?->full_name ?? '-' }}</td>
                         <td data-label="Item">{{ $t->reliefGood?->name }}</td>
                         <td data-label="Qty" data-numeric>{{ number_format($t->quantity) }} {{ $t->reliefGood?->unit }}</td>
                         <td data-label="Recorded By">{{ $t->recordedBy?->name ?? '-' }}</td>
-                        <td data-label="Remarks">{{ $t->remarks }}</td>
+                        <td data-label="Remarks" data-fit>{{ $t->remarks }}</td>
                     </tr>
                 @empty
                     <tr><td colspan="6" class="empty-note">No distributions logged at this shelter yet.</td></tr>
@@ -316,11 +316,11 @@
     </div>
 </div>
 
-{{-- ======== Edit Family Group -- opens IN PLACE on this page ======== --}}
+{{-- ======== Edit Family -- opens IN PLACE on this page ======== --}}
 <div class="modal-backdrop" id="cdEditModal" hidden>
     <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="cdEditTitle">
         <div class="modal-head">
-            <h2 id="cdEditTitle">Edit Family Group</h2>
+            <h2 id="cdEditTitle">Edit Family</h2>
             <button type="button" class="icon-btn" data-close-modal aria-label="Close">&times;</button>
         </div>
         <form method="POST" id="cdEditForm">
@@ -470,7 +470,7 @@
     </div>
 </div>
 
-{{-- Member row template for the Edit Family Group modal --}}
+{{-- Member row template for the Edit Family modal --}}
 <template id="cdMemberRowTemplate">
     <div class="member-row" data-row>
         <input type="hidden" data-field="id" name="">

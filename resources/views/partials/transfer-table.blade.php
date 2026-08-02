@@ -48,14 +48,14 @@
                         @endif
                     </td>
 
-                    <td data-label="From">
+                    <td data-label="From" data-fit>
                         {{ $t->fromCenter?->name ?? '-' }}
                         @if ($t->fromCenter?->barangay)
                             <span class="block text-sm text-ink-muted">Brgy. {{ $t->fromCenter->barangay->name }}</span>
                         @endif
                     </td>
 
-                    <td data-label="To">
+                    <td data-label="To" data-fit>
                         {{ $t->toCenter?->name ?? '-' }}
                         @if ($t->toCenter?->barangay)
                             <span class="block text-sm text-ink-muted">Brgy. {{ $t->toCenter->barangay->name }}</span>
@@ -104,14 +104,14 @@
 
                     {{-- Separator characters stay OUTSIDE format(): a dash inside
                          the format string is a token waiting to happen. --}}
-                    <td data-label="OUT" data-numeric>
+                    <td data-label="OUT" data-numeric class="whitespace-nowrap">
                         {{ $t->departed_at?->format('M d, Y h:i A') ?? '-' }}
                         @if ($t->departedBy)
                             <span class="block text-sm text-ink-muted">by {{ $t->departedBy->name }}</span>
                         @endif
                     </td>
 
-                    <td data-label="IN" data-numeric>
+                    <td data-label="IN" data-numeric class="whitespace-nowrap">
                         {{ $t->received_at?->format('M d, Y h:i A') ?? '-' }}
                         @if ($t->receivedBy)
                             <span class="block text-sm text-ink-muted">by {{ $t->receivedBy->name }}</span>

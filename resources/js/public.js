@@ -22,6 +22,12 @@
 
 import { initTheme } from './theme';
 import { initFormHygiene } from './form-hygiene';
+// PHASE 6 item 3. Same module the staff bundle uses. It is a few hundred bytes
+// and it no-ops unless the page has a data-fit cell, so the citizen pages keep
+// their small payload while the hotlines table gets the same protection against
+// one long value widening the whole thing.
+import { initTextFit } from './text-fit';
 
 initTheme();
 initFormHygiene();
+initTextFit();

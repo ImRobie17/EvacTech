@@ -46,8 +46,9 @@
 </head>
 <body class="staff-body">
 @php
-    // Fed by the layouts.staff view composer in AppServiceProvider, so Dashboard
-    // and Reports get the switcher too without touching their controllers.
+    // Fed by the layouts.staff view composer in AppServiceProvider, so every
+    // screen names its shelter without touching its controller. It carried the
+    // switcher until Phase 6 item 7; it now feeds the shelter name in .page-head.
     $navCenters = $navCenters ?? collect();
     $navActiveCenter = $navCenters->firstWhere('id', $navActiveCenterId ?? null);
 
@@ -132,55 +133,58 @@
 
     {{-- ============ Main ============ --}}
     <main class="staff-main">
-        {{-- ---- Active shelter switcher ----
-             One barangay can now hold many shelters and staff can be rostered to
-             several, so every screen states which shelter it is acting on. The
-             choice persists in the session until changed. Sticky, so it stays
-             reachable at 380px without scrolling. --}}
-        @if ($navCenters->count() > 0)
-            <div class="shelter-context {{ $navCenters->count() > 1 ? '' : 'shelter-context-single' }}">
-                <span class="shelter-context-label">Working in</span>
+        {{-- PHASE 6 ITEM 7. The sticky "Working in <shelter>" strip that used
+             to sit here is gone, and the shelter switcher inside it with it.
 
-                @if ($navCenters->count() > 1)
-                    <form method="POST" action="{{ route('barangay.shelter.switch') }}" id="shelterSwitchForm" class="shelter-switch">
-                        @csrf
-                        <label class="visually-hidden" for="activeShelter">Active evacuation shelter</label>
-                        <select name="center_id" id="activeShelter" class="shelter-switch-select">
-                            @foreach ($navCenters as $c)
-                                <option value="{{ $c->id }}" @selected($c->id === $navActiveCenterId)>
-                                    {{ $c->name }}@if($c->barangay) &middot; Brgy. {{ $c->barangay->name }}@endif
-                                </option>
-                            @endforeach
-                        </select>
-                        <button type="submit" class="btn-secondary shelter-switch-btn">Switch</button>
-                    </form>
-                @else
-                    <strong class="shelter-context-name">
-                        {{ $navActiveCenter?->name }}@if($navActiveCenter?->barangay) &middot; Brgy. {{ $navActiveCenter->barangay->name }}@endif
-                    </strong>
-                @endif
+             The strip cost a permanent band of vertical space on a 380px phone,
+             which is the device barangay staff actually work from. The switcher
+             had no job left: a staff member is physically inside ONE shelter for
+             one shift, and moving them to another is a REASSIGNMENT that City
+             Admin performs, not a choice made from the header. When City Admin
+             reassigns an account, ResolvesCenter::resolveCenter() finds the
+             stored session id is no longer on the roster and falls back to the
+             new assignment on the very next page load, so nothing needs
+             clicking.
 
+             The shelter name moved into .page-head below, non-sticky, built
+             from Tailwind utilities. $navCenters and $navActiveCenterId still
+             come from the layouts.staff view composer -- they name the shelter
+             and are still what the empty state below tests. --}}
+
+        {{-- PHASE 2 ITEM 8 -- pinned above the page heading on every barangay
+             screen. It sat below the shelter switcher until Phase 6 item 7
+             removed that strip; it is now the first thing in the main region. --}}
+        @include('partials.transfer-alert-bar')
+
+        <header class="page-head">
+            <div class="min-w-0">
+                {{-- PHASE 6 ITEM 7 -- replaces the sticky strip. Non-sticky, so
+                     it scrolls away with the rest of the header. Rendered above
+                     the page title because it is CONTEXT for the title, not a
+                     heading of its own: it answers "where am I" before the page
+                     answers "what is this". Utilities only -- no class was added
+                     to staff.css for it. --}}
                 @if ($navActiveCenter)
-                    @php $band = $navActiveCenter->capacityBand(); @endphp
-                    <span class="shelter-context-meta {{ 'cap-' . $band }}">
-                        {{ number_format($navActiveCenter->current_occupancy) }} /
-                        {{ number_format($navActiveCenter->capacity) }}
+                    <p class="mb-1 flex flex-wrap items-baseline gap-x-2 text-sm text-ink-soft">
+                        <span class="font-semibold text-ink">{{ $navActiveCenter->name }}</span>
+                        @if ($navActiveCenter->barangay)
+                            <span>Brgy. {{ $navActiveCenter->barangay->name }}</span>
+                        @endif
+                        @php
+                            // Occupancy is DERIVED; this only reads it. The band
+                            // is computed by the model, never here.
+                            $navBand = $navActiveCenter->capacityBand();
+                        @endphp
+                        <span class="font-mono font-semibold cap-{{ $navBand }}">{{ number_format($navActiveCenter->current_occupancy) }} / {{ number_format($navActiveCenter->capacity) }}</span>
+                        {{-- Status is never colour alone: each state prints its
+                             own words beside the figure. --}}
                         @if ($navActiveCenter->isOvercapacity())
                             <span class="badge badge-over">Overcapacity +{{ number_format($navActiveCenter->overBy()) }}</span>
                         @elseif (! $navActiveCenter->isActive())
                             <span class="badge badge-warning">{{ $navActiveCenter->statusLabel() }}</span>
                         @endif
-                    </span>
+                    </p>
                 @endif
-            </div>
-        @endif
-
-        {{-- PHASE 2 ITEM 8 -- pinned below the shelter switcher, above the page
-             heading, on every barangay screen. --}}
-        @include('partials.transfer-alert-bar')
-
-        <header class="page-head">
-            <div>
                 <h1 class="page-title">@yield('page-title')</h1>
                 <p class="page-subtitle">@yield('page-subtitle')</p>
             </div>

@@ -8,7 +8,6 @@ document.addEventListener('DOMContentLoaded', () => {
     initTheme();
     initSidebarCollapse();
     initMobileNav();
-    initShelterSwitcher();
     initConnectivity();
     initModals();
     initConfirmForms();
@@ -148,24 +147,18 @@ function initMobileNav() {
 }
 
 // ---------------------------------------------------------------------
-// Active shelter switcher
+// Active shelter switcher -- REMOVED IN PHASE 6 (item 7)
 // ---------------------------------------------------------------------
-// One barangay can hold many shelters and a staff member can be rostered to
-// several, so the header states which shelter every screen is acting on.
-// Changing the dropdown submits immediately -- an extra "Switch" click is one
-// more thing to forget mid-emergency. The button stays for keyboard/no-JS use.
-function initShelterSwitcher() {
-    const form = document.getElementById('shelterSwitchForm');
-    const select = document.getElementById('activeShelter');
-    if (!form || !select) return;
-
-    let current = select.value;
-    select.addEventListener('change', () => {
-        if (select.value === current) return;
-        current = select.value;
-        form.submit();
-    });
-}
+// initShelterSwitcher() lived here and submitted #shelterSwitchForm on change.
+// Both the form and the sticky strip that held it are gone from
+// layouts/staff.blade.php: a staff member is physically inside one shelter for
+// one shift, and moving them to another is a reassignment made by City Admin.
+// ResolvesCenter::resolveCenter() already falls back to the first roster entry
+// when the stored session id is no longer on the user's roster, so a reassigned
+// account lands on its new shelter with nothing to click.
+//
+// The function was deleted rather than left to early-return. A no-op that looks
+// live is the thing that makes the next person debug the wrong file.
 
 // ---------------------------------------------------------------------
 // Generic modal open/close (data-open-modal="id" / data-close-modal)
@@ -293,11 +286,15 @@ function initEvacueeForm() {
 
     function resetForm() {
         form.reset();
+        // PHASE 6 -- clear any head-transfer confirmation left from a previous
+        // session of this modal, so it cannot reappear over a different family.
+        const note = document.getElementById('evacueeNote');
+        if (note) { note.hidden = true; note.textContent = ''; }
         headRow.innerHTML = '';
         memberRows.innerHTML = '';
         memberIndex = 1;
         headRow.appendChild(makeRow(0, true));
-        title.textContent = 'Add New Evacuee Profile';
+        title.textContent = 'Register Household';
         // Origin barangay defaults to the barangay of the active shelter (the common
         // case) but stays editable -- one shelter takes families from several.
         const brgy = document.getElementById('ev-barangay');
@@ -384,7 +381,7 @@ function initEvacueeForm() {
     });
 
     async function loadHouseholdIntoForm(id) {
-        title.textContent = 'Edit Family Group';
+        title.textContent = 'Edit Family';
         const url = window.EvacueeConfig.showUrlTemplate.replace(':id', id);
         const res = await fetch(url, { headers: { Accept: 'application/json' } });
         if (!res.ok) return;
@@ -443,11 +440,49 @@ function initEvacueeForm() {
 
     resetForm();
 
-    // Support deep-link ?edit={id} from Shelter page's "Edit Family Group" action
+    /* PHASE 6 -- bridge for the head-transfer flow.
+
+       initShelterModals() owns the transfer modals, but the form they operate on
+       belongs to THIS function, and loadHouseholdIntoForm is closed over here.
+       Rather than lift the function to module scope -- where it would need the
+       config, the row template and the tag list dragged with it -- the one entry
+       point the transfer flow needs is published on the same window.EvacTech
+       object that already carries openTransferFlow in the other direction.
+
+       Deliberately narrow: it repopulates the open form for one household id and
+       returns a promise, and it is the ONLY thing exposed. */
+    window.EvacTech = window.EvacTech || {};
+    window.EvacTech.reloadHouseholdIntoForm = (id) => loadHouseholdIntoForm(id);
+
+    // Support deep-link ?edit={id} from the Shelter page's "Edit Family" action.
     const params = new URLSearchParams(window.location.search);
-    if (params.get('edit')) {
+    const deepLinkId = params.get('edit');
+    if (deepLinkId) {
         openModal('evacueeModal');
-        loadHouseholdIntoForm(params.get('edit'));
+        loadHouseholdIntoForm(deepLinkId);
+
+        /* PHASE 6 -- "the modal will not close after saving".
+           It closed. The page reloaded and reopened it.
+
+           EvacueeProfilingController::update() ends in redirect()->back(), and
+           Laravel's back() prefers the Referer header, which was still
+           .../evacuees?edit=123 -- the URL this deep link arrived on. So the
+           save round-tripped straight back to a URL whose only instruction is
+           "open the edit modal", and the operator saw a Save button that
+           apparently did nothing. The head-transfer confirm did the same thing,
+           which is where it was first noticed.
+
+           Dropping the parameter from the address bar the moment it has been
+           consumed fixes it at the source: the next Referer is the clean URL,
+           back() lands on the list, and a manual refresh no longer reopens a
+           modal the operator already finished with. replaceState leaves no
+           history entry, so Back still goes where the operator expects.
+
+           Drop 3 removes the deep link entirely by opening this modal in place
+           on the Shelter page. This stays correct either way. */
+        params.delete('edit');
+        const query = params.toString();
+        window.history.replaceState({}, '', window.location.pathname + (query ? '?' + query : '') + window.location.hash);
     }
     if (window.EvacueeConfig.autoOpen) {
         openModal('evacueeModal');
@@ -520,7 +555,7 @@ function initShelterModals() {
         });
     }
 
-    // Transfer head chain, triggered from Edit Family Group screen (evacuees page) via a
+    // Transfer head chain, triggered from the Edit Family modal (evacuees page) via a
     // "Transfer Head" button there -- this file exposes the two modals globally so that
     // page can call window.EvacTech.openTransferFlow(household).
     window.EvacTech = window.EvacTech || {};
@@ -546,6 +581,93 @@ function initShelterModals() {
             openModal('confirmTransferModal');
         };
     };
+
+    /* PHASE 6 -- confirm the head transfer WITHOUT navigating.
+
+       #confirmTransferForm used to post normally. A navigation tears down every
+       modal on the page, so confirming a transfer from inside Edit Family threw
+       the operator back to the list and they had to find the family again.
+
+       Posting it with fetch keeps the page alive, so only the two transfer
+       modals close and Edit Family stays exactly where it was.
+
+       The form MUST then be repopulated, not merely left open. The head is
+       carried in the form as a hidden `members[0][is_head]`, so a form still
+       holding the old head would post it on the next Save and silently undo the
+       transfer that was just confirmed. loadHouseholdIntoForm() is the existing,
+       tested path that rebuilds the head row and the member rows from the
+       server, so it is reused rather than shuffling rows by hand -- moving a row
+       between the head and member containers means renaming every input on it,
+       which is precisely where `members[0][tags][]` bracket bugs come from.
+
+       KNOWN AND ACCEPTED: rebuilding from the server replaces anything typed
+       into the form but not yet saved. Agreed as acceptable rather than adding a
+       capture-and-reapply pass. */
+    const confirmForm = document.getElementById('confirmTransferForm');
+    if (!confirmForm) {
+        console.info('[EvacTech/staff] #confirmTransferForm not on this page; head transfer stays a normal form post.');
+    } else {
+        confirmForm.addEventListener('submit', async (e) => {
+            // No action means openTransferFlow never ran, so there is no
+            // household to post against. Let the browser do whatever it would
+            // have done rather than swallow the submit.
+            if (!confirmForm.action) {
+                console.error('[EvacTech/staff] confirm transfer submitted with no action set; falling back to a normal post.');
+                return;
+            }
+            e.preventDefault();
+
+            const submitBtn = confirmForm.querySelector('button[type="submit"]');
+            if (submitBtn) submitBtn.disabled = true;
+
+            try {
+                const res = await fetch(confirmForm.action, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-TOKEN': csrfToken(),
+                        // Both headers matter: Accept is what makes Laravel's
+                        // expectsJson() true, X-Requested-With is what stops a
+                        // validation failure redirecting instead of answering 422.
+                        'Accept': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    body: new FormData(confirmForm),
+                });
+                const payload = await res.json().catch(() => null);
+
+                if (!res.ok) {
+                    // 422 is the "type transfer exactly" rule failing. Show it in
+                    // place; the operator has not lost anything.
+                    const msg = payload?.message || 'The transfer could not be completed.';
+                    console.error('[EvacTech/staff] head transfer rejected with status ' + res.status, payload);
+                    alert(msg);
+                    return;
+                }
+
+                closeModal('confirmTransferModal');
+                closeModal('transferHeadModal');
+                confirmForm.reset();
+
+                const note = document.getElementById('evacueeNote');
+                if (note) {
+                    note.textContent = payload?.message || 'Family head transferred.';
+                    note.hidden = false;
+                }
+
+                // Repopulate so the form agrees with the database again.
+                if (window.EvacTech?.reloadHouseholdIntoForm && payload?.household_id) {
+                    await window.EvacTech.reloadHouseholdIntoForm(payload.household_id);
+                } else {
+                    console.error('[EvacTech/staff] head transferred but the edit form could not be refreshed; reload before saving.');
+                }
+            } catch (err) {
+                console.error('[EvacTech/staff] head transfer request failed.', err);
+                alert('The transfer could not be sent. Check your connection and try again.');
+            } finally {
+                if (submitBtn) submitBtn.disabled = false;
+            }
+        });
+    }
 
     if (cfg.autoOpen) openModal('checkinModal');
 }

@@ -2,7 +2,9 @@
 
 @section('title', 'Evacuation Shelter')
 @section('page-title', 'Evacuation Shelter')
-@section('page-subtitle', $center?->name ?? 'No assigned shelter')
+{{-- PHASE 6 ITEM 7. Was the shelter name, which .page-head now prints one
+     line above. Two copies of the same string is not context, it is noise. --}}
+@section('page-subtitle', 'Check families in and out, and monitor occupancy.')
 
 @php
     // PHASE 2 ITEM 8. Route templates for the shared transfer partials, built in
@@ -57,8 +59,22 @@
 @endphp
 
 @unless($center)
-    <div class="alert alert-warning">No shelter selected. Choose one from the switcher above, or ask your Evacuation Administrator to assign you to a shelter.</div>
+    {{-- PHASE 6 ITEM 7. Used to read "Choose one from the switcher above". That
+         switcher is gone, and pointing at a control that no longer exists is
+         worse than no instruction at all. Assignment is a City Admin action. --}}
+    <div class="alert alert-warning">No shelter assigned to this account. Ask your Evacuation Administrator to assign you to a shelter.</div>
 @else
+{{-- PHASE 6 ITEM 1 / G. The table used to live in the left 2/3 of this grid,
+     which on a 1920px screen gave five columns roughly 800px to share: the
+     check-in timestamp wrapped to six lines and the actions cell overflowed the
+     panel. Recent Activity, capped at five events, was taller than the capacity
+     panel beside it, so the old single-row layout also left a dead band beneath
+     whichever card finished first.
+
+     Now: ROW 1 carries the capacity panel and the filter bar in the left two
+     columns and Recent Activity in the third, which balances the two heights.
+     ROW 2 is the table at FULL width. Two sibling elements, not one grid --
+     the table is deliberately outside the grid so nothing constrains it. --}}
 <section class="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
     <div class="lg:col-span-2">
         {{-- Left unconverted on purpose: partials/capacity-panel is also included
@@ -67,7 +83,11 @@
              before. Chat C owns its conversion. --}}
         @include('partials.capacity-panel', ['center' => $center, 'unaccounted' => $unaccounted ?? 0])
 
-        <form method="GET" class="filter-bar sm:grid sm:grid-cols-2 sm:items-end lg:grid-cols-4" role="search">
+        {{-- PHASE 6 ITEM F. Grid utilities dropped for the same reason as the
+             Evacuee Profiling filter bar: this form now sits in the left two
+             thirds of row 1, and fixed columns there are narrower still.
+             .filter-bar wraps on its own. --}}
+        <form method="GET" class="filter-bar" role="search">
             <input type="search" name="q" value="{{ request('q') }}" placeholder="Search household head&hellip;" aria-label="Search household head name">
             <select name="status" aria-label="Filter status">
                 <option value="">All statuses</option>
@@ -81,7 +101,28 @@
             </select>
             <button type="submit" class="btn-secondary">Apply</button>
         </form>
+    </div>
 
+    <div class="flex flex-col">
+        <h2 class="panel-title">Recent Activity</h2>
+        <div class="card panel activity-panel">
+            @forelse($recent as $event)
+                <div class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border p-3 text-sm last:border-b-0">
+                    <span class="badge {{ $event['type'] === 'check_in' ? 'badge-success' : 'badge-warning' }}">
+                        {{ $event['type'] === 'check_in' ? 'Check-in' : 'Check-out' }}
+                    </span>
+                    <span class="min-w-0 flex-1 font-medium">{{ $event['household']->headMember?->full_name ?? $event['household']->household_code }}</span>
+                    <time class="text-ink-muted" datetime="{{ $event['at']->toIso8601String() }}">{{ $event['at']->diffForHumans() }}</time>
+                </div>
+            @empty
+                <p class="empty-note">No activity yet.</p>
+            @endforelse
+        </div>
+    </div>
+</section>
+
+{{-- ROW 2 -- the households table, full content width. --}}
+<div class="mt-4">
         <div class="card panel table-panel">
             {{-- data-stack: below 768px this table becomes labelled cards rather
                  than a horizontally scrolling grid. Every <td> below therefore
@@ -101,9 +142,12 @@
                 <tbody>
                     @forelse($households as $h)
                         <tr>
-                            <td data-label="Household Head">{{ $h->headMember?->full_name ?? '-' }}</td>
-                            <td data-label="Family Size" data-numeric>{{ $h->members_present }} / {{ $h->number_of_members }}</td>
-                            <td data-label="Check-in" data-numeric>{{ $h->checked_in_at?->format('M d, Y - h:i A') ?? '-' }}</td>
+                            <td data-label="Household Head" data-fit>{{ $h->headMember?->full_name ?? '-' }}</td>
+                            <td data-label="Family Size" data-numeric class="whitespace-nowrap">{{ $h->members_present }} / {{ $h->number_of_members }}</td>
+                            {{-- PHASE 6 ITEM 2. nowrap. "Aug 02, 2026 - 08:48 AM" has five break
+                                 opportunities in it, and in a squeezed column the browser
+                                 took every one of them. A timestamp is one value. --}}
+                            <td data-label="Check-in" data-numeric class="whitespace-nowrap">{{ $h->checked_in_at?->format('M d, Y - h:i A') ?? '-' }}</td>
                             <td data-label="Status">
                                 <span class="badge {{ $h->status === 'checked_in' ? 'badge-success' : ($h->status === 'checked_out' ? 'badge-warning' : 'badge-info') }}">
                                     {{ ucfirst(str_replace('_', ' ', $h->status)) }}
@@ -131,11 +175,11 @@
                                      in design-system.css is applied to button and
                                      input elements, not to anchors. --}}
                                 <a class="btn-link inline-flex min-h-tap items-center"
-                                   href="{{ route('barangay.evacuees.index') }}?edit={{ $h->id }}">Edit Family Group</a>
+                                   href="{{ route('barangay.evacuees.index') }}?edit={{ $h->id }}">Edit Family</a>
                                 @if($h->status === 'checked_in')
                                     {{-- PHASE 5 ITEM 8b. Deliberately shown even
                                          when a transfer is in progress, unlike
-                                         "Move to Shelter" below. The modal reports
+                                         "Transfer" below. The modal reports
                                          WHY it is blocked, which is more useful
                                          than a control that silently is not there
                                          -- and it is the only way a staff member
@@ -143,11 +187,13 @@
                                          stopping them. --}}
                                     <button type="button" class="btn-link"
                                             data-presence="{{ $h->id }}">Update Presence</button>
-                                    {{-- PHASE 2 ITEM 8. Named "Move to Shelter", not
-                                         "Transfer": the Transfer Head flow already
-                                         lives on this page and two unrelated
-                                         controls called Transfer is how a demo
-                                         goes wrong. --}}
+                                    {{-- PHASE 2 ITEM 8, relabelled in PHASE 6 ITEM 4.
+                                         It was called "Move to Shelter" because a
+                                         Transfer Head control also sat in this
+                                         row and two things called Transfer is how
+                                         a demo goes wrong. Transfer Head now lives
+                                         inside Edit Family, so the collision is
+                                         gone and the shorter label wins. --}}
                                     @if(in_array($h->id, $txOpenIds))
                                         <span class="text-sm text-ink-muted">Transfer in progress</span>
                                     @else
@@ -158,7 +204,7 @@
                                                 data-household-head="{{ $h->headMember?->full_name }}"
                                                 data-household-present="{{ $h->members_present }}"
                                                 data-center-id="{{ $center->id }}"
-                                                data-center-name="{{ $center->name }}">Move to Shelter</button>
+                                                data-center-name="{{ $center->name }}">Transfer</button>
                                     @endif
                                     <form method="POST" action="{{ route('barangay.shelter.checkout', $h) }}" class="inline-form"
                                           data-confirm="Check out {{ $h->headMember?->full_name }}'s household?">
@@ -180,25 +226,7 @@
                 {{ $households->links() }}
             @endif
         </div>
-    </div>
-
-    <div class="flex flex-col">
-        <h2 class="panel-title">Recent Activity</h2>
-        <div class="card panel activity-panel">
-            @forelse($recent as $event)
-                <div class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border p-3 text-sm last:border-b-0">
-                    <span class="badge {{ $event['type'] === 'check_in' ? 'badge-success' : 'badge-warning' }}">
-                        {{ $event['type'] === 'check_in' ? 'Check-in' : 'Check-out' }}
-                    </span>
-                    <span class="min-w-0 flex-1 font-medium">{{ $event['household']->headMember?->full_name ?? $event['household']->household_code }}</span>
-                    <time class="text-ink-muted" datetime="{{ $event['at']->toIso8601String() }}">{{ $event['at']->diffForHumans() }}</time>
-                </div>
-            @empty
-                <p class="empty-note">No activity yet.</p>
-            @endforelse
-        </div>
-    </div>
-</section>
+</div>
 @endunless
 @endsection
 
@@ -230,7 +258,7 @@
             {{-- Stacks below 640px with the primary action last, so a thumb
                  reaching the bottom of the sheet lands on Confirm, not Cancel. --}}
             <div class="modal-actions flex flex-col gap-2 sm:flex-row sm:items-center">
-                <button type="button" class="btn-link" id="ci-edit-family">Edit Family Group</button>
+                <button type="button" class="btn-link" id="ci-edit-family">Edit Family</button>
                 <span class="hidden sm:block sm:flex-1"></span>
                 <button type="button" class="btn-secondary" data-close-modal>Cancel</button>
                 <button type="submit" class="btn-primary">Confirm Check-in</button>

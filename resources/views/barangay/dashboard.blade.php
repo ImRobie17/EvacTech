@@ -85,7 +85,7 @@
 @section('content')
 @unless($center)
     <div class="alert alert-warning" role="alert">
-        No shelter selected. Pick one from the switcher above, or ask your Evacuation Administrator to assign you to a shelter &mdash; the numbers below will stay at zero until then.
+        No shelter assigned to this account. Ask your Evacuation Administrator to assign you to a shelter &mdash; the numbers below will stay at zero until then.
     </div>
 @endunless
 

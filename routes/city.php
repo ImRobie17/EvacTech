@@ -64,6 +64,9 @@ Route::middleware(['auth', 'role:city_admin'])
         // ---- Evacuee Profiling (city-wide, all shelters) ----
         Route::get('/evacuees', [CityEvacuees::class, 'index'])->name('evacuees.index');
         Route::post('/evacuees', [CityEvacuees::class, 'store'])->name('evacuees.store');
+        // PHASE 6 ITEM 10. JSON for the read-only view modal. Declared AFTER the
+        // two literal /evacuees routes so the model binding cannot swallow them.
+        Route::get('/evacuees/{household}', [CityEvacuees::class, 'show'])->name('evacuees.show');
 
         // ---- Relief Distribution (city-wide overview + approvals) ----
         Route::get('/relief', [CityRelief::class, 'index'])->name('relief.index');

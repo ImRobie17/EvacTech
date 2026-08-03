@@ -37,17 +37,24 @@
 @endphp
 
 @section('page-actions')
-    {{-- PHASE 3 ITEM 9. A link, not a second copy of the registration modal.
-         The evacuees page already auto-opens its Register modal when the query
-         string carries open=register -- EvacueeConfig.autoOpen reads exactly
-         that -- so this needs no controller data, no duplicated member-row
-         template, and no second place for the tags[] input naming to go wrong.
-         Same pattern as the existing ?edit={id} link into that page.
+    {{-- PHASE 6 ITEM 11. Was an anchor to evacuees.index?open=register.
 
-         An anchor, not a button: the 44px floor in design-system.css applies to
-         button and input elements, NOT to <a>, so the tap target is set here. --}}
-    <a class="btn-secondary inline-flex min-h-tap w-full items-center justify-center sm:w-auto"
-       href="{{ route('barangay.evacuees.index', ['open' => 'register']) }}">+ Register New Household</a>
+         The Phase 3 reasoning for that link was sound at the time: it avoided
+         duplicating the member-row template and a second place for the tags[]
+         input naming to go wrong. Both concerns are gone now that the modal
+         lives in partials/evacuee-modal and this page includes it, so there is
+         still exactly ONE copy of that template in the system.
+
+         Registering a family at your shelter and being thrown to Evacuee
+         Profiling is the same complaint as the edit redirection. store() now
+         ends in redirect()->back(), so registering here stays here.
+
+         A button, not an anchor, because it no longer navigates -- and buttons
+         already carry the 44px floor from design-system.css, so the
+         inline-flex/min-h-tap workaround the anchor needed goes with it.
+
+         No data-household, which is what puts the modal in register mode. --}}
+    <button type="button" class="btn-secondary w-full sm:w-auto" data-open-modal="evacueeModal">+ Register New Household</button>
     <button type="button" class="btn-primary w-full sm:w-auto" data-open-modal="checkinModal">&check; Check-in Existing Family</button>
 @endsection
 
@@ -154,28 +161,38 @@
                                 </span>
                             </td>
                             <td class="actions-cell" data-label="Actions">
-                                {{-- Was a <button data-open-modal="evacueeEditRedirect">
-                                     with an inline onclick doing the actual work.
-                                     No modal with that id exists anywhere, so the
-                                     data attribute registered a listener that
-                                     opened nothing, and the navigation happened
-                                     only because of the onclick beside it. It is
-                                     a link, so it is written as a link: keyboard
-                                     reachable, middle-clickable, and honest about
-                                     leaving the page.
+                                {{-- PHASE 6 ITEM 11. This was an anchor to
+                                     evacuees.index?edit={id}. It navigated to
+                                     Evacuee Profiling, so after saving you landed
+                                     there rather than back on this shelter -- the
+                                     redirection complaint.
 
-                                     It still navigates to Evacuee Profiling rather
-                                     than editing in place. Bringing the evacuee
-                                     modal here needs $classifications, $barangays
+                                     The old comment here said bringing the modal
+                                     over would need $classifications, $barangays
                                      and $defaultBarangayId from ShelterController
-                                     plus a duplicate of the member-row template --
-                                     deliberately deferred to Phase 1 item 1, which
-                                     reshapes shelter routing anyway. --}}
-                                {{-- inline-flex + min-h-tap because the 44px floor
-                                     in design-system.css is applied to button and
-                                     input elements, not to anchors. --}}
-                                <a class="btn-link inline-flex min-h-tap items-center"
-                                   href="{{ route('barangay.evacuees.index') }}?edit={{ $h->id }}">Edit Family</a>
+                                     plus a DUPLICATE of the member-row template.
+                                     The first half was right and index() now
+                                     passes all three. The second half is avoided:
+                                     the modal and its template live in
+                                     partials/evacuee-modal, included by this page
+                                     and by Evacuee Profiling, so there is one copy
+                                     and one place for the members[0][tags][]
+                                     bracket naming to be correct.
+
+                                     A button, not an anchor, because it no longer
+                                     goes anywhere -- and buttons already carry the
+                                     44px floor from design-system.css, so the
+                                     inline-flex/min-h-tap workaround an anchor
+                                     needed is gone with it. --}}
+                                {{-- PHASE 6 ITEM 10. Read-only view, first in the
+                                     row so checking a birthdate or a tag never
+                                     requires opening a live form. --}}
+                                <button type="button" class="btn-link"
+                                        data-view-household="{{ $h->id }}">View</button>
+                                <button type="button" class="btn-link"
+                                        data-open-modal="evacueeModal"
+                                        data-mode="edit"
+                                        data-household="{{ $h->id }}">Edit Family</button>
                                 @if($h->status === 'checked_in')
                                     {{-- PHASE 5 ITEM 8b. Deliberately shown even
                                          when a transfer is in progress, unlike
@@ -231,6 +248,23 @@
 @endsection
 
 @push('modals')
+{{-- PHASE 6 ITEM 11. The same Add / Edit Evacuee modal Evacuee Profiling uses,
+     so "Edit Family" opens IN PLACE. Because the POST then originates on this
+     page, EvacueeProfilingController::update()'s existing redirect()->back()
+     lands back here -- no return-token plumbing needed.
+
+     Include it ONCE per page: staff.js finds every control in it by id. --}}
+@include('partials.evacuee-modal', [
+    'storeUrl' => route('barangay.evacuees.store'),
+    'barangays' => $barangays,
+    'classifications' => $classifications,
+    'ageGroups' => $ageGroups,
+    'defaultBarangayId' => $defaultBarangayId ?? null,
+])
+
+{{-- PHASE 6 ITEM 10. Read-only view, same partial as Evacuee Profiling. --}}
+@include('partials.household-view-modal')
+
 {{-- ======== Check-in Family modal ======== --}}
 <div class="modal-backdrop" id="checkinModal" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="checkinTitle">
@@ -314,8 +348,23 @@
         showUrlTemplate: "{{ route('barangay.evacuees.show', ':id') }}",
         checkinUrlTemplate: "{{ route('barangay.shelter.checkin', ':id') }}",
         transferUrlTemplate: "{{ route('barangay.shelter.transfer', ':id') }}",
-        editRedirectTemplate: "{{ route('barangay.evacuees.index') }}?edit=:id",
         autoOpen: @json(request('open') === 'checkin'),
+    };
+
+    /* PHASE 6 ITEM 11. editRedirectTemplate is gone: nothing navigates to
+       Evacuee Profiling to edit a family any more, because the modal is on this
+       page. staff.js reads EvacueeConfig to wire that modal up -- the SAME
+       object Evacuee Profiling sets, so both pages run one code path rather than
+       two that can drift.
+
+       autoOpen stays false. `?open=register` is Evacuee Profiling's affordance;
+       here the modal is opened from a row or from the check-in modal. */
+    window.EvacueeConfig = {
+        showUrlTemplate: "{{ route('barangay.evacuees.show', ':id') }}",
+        updateUrlTemplate: "{{ route('barangay.evacuees.update', ':id') }}",
+        storeUrl: "{{ route('barangay.evacuees.store') }}",
+        defaultBarangayId: {{ (int) ($defaultBarangayId ?? 0) }},
+        autoOpen: false,
     };
 </script>
 @endpush

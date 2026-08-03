@@ -70,6 +70,59 @@ class EvacueeProfilingController extends Controller
     }
 
     /** City Admin can register into ANY shelter (extra shelter-selector field). */
+    /**
+     * One household as JSON, for the read-only view modal (Phase 6 item 10).
+     *
+     * City-wide: unlike the per-shelter endpoint on ShelterDetailController,
+     * this takes no centre, because Evacuee Profiling lists households across
+     * every shelter and some have none at all. No ownership check is needed --
+     * city_admin has city-wide read access by definition, and the route already
+     * sits behind the role middleware.
+     *
+     * READ ONLY. It deliberately does not mirror the barangay endpoint's
+     * edit-oriented extras (age_tier_fallback, split name parts): nothing on
+     * this screen edits a household, and shipping fields no consumer reads is
+     * how a payload drifts into a contract nobody remembers agreeing to.
+     */
+    public function show(Household $household)
+    {
+        $household->load(['members.vulnerableClassifications', 'headMember', 'originBarangay', 'evacuationCenter']);
+
+        return response()->json([
+            'id' => $household->id,
+            'code' => $household->household_code,
+            'address' => $household->origin_address,
+            'origin_barangay' => $household->originBarangay?->name,
+            'status' => $household->status,
+            'center' => $household->evacuationCenter?->name,
+            'checked_in_at' => $household->checked_in_at?->toIso8601String(),
+            'checked_out_at' => $household->checked_out_at?->toIso8601String(),
+            'members_present' => $household->members_present,
+            'number_of_members' => $household->number_of_members,
+            'single_headed' => $household->isSingleHeaded(),
+            'head_member_id' => $household->head_member_id,
+            'members' => $household->members->map(fn ($m) => [
+                'id' => $m->id,
+                'full_name' => $m->full_name,
+                'birthdate' => $m->birthdate?->format('Y-m-d'),
+                'sex' => $m->sex,
+                'is_head' => (bool) $m->is_household_head,
+                'is_present' => (bool) $m->is_present,
+                'age_tier' => $m->ageTier(),
+                'age_tier_label' => $m->ageTierShortLabel(),
+                // Retired classifications are filtered out here for the same
+                // reason the edit forms filter them: Senior Citizen and Infant
+                // are age tiers, and printing them as categories would put the
+                // same person in two columns of the IDP form.
+                'tags' => $m->vulnerableClassifications
+                    ->where('is_selectable', true)
+                    ->values()
+                    ->map(fn ($c) => ['id' => $c->id, 'code' => $c->code, 'name' => $c->name])
+                    ->values(),
+            ])->values(),
+        ]);
+    }
+
     public function store(Request $request)
     {
         $data = $request->validate([

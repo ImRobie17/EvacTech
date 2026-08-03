@@ -12,6 +12,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initModals();
     initConfirmForms();
     initEvacueeForm();
+    initHouseholdView();
     initShelterModals();
     initReliefModals();
 });
@@ -480,18 +481,201 @@ function initEvacueeForm() {
 
            Drop 3 removes the deep link entirely by opening this modal in place
            on the Shelter page. This stays correct either way. */
-        params.delete('edit');
-        const query = params.toString();
-        window.history.replaceState({}, '', window.location.pathname + (query ? '?' + query : '') + window.location.hash);
+        stripQueryParam('edit');
     }
     if (window.EvacueeConfig.autoOpen) {
         openModal('evacueeModal');
+        /* PHASE 6 ITEM 11. Same trap the ?edit= deep link had, and it becomes
+           live the moment store() switches to redirect()->back(): the Referer
+           would still carry ?open=register, so saving a new household would
+           reload into a URL whose only instruction is "open the register
+           modal", and the operator would watch a blank form reappear over the
+           family they just saved.
+
+           Dropping the parameter once it has been consumed leaves the next
+           Referer clean. replaceState adds no history entry. */
+        stripQueryParam('open');
     }
+}
+
+/* Removes one query parameter from the address bar without navigating or adding
+   a history entry. Used for the one-shot deep links (?edit=, ?open=) that must
+   not survive into the Referer of the next form post. */
+function stripQueryParam(name) {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has(name)) return;
+    params.delete(name);
+    const query = params.toString();
+    window.history.replaceState({}, '', window.location.pathname + (query ? '?' + query : '') + window.location.hash);
 }
 
 // ---------------------------------------------------------------------
 // Shelter page: Check-in Family, Select New Family Head, Confirm Transfer
 // ---------------------------------------------------------------------
+// ---------------------------------------------------------------------
+// Read-only household view (Phase 6 item 10)
+// ---------------------------------------------------------------------
+// Renders partials/household-view-modal from the existing
+// `barangay.evacuees.show` payload. Read only: it writes with textContent and
+// builds every node with createElement, so a household address or a member name
+// can never be interpreted as markup.
+//
+// Bootstrapped by delegation on `document`, not by querying the buttons at load
+// time, so it keeps working if a table is ever re-rendered.
+function initHouseholdView() {
+    const modal = document.getElementById('householdViewModal');
+    if (!modal) return;
+
+    /* PHASE 6 ITEM 10. Its own config object, with EvacueeConfig as a fallback.
+
+       City Admin needs View too, but its screens have no evacuee EDIT form --
+       setting window.EvacueeConfig there just to carry one URL would make
+       initEvacueeForm() try to run and hunt for #evacueeForm, #headRow and
+       #memberRows that do not exist. A separate object keeps the viewer
+       independent of the editor, and the barangay pages keep working through
+       the fallback without setting anything new.
+
+       The URL differs per role by design: barangay uses
+       barangay.evacuees.show, City Admin uses its own city-wide or
+       per-shelter endpoint. The partial itself contains no route() call. */
+    const viewUrlTemplate = window.HouseholdViewConfig?.showUrlTemplate
+        || window.EvacueeConfig?.showUrlTemplate;
+
+    if (!viewUrlTemplate) {
+        console.error('[EvacTech/staff] the household view modal is on this page but neither window.HouseholdViewConfig.showUrlTemplate nor window.EvacueeConfig.showUrlTemplate is set, so View can never load anything.');
+        return;
+    }
+
+    const AGE_UNKNOWN = 'Unknown';
+
+    function text(el, value) {
+        document.getElementById(el).textContent = (value === null || value === undefined || value === '') ? '\u2014' : value;
+    }
+
+    // The payload carries ISO 8601; formatting is the view's job. Falls back to
+    // the raw string rather than printing "Invalid Date" if it ever changes.
+    function formatDate(iso) {
+        if (!iso) return null;
+        const d = new Date(iso);
+        if (Number.isNaN(d.getTime())) return iso;
+        return d.toLocaleString(undefined, {
+            year: 'numeric', month: 'short', day: '2-digit',
+            hour: '2-digit', minute: '2-digit',
+        });
+    }
+
+    function cell(row, label, value) {
+        const td = document.createElement('td');
+        td.setAttribute('data-label', label);
+        if (value !== undefined) td.textContent = value;
+        row.appendChild(td);
+        return td;
+    }
+
+    function badge(cls, label) {
+        const span = document.createElement('span');
+        span.className = 'badge ' + cls;
+        span.textContent = label;
+        return span;
+    }
+
+    function render(data) {
+        text('hv-code', data.code);
+        text('hv-address', data.address);
+        text('hv-barangay', data.origin_barangay);
+        text('hv-center', data.center);
+        text('hv-checked-in', formatDate(data.checked_in_at));
+        text('hv-checked-out', formatDate(data.checked_out_at));
+
+        const head = data.members.find((m) => m.is_head);
+        text('hv-head', head ? head.full_name : null);
+
+        const present = document.getElementById('hv-present');
+        present.textContent = (data.members_present ?? 0) + ' / ' + (data.number_of_members ?? data.members.length);
+
+        // Status is never colour alone -- the badge prints its own words.
+        const summary = document.getElementById('hv-summary');
+        summary.innerHTML = '';
+        const statusLabel = String(data.status || '').replace(/_/g, ' ');
+        const statusClass = data.status === 'checked_in'
+            ? 'badge-success'
+            : (data.status === 'checked_out' ? 'badge-warning' : 'badge-info');
+        if (statusLabel) summary.appendChild(badge(statusClass, statusLabel.charAt(0).toUpperCase() + statusLabel.slice(1)));
+        // Derived from members_present == 1 on a checked-in family. A
+        // household-level fact, not a vulnerable classification -- which is why
+        // it sits here and not in the member Categories column.
+        if (data.single_headed) summary.appendChild(badge('badge-warning', 'Single-headed'));
+
+        const body = document.getElementById('hv-members');
+        body.innerHTML = '';
+
+        // Head first, then everyone else in payload order, so the family reads
+        // the same way it does in the edit form.
+        const ordered = data.members.slice().sort((a, b) => (b.is_head ? 1 : 0) - (a.is_head ? 1 : 0));
+
+        ordered.forEach((m) => {
+            const row = document.createElement('tr');
+
+            const nameCell = cell(row, 'Name');
+            nameCell.textContent = m.full_name;
+            if (m.is_head) nameCell.appendChild(badge('badge-info', 'Head'));
+
+            cell(row, 'Date of birth', m.birthdate || '\u2014');
+            // An Unknown bucket is required: a member with neither a birthdate
+            // nor a chosen group must not silently read as an adult.
+            cell(row, 'Age group', m.age_tier_label || AGE_UNKNOWN);
+            cell(row, 'Sex', m.sex ? m.sex.charAt(0).toUpperCase() + m.sex.slice(1) : '\u2014');
+
+            const presenceCell = cell(row, 'Presence');
+            presenceCell.appendChild(
+                m.is_present ? badge('badge-success', 'Present') : badge('badge-warning', 'Not present')
+            );
+
+            const tagCell = cell(row, 'Categories');
+            if (!m.tags || m.tags.length === 0) {
+                tagCell.textContent = 'None';
+                tagCell.classList.add('text-muted');
+            } else {
+                const wrap = document.createElement('span');
+                wrap.className = 'flex flex-wrap gap-1';
+                m.tags.forEach((t) => wrap.appendChild(badge('badge-info', t.name)));
+                tagCell.appendChild(wrap);
+            }
+
+            body.appendChild(row);
+        });
+    }
+
+    document.addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-view-household]');
+        if (!btn) return;
+
+        const id = btn.dataset.viewHousehold;
+        if (!id) {
+            console.error('[EvacTech/staff] a View control has no data-view-household id.');
+            return;
+        }
+
+        openModal('householdViewModal');
+        document.getElementById('hv-members').innerHTML = '';
+        document.getElementById('hv-summary').textContent = 'Loading\u2026';
+
+        try {
+            const url = viewUrlTemplate.replace(':id', id);
+            const res = await fetch(url, { headers: { Accept: 'application/json' } });
+            if (!res.ok) {
+                console.error('[EvacTech/staff] household view request returned status ' + res.status + ' for household ' + id);
+                document.getElementById('hv-summary').textContent = 'This family could not be loaded.';
+                return;
+            }
+            render(await res.json());
+        } catch (err) {
+            console.error('[EvacTech/staff] household view request failed.', err);
+            document.getElementById('hv-summary').textContent = 'This family could not be loaded.';
+        }
+    });
+}
+
 function initShelterModals() {
     if (!window.ShelterConfig) return;
     const cfg = window.ShelterConfig;
@@ -548,10 +732,31 @@ function initShelterModals() {
         checkinForm.hidden = false;
     }
 
+    /* PHASE 6 ITEM 11. "Edit Family" inside the check-in modal used to do
+       `window.location = cfg.editRedirectTemplate` -- a navigation to Evacuee
+       Profiling with ?edit={id}. That is the redirection complaint: saving from
+       there left the operator on Evacuee Profiling instead of the shelter.
+
+       The evacuee modal is now included on this page too, so this swaps one
+       modal for another without leaving. editRedirectTemplate has been removed
+       from ShelterConfig; the reload path is published by initEvacueeForm() on
+       the shared window.EvacTech object. */
     const editBtn = document.getElementById('ci-edit-family');
-    if (editBtn) {
-        editBtn.addEventListener('click', () => {
-            if (currentHousehold) window.location = cfg.editRedirectTemplate.replace(':id', currentHousehold.id);
+    if (!editBtn) {
+        console.info('[EvacTech/staff] #ci-edit-family not on this page; nothing to wire.');
+    } else {
+        editBtn.addEventListener('click', async () => {
+            if (!currentHousehold) {
+                console.error('[EvacTech/staff] Edit Family clicked with no household selected in the check-in modal.');
+                return;
+            }
+            if (!window.EvacTech?.reloadHouseholdIntoForm) {
+                console.error('[EvacTech/staff] the evacuee modal is not on this page (window.EvacueeConfig missing), so Edit Family has nothing to open. Include partials/evacuee-modal and set EvacueeConfig.');
+                return;
+            }
+            closeModal('checkinModal');
+            openModal('evacueeModal');
+            await window.EvacTech.reloadHouseholdIntoForm(currentHousehold.id);
         });
     }
 
@@ -669,7 +874,12 @@ function initShelterModals() {
         });
     }
 
-    if (cfg.autoOpen) openModal('checkinModal');
+    if (cfg.autoOpen) {
+        openModal('checkinModal');
+        // Same one-shot rule as ?edit= and ?open=register: a check-in posted
+        // from here must not leave ?open=checkin in the Referer.
+        stripQueryParam('open');
+    }
 }
 
 // ---------------------------------------------------------------------

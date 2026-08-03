@@ -49,7 +49,7 @@
 <div class="card panel table-panel">
     <table class="data-table" data-stack>
         <thead>
-            <tr><th scope="col">Household ID</th><th scope="col">Head</th><th scope="col">Size</th><th scope="col">Barangay</th><th scope="col">Shelter</th><th scope="col">Tags</th><th scope="col">Status</th></tr>
+            <tr><th scope="col">Household ID</th><th scope="col">Head</th><th scope="col">Size</th><th scope="col">Barangay</th><th scope="col">Shelter</th><th scope="col">Tags</th><th scope="col">Status</th><th scope="col">Actions</th></tr>
         </thead>
         <tbody>
             @forelse($households as $h)
@@ -85,9 +85,16 @@
                         </span>
                     </td>
                     <td data-label="Status"><span class="badge {{ $h->status === 'checked_in' ? 'badge-success' : 'badge-warning' }}">{{ ucfirst(str_replace('_', ' ', $h->status)) }}</span></td>
+                    {{-- PHASE 6 ITEM 10. City Admin reads household details too.
+                         This screen has no edit form, so View is the whole
+                         actions column -- and the modal it opens has no route
+                         back into an editor. --}}
+                    <td class="actions-cell" data-label="Actions">
+                        <button type="button" class="btn-link" data-view-household="{{ $h->id }}">View</button>
+                    </td>
                 </tr>
             @empty
-                <tr><td colspan="7" class="empty-note">No households found.</td></tr>
+                <tr><td colspan="8" class="empty-note">No households found.</td></tr>
             @endforelse
         </tbody>
     </table>
@@ -96,6 +103,12 @@
 @endsection
 
 @push('modals')
+{{-- PHASE 6 ITEM 10. Same partial the barangay screens include. It contains no
+     route() call and no role branching -- the URL arrives through
+     window.HouseholdViewConfig below, which is why this works unchanged across
+     both roles. --}}
+@include('partials.household-view-modal')
+
 <div class="modal-backdrop" id="cityEvacueeModal" hidden>
     <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="cityEvacueeTitle">
         <div class="modal-head">
@@ -188,5 +201,14 @@
 @push('scripts')
 <script>
     window.CityEvacueeConfig = { autoOpen: false };
+
+    /* PHASE 6 ITEM 10. Its OWN config, not window.EvacueeConfig: that object is
+       what initEvacueeForm() in staff.js keys on, and setting it here would send
+       that function hunting for an #evacueeForm this screen does not have. The
+       viewer reads HouseholdViewConfig first and falls back to EvacueeConfig,
+       so the barangay pages needed no change. */
+    window.HouseholdViewConfig = {
+        showUrlTemplate: "{{ route('city.evacuees.show', ':id') }}",
+    };
 </script>
 @endpush

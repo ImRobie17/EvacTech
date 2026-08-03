@@ -158,6 +158,11 @@
                             {{-- Opens the modal on THIS page. No navigation. --}}
                             <button type="button" class="btn-link"
                                     data-cd-edit-household="{{ $h->id }}">Edit Family</button>
+                                {{-- PHASE 6 ITEM 10. Read before edit. Uses the
+                                     per-shelter household endpoint this page
+                                     already talks to. --}}
+                                <button type="button" class="btn-link"
+                                        data-view-household="{{ $h->id }}">View</button>
                             @if ($h->status === 'checked_in')
                                 {{-- PHASE 5 ITEM 8b. Shown even when a transfer is
                                      in progress: the modal explains why it is
@@ -284,6 +289,9 @@
 @endsection
 
 @push('modals')
+{{-- PHASE 6 ITEM 10. Read-only view, same partial as every other screen. --}}
+@include('partials.household-view-modal')
+
 {{-- ======== Check-in Family (search, then pick who is present) ======== --}}
 <div class="modal-backdrop" id="cdCheckinModal" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="cdCheckinTitle">
@@ -526,6 +534,15 @@
 
 @push('scripts')
 <script>
+    /* PHASE 6 ITEM 10. The read-only viewer's URL. Points at the same
+       per-shelter household endpoint CityShelterConfig.householdUrlTemplate
+       uses -- one endpoint, now carrying the four extra fields the viewer
+       needs. Kept as its own object so staff.js does not have to know anything
+       about City Admin's config shape. */
+    window.HouseholdViewConfig = {
+        showUrlTemplate: "{{ route('city.shelters.households.show', [$center, ':id']) }}",
+    };
+
     window.CityShelterConfig = {
         checkinSearchUrl: "{{ route('city.shelters.households.search', $center) }}",
         householdUrlTemplate: "{{ route('city.shelters.households.show', [$center, ':id']) }}",

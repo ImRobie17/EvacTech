@@ -128,7 +128,16 @@ class EvacueeProfilingController extends BarangayController
         AuditLogger::log('created', $household,
             "Registered household {$household->household_code}" . ($checkin ? " and checked in at {$center->name}" : ''));
 
-        return redirect()->route('barangay.evacuees.index')
+        /* PHASE 6 ITEM 11. Was a hard redirect to barangay.evacuees.index.
+           Registration can now start from the Shelter page, and sending someone
+           to Evacuee Profiling after they registered a family at their shelter
+           is the same complaint as the edit redirection: the operator ends up
+           somewhere they did not ask to be, mid-surge.
+
+           back() returns whichever page the form was posted from. Posting from
+           Evacuee Profiling still lands on Evacuee Profiling, so nothing about
+           that screen changes. */
+        return redirect()->back()
             ->with('success', "Household {$household->household_code} registered" . ($checkin ? ' and checked in.' : '.'));
     }
 
@@ -146,6 +155,15 @@ class EvacueeProfilingController extends BarangayController
             'origin_barangay_id' => $household->origin_barangay_id,
             'origin_barangay' => $household->originBarangay?->name,
             'status' => $household->status,
+            /* PHASE 6 ITEM 10. The read-only view modal shows check-in and
+               check-out times, which nothing else on this payload carried.
+               ISO 8601 rather than a display string: formatting is the view's
+               job, and a pre-formatted date here would have to be duplicated
+               the moment a second consumer wanted it differently. */
+            'checked_in_at' => $household->checked_in_at?->toIso8601String(),
+            'checked_out_at' => $household->checked_out_at?->toIso8601String(),
+            'members_present' => $household->members_present,
+            'number_of_members' => $household->number_of_members,
             'center' => $household->evacuationCenter?->name,
             'center_id' => $household->evacuation_center_id,
             'head_member_id' => $household->head_member_id,

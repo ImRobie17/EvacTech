@@ -254,7 +254,7 @@ class ShelterDetailController extends Controller
     /** Household JSON for the inline Check-in and Edit Family Group modals. */
     public function household(EvacuationCenter $center, Household $household)
     {
-        $household->load(['members.vulnerableClassifications', 'headMember', 'originBarangay']);
+        $household->load(['members.vulnerableClassifications', 'headMember', 'originBarangay', 'evacuationCenter']);
 
         return response()->json([
             'id' => $household->id,
@@ -263,6 +263,15 @@ class ShelterDetailController extends Controller
             'origin_barangay_id' => $household->origin_barangay_id,
             'origin_barangay' => $household->originBarangay?->name,
             'status' => $household->status,
+            /* PHASE 6 ITEM 10. The read-only view modal reads these. The edit
+               modal on this page ignores them, so adding them costs one
+               already-loaded relation and nothing else. */
+            'center' => $household->evacuationCenter?->name,
+            'checked_in_at' => $household->checked_in_at?->toIso8601String(),
+            'checked_out_at' => $household->checked_out_at?->toIso8601String(),
+            'members_present' => $household->members_present,
+            'number_of_members' => $household->number_of_members,
+            'single_headed' => $household->isSingleHeaded(),
             'head_member_id' => $household->head_member_id,
             'members' => $household->members->map(fn ($m) => [
                 'id' => $m->id,

@@ -2,14 +2,17 @@
 
 namespace App\Http\Controllers\Barangay;
 
+use App\Models\Barangay;
 use App\Models\EvacuationCenter;
 use App\Models\Household;
 use App\Models\HouseholdMember;
 use App\Models\HouseholdTransfer;
 use App\Models\ShelterTransfer;
+use App\Models\VulnerableClassification;
 use App\Services\AuditLogger;
 use App\Services\PresenceService;
 use App\Services\TransferService;
+use App\Support\AgeTier;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -70,8 +73,24 @@ class ShelterController extends BarangayController
             ? app(TransferService::class)->unaccountedCountFor($center)
             : 0;
 
+        /* PHASE 6 ITEM 11. The Add / Edit Evacuee modal is included on this page
+           now, so the three things it renders from have to reach it. Same
+           sources and same filters EvacueeProfilingController::index() uses --
+           only SELECTABLE classifications, because the retired ones (Senior
+           Citizen, Infant) are age tiers and must never render as vulnerability
+           checkboxes.
+
+           $defaultBarangayId pre-selects the active shelter's barangay, which
+           covers the common case in one click while staying editable: one
+           shelter routinely holds families from several barangays. */
+        $classifications = VulnerableClassification::selectable()->orderBy('name')->get();
+        $ageGroups = AgeTier::options();
+        $barangays = Barangay::orderBy('name')->get();
+        $defaultBarangayId = $center?->barangay_id;
+
         return view('barangay.shelter.index', compact(
-            'center', 'households', 'recent', 'transferCenters', 'openTransferHouseholdIds', 'unaccounted'
+            'center', 'households', 'recent', 'transferCenters', 'openTransferHouseholdIds', 'unaccounted',
+            'classifications', 'ageGroups', 'barangays', 'defaultBarangayId'
         ));
     }
 

@@ -29,6 +29,20 @@ class VulnerableClassification extends Model
      */
     public const REPORTABLE_CODES = ['pwd', 'pregnant', 'lactating', 'solo_parent', 'fourps'];
 
+    /**
+     * PHASE 7 ITEM 2 -- categories that can only belong to a female member.
+     *
+     * Keyed on `code`, like everything else here, because `name` is operator
+     * text and the display wording of "Pregnant Woman" is not a contract.
+     *
+     * Enforced in three places and they are not redundant: the form hides the
+     * checkboxes (courtesy), MemberRules::tags() rejects the post (the actual
+     * rule), and HouseholdMemberSync::applyTags() strips them at write time
+     * (the backstop, because that service is the ONE write path for all four
+     * callers and a future caller might not run the same validator).
+     */
+    public const FEMALE_ONLY_CODES = ['pregnant', 'lactating'];
+
     public function memberVulnerabilities(): HasMany
     {
         return $this->hasMany(MemberVulnerability::class);
@@ -51,8 +65,20 @@ class VulnerableClassification extends Model
             );
     }
 
+    /** PHASE 7 ITEM 2 -- the categories a male member can never hold. */
+    public function scopeFemaleOnly(Builder $query): Builder
+    {
+        return $query->whereIn('code', self::FEMALE_ONLY_CODES);
+    }
+
     public function isReportable(): bool
     {
         return in_array($this->code, self::REPORTABLE_CODES, true);
+    }
+
+    /** True when this category may only be tagged on a female member. */
+    public function isFemaleOnly(): bool
+    {
+        return in_array($this->code, self::FEMALE_ONLY_CODES, true);
     }
 }

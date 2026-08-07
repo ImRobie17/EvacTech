@@ -126,10 +126,19 @@
                              nobody meant to touch. --}}
                         <button type="button" class="btn-link" data-view-household="{{ $h->id }}">View</button>
                         <button type="button" class="btn-link" data-open-modal="evacueeModal" data-mode="edit" data-household="{{ $h->id }}">Edit Family</button>
-                        <form method="POST" action="{{ route('barangay.evacuees.destroy', $h) }}" class="inline-form" data-confirm="Remove household {{ $h->household_code }}? This cannot be undone.">
-                            @csrf @method('DELETE')
-                            <button type="submit" class="btn-link btn-link-danger">Remove</button>
-                        </form>
+                        {{-- PHASE 7 ITEM 1. Was an inline destroy form with a
+                             data-confirm dialog that named the code and nothing
+                             else. It is a button now: staff.js fills the
+                             confirmation modal from these attributes and points
+                             the form at the right household. Everything here is
+                             a plain escaped echo, so an apostrophe in a name is
+                             safe in the attribute. --}}
+                        <button type="button" class="btn-link btn-link-danger"
+                                data-delete-household="{{ $h->id }}"
+                                data-hh-code="{{ $h->household_code }}"
+                                data-hh-head="{{ $h->headMember?->full_name }}"
+                                data-hh-members="{{ $h->number_of_members }}"
+                                data-hh-checked-in="{{ $h->status === 'checked_in' ? '1' : '0' }}">Remove</button>
                     </td>
                 </tr>
             @empty
@@ -157,6 +166,57 @@
 {{-- PHASE 6 ITEM 10. Read-only view. No route() calls inside it -- staff.js
      renders it from window.EvacueeConfig.showUrlTemplate, set below. --}}
 @include('partials.household-view-modal')
+
+{{-- ======== PHASE 7 ITEM 1 -- Remove Household confirmation ========
+     Not a shared partial: it calls route() for the destroy URL template, and a
+     shared partial in this codebase is allowed only when it has zero role
+     branching AND makes no route() calls. City Admin has no household destroy
+     route at all, so there is no second consumer to share it with anyway.
+
+     The `:id` placeholder survives route(): Laravel's route URL generator keeps
+     a colon unencoded, which is the same trick EvacueeConfig.showUrlTemplate
+     already relies on a few lines below. --}}
+<div class="modal-backdrop" id="deleteHouseholdModal"
+     data-url-template="{{ route('barangay.evacuees.destroy', ':id') }}" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="dhTitle">
+        <div class="modal-head">
+            <h2 id="dhTitle">Remove Household</h2>
+            <button type="button" class="icon-btn" data-close-modal aria-label="Close">&times;</button>
+        </div>
+
+        <p>This permanently deletes the family record and every person in it. It cannot be undone.</p>
+
+        <div class="mt-3 flex flex-col gap-2">
+            <div class="flex flex-wrap justify-between gap-2">
+                <span class="font-semibold">Household code</span>
+                <span id="dh-code" data-numeric></span>
+            </div>
+            <div class="flex flex-wrap justify-between gap-2">
+                <span class="font-semibold">Family head</span>
+                <span id="dh-head"></span>
+            </div>
+            <div class="flex flex-wrap justify-between gap-2">
+                <span class="font-semibold">People in this record</span>
+                <span id="dh-members" data-numeric></span>
+            </div>
+        </div>
+
+        {{-- destroy() refuses a checked-in household. Saying so before the round
+             trip turns a validation error into an instruction. --}}
+        <p class="alert alert-warning mt-3" id="dh-blocked" hidden>
+            This family is currently checked in. Check them out of the shelter first, then remove the record.
+        </p>
+
+        <form method="POST" id="deleteHouseholdForm" action="">
+            @csrf
+            @method('DELETE')
+            <div class="modal-actions flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <button type="button" class="btn-secondary" data-close-modal>Cancel</button>
+                <button type="submit" class="btn-danger" id="dh-submit">Delete permanently</button>
+            </div>
+        </form>
+    </div>
+</div>
 
 {{-- ======== Select New Family Head modal (shared markup/IDs with Shelter page's JS) ======== --}}
 <div class="modal-backdrop" id="transferHeadModal" hidden>

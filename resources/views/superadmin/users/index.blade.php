@@ -23,6 +23,80 @@
     <button type="submit" class="btn-secondary">Apply</button>
 </form>
 
+{{-- ======== PHASE 7 ITEM 5 -- pending password reset requests ========
+     EVERY pending request, City Admin and barangay alike, because Super Admin
+     can already edit both kinds of account from the table below. The queue
+     mirrors authorizeTarget() exactly: you see the requests for the accounts
+     you are allowed to act on, no more and no less.
+
+     Always rendered, empty or not. It was previously hidden when empty, which
+     made "nobody has asked" and "this system has no such feature" look
+     identical from the screen. The count in the heading gives back the
+     at-a-glance signal without the ambiguity. --}}
+<div class="card panel table-panel">
+    <h2 class="panel-title">Password Reset Requests ({{ $resetRequests->count() }})</h2>
+    <p class="text-sm text-ink-muted">
+        Every pending request, from City Admin and barangay accounts alike.
+        City Admin also sees the barangay ones, so check before you call.
+        Call the person to confirm the request is really theirs before you reset anything.
+        Setting a new password closes the request and clears any sign-in lock.
+    </p>
+    <table class="data-table mt-3" data-stack>
+        <thead>
+            <tr>
+                <th scope="col">Name</th>
+                <th scope="col">Role</th>
+                <th scope="col">Email</th>
+                <th scope="col">Contact Given</th>
+                <th scope="col">Requested</th>
+                <th scope="col">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            @forelse($resetRequests as $req)
+                @php
+                    $rq = $req->user;
+                    $reqUser = [
+                        'id' => $rq->id,
+                        'name' => $rq->name,
+                        'email' => $rq->email,
+                        'contact_number' => $rq->contact_number,
+                        'role' => $rq->role?->name,
+                        'barangay_id' => $rq->barangay_id,
+                        'status' => $rq->status,
+                        'update_url' => route('super.users.update', $rq),
+                    ];
+                    $reqUserJson = json_encode($reqUser);
+                @endphp
+                <tr>
+                    <td data-label="Name" data-fit>{{ $rq->name }}</td>
+                    {{-- Which queue this would otherwise have sat in. Without it
+                         a Super Admin cannot tell whether City Admin is also
+                         looking at this row. --}}
+                    <td data-label="Role"><span class="badge">{{ $rq->role?->display_name ?? '-' }}</span></td>
+                    <td data-label="Email" class="break-all" data-fit>{{ $rq->email }}</td>
+                    <td data-label="Contact Given" class="whitespace-nowrap">{{ $req->contact_number ?? $rq->contact_number ?? '-' }}</td>
+                    <td data-label="Requested" class="whitespace-nowrap">{{ $req->updated_at?->diffForHumans() }}</td>
+                    <td class="actions-cell" data-label="Actions">
+                        <button type="button" class="btn-link" data-edit-user="{{ $reqUserJson }}">Reset password</button>
+                        <form method="POST" action="{{ route('super.users.reset-requests.dismiss', $req) }}" class="inline-form"
+                              data-confirm="Dismiss the request from {{ $rq->name }} without changing their password?">
+                            @csrf
+                            <button class="btn-link btn-link-danger">Dismiss</button>
+                        </form>
+                    </td>
+                </tr>
+            @empty
+                <tr>
+                    <td colspan="6" class="empty-note">
+                        No pending password reset requests.
+                    </td>
+                </tr>
+            @endforelse
+        </tbody>
+    </table>
+</div>
+
 <div class="card panel table-panel">
     <table class="data-table" data-stack>
         <thead>
@@ -52,13 +126,28 @@
                     <td data-label="Role"><span class="badge badge-info">{{ $u->role?->display_name }}</span></td>
                     <td data-label="Barangay" data-fit>{{ $u->barangay?->name ?? '-' }}</td>
                     <td data-label="Last Login" data-numeric class="whitespace-nowrap">{{ $u->last_login_at?->diffForHumans() ?? 'Never' }}</td>
-                    <td data-label="Status"><span class="badge {{ $u->status === 'active' ? 'badge-success' : 'badge-warning' }}">{{ ucfirst($u->status) }}</span></td>
+                    <td data-label="Status">
+                        <span class="badge {{ $u->status === 'active' ? 'badge-success' : 'badge-warning' }}">{{ ucfirst($u->status) }}</span>
+                        {{-- PHASE 7 ITEM 4. Locked and inactive are different
+                             states; the badge carries the word, not just a
+                             colour. --}}
+                        @if($u->isLocked())
+                            <span class="badge badge-danger">Locked</span>
+                        @endif
+                    </td>
                     <td class="actions-cell" data-label="Actions">
                         <button type="button" class="btn-link" data-edit-user="{{ $editUserJson }}">Edit</button>
                         <form method="POST" action="{{ route('super.users.toggle', $u) }}" class="inline-form" data-confirm="Set {{ $u->name }} to {{ $u->status === 'active' ? 'inactive' : 'active' }}?">
                             @csrf
                             <button class="btn-link {{ $u->status === 'active' ? 'btn-link-danger' : '' }}">{{ $u->status === 'active' ? 'Deactivate' : 'Activate' }}</button>
                         </form>
+                        @if($u->isLocked())
+                            <form method="POST" action="{{ route('super.users.unlock', $u) }}" class="inline-form"
+                                  data-confirm="Let {{ $u->name }} sign in again now?">
+                                @csrf
+                                <button class="btn-link">Unlock</button>
+                            </form>
+                        @endif
                     </td>
                 </tr>
             @empty
@@ -67,6 +156,57 @@
         </tbody>
     </table>
     {{ $users->links() }}
+</div>
+
+{{-- ======== PHASE 7 ITEM 6 -- System Administrators (read only) ========
+     A separate table, not a role option in the one above. Two reasons it is
+     read only and both belong in the paper: UserManagementController's
+     authorizeTarget() already refuses to act on a Super Admin, so an Edit
+     button here would mean deleting a guard rather than adding a feature; and
+     an application that cannot mint its own top-level accounts is a smaller
+     target than one that can. These accounts are provisioned at deployment.
+
+     Status is not colour-only: the badge carries the word as well. --}}
+<div class="card panel table-panel mt-6">
+    <h2 class="panel-title">System Administrators</h2>
+    <p class="text-sm text-ink-muted">
+        Read only. Super Admin accounts are provisioned during deployment and cannot be
+        created, edited or deactivated from this screen.
+    </p>
+    <table class="data-table mt-3" data-stack>
+        <thead>
+            <tr>
+                <th scope="col">Name</th>
+                <th scope="col">Email</th>
+                <th scope="col">Contact</th>
+                <th scope="col">Last Login</th>
+                <th scope="col">Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            @forelse($superAdmins as $sa)
+                <tr>
+                    <td data-label="Name" data-fit>{{ $sa->name }}</td>
+                    <td data-label="Email" class="break-all" data-fit>{{ $sa->email }}</td>
+                    <td data-label="Contact" class="whitespace-nowrap">{{ $sa->contact_number ?? '-' }}</td>
+                    <td data-label="Last Login" data-numeric class="whitespace-nowrap">{{ $sa->last_login_at?->diffForHumans() ?? 'Never' }}</td>
+                    <td data-label="Status">
+                        <span class="badge {{ $sa->status === 'active' ? 'badge-success' : 'badge-warning' }}">{{ ucfirst($sa->status) }}</span>
+                        {{-- PHASE 7 ITEM 6, deferred half. The one action on this
+                             otherwise read-only table, and only on your OWN row:
+                             the route takes no user id, so it cannot be pointed
+                             at anyone else. Before this there was no in-app
+                             recovery for a Super Admin password at all. --}}
+                        @if($sa->id === auth()->id())
+                            <button type="button" class="btn-link" data-open-modal="accountPasswordModal">Change my password</button>
+                        @endif
+                    </td>
+                </tr>
+            @empty
+                <tr><td colspan="5" class="empty-note">No Super Admin accounts found. Run the SuperAdminSeeder.</td></tr>
+            @endforelse
+        </tbody>
+    </table>
 </div>
 @endsection
 
@@ -125,6 +265,40 @@
             <div class="modal-actions">
                 <button type="button" class="btn-secondary" data-close-modal>Cancel</button>
                 <button type="submit" class="btn-primary" id="userSubmit">Create Account</button>
+            </div>
+        </form>
+    </div>
+</div>
+@endpush
+
+{{-- ======== PHASE 7 ITEM 6, deferred half -- change my own password ========
+     Opened by the generic data-open-modal handler in staff.js, which the Super
+     Admin layout already loads through app.js. No new JavaScript. --}}
+@push('modals')
+<div class="modal-backdrop" id="accountPasswordModal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="apTitle">
+        <div class="modal-head">
+            <h2 id="apTitle">Change My Password</h2>
+            <button type="button" class="icon-btn" data-close-modal aria-label="Close">&times;</button>
+        </div>
+        <p>This changes the password for the account you are signed in with. No other account can be changed here.</p>
+        <form method="POST" action="{{ route('super.account.password') }}">
+            @csrf
+            <div class="field">
+                <label for="ap-current">Current password</label>
+                <input type="password" id="ap-current" name="current_password" required autocomplete="current-password">
+            </div>
+            <div class="field">
+                <label for="ap-new">New password <small>(min 8 characters)</small></label>
+                <input type="password" id="ap-new" name="password" required minlength="8" autocomplete="new-password">
+            </div>
+            <div class="field">
+                <label for="ap-confirm">Confirm new password</label>
+                <input type="password" id="ap-confirm" name="password_confirmation" required minlength="8" autocomplete="new-password">
+            </div>
+            <div class="modal-actions flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <button type="button" class="btn-secondary" data-close-modal>Cancel</button>
+                <button type="submit" class="btn-primary">Change password</button>
             </div>
         </form>
     </div>

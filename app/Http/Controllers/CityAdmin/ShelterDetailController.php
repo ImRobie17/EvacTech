@@ -16,6 +16,7 @@ use App\Services\HouseholdMemberSync;
 use App\Services\PresenceService;
 use App\Services\TransferService;
 use App\Support\AgeTier;
+use App\Support\MemberRules;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -369,7 +370,9 @@ class ShelterDetailController extends Controller
             'members.0.last_name' => ['required', 'string', 'max:100'],
             'members.*.first_name' => ['required', 'string', 'max:100'],
             'members.*.middle_name' => ['nullable', 'string', 'max:100'],
-            'members.*.birthdate' => ['nullable', 'date', 'before_or_equal:today'],
+            // PHASE 7 ITEM 3. Both bounds now live in MemberRules so the rule
+            // and the input's min/max attributes cannot drift apart.
+            'members.*.birthdate' => MemberRules::birthdate(),
             'members.*.age_group' => [
                 'required_without:members.*.birthdate',
                 'nullable',
@@ -377,8 +380,18 @@ class ShelterDetailController extends Controller
             ],
             'members.*.sex' => ['required', 'in:male,female'],
             'members.*.is_head' => ['nullable'],
-            'members.*.tags' => ['nullable', 'array'],
+            // PHASE 7 ITEM 2 -- rejects Pregnant Woman / Lactating Mother on a
+            // member whose sex is not female. Needs the request because the
+            // rule reads the sibling sex field on the same member row.
+            'members.*.tags' => MemberRules::tags($request),
             'members.*.tags.*' => ['integer', 'exists:vulnerable_classifications,id'],
+        ], [
+            // PHASE 7 ITEM 3. This screen had no messages array; without one
+            // the after_or_equal failure prints the raw boundary date and the
+            // attribute path, which tells an operator nothing useful.
+            'members.*.birthdate.before_or_equal' => 'A date of birth cannot be in the future.',
+            'members.*.birthdate.after_or_equal' => 'Check the date of birth -- nobody in the system can be older than '
+                . MemberRules::MAX_AGE_YEARS . ' years.',
         ]);
 
         DB::transaction(function () use ($household, $center, $data) {

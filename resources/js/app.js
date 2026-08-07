@@ -17,6 +17,12 @@ import './transfers.js';
 // vite.config.js is unchanged, and public.js imports the same file so the
 // citizen tables behave identically. No-ops when no data-fit cell is present.
 import { initTextFit } from './text-fit';
+// PHASE 7 item 2. A module, not a Vite entry: vite.config.js is unchanged.
+// One delegated listener covers all THREE member-row templates, because
+// staff.js, cityadmin.js and cityadmin-shelter.js are all imported above and
+// therefore every member row in the app lives on a page that loads this file.
+import { initSexFields } from './sex-fields';
 
 initFormHygiene();
 initTextFit();
+initSexFields();

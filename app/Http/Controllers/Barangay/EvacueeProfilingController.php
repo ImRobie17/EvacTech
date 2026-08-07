@@ -10,6 +10,7 @@ use App\Services\AuditLogger;
 use App\Services\HouseholdMemberSync;
 use App\Support\AgeTier;
 use App\Support\HouseholdCode;
+use App\Support\MemberRules;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -297,7 +298,9 @@ class EvacueeProfilingController extends BarangayController
             // during a surge and complete the record later. The age group is
             // then required in its place -- one tap, and it keeps "Unknown" off
             // a form a City Social Welfare officer signs.
-            'members.*.birthdate' => ['nullable', 'date', 'before_or_equal:today'],
+            // PHASE 7 ITEM 3. Both bounds now live in MemberRules so the rule
+            // and the input's min/max attributes cannot drift apart.
+            'members.*.birthdate' => MemberRules::birthdate(),
             'members.*.age_group' => [
                 'required_without:members.*.birthdate',
                 'nullable',
@@ -311,12 +314,18 @@ class EvacueeProfilingController extends BarangayController
 
             'members.*.is_head' => ['nullable'],
             'members.*.is_present' => ['nullable'],
-            'members.*.tags' => ['nullable', 'array'],
+            // PHASE 7 ITEM 2 -- rejects Pregnant Woman / Lactating Mother on a
+            // member whose sex is not female. Needs the request because the
+            // rule reads the sibling sex field on the same member row.
+            'members.*.tags' => MemberRules::tags($request),
             'members.*.tags.*' => ['integer', 'exists:vulnerable_classifications,id'],
         ], [
             'origin_barangay_id.required' => 'Select the barangay this family came from.',
             'members.*.age_group.required_without' => 'Choose an age group for any member without a date of birth.',
             'members.*.sex.required' => 'Sex is required for every member.',
+            'members.*.birthdate.before_or_equal' => 'A date of birth cannot be in the future.',
+            'members.*.birthdate.after_or_equal' => 'Check the date of birth -- nobody in the system can be older than '
+                . MemberRules::MAX_AGE_YEARS . ' years.',
         ]);
     }
 }

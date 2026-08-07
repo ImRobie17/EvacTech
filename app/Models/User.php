@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -23,6 +24,9 @@ class User extends Authenticatable
         'password',
         'status',
         'last_login_at',
+        // PHASE 7 ITEM 4. Fillable and cast, or Laravel drops them silently.
+        'failed_login_attempts',
+        'locked_until',
     ];
 
     protected $hidden = [
@@ -38,6 +42,7 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'last_login_at' => 'datetime',
+            'locked_until' => 'datetime',
             'password' => 'hashed',
         ];
     }
@@ -45,6 +50,89 @@ class User extends Authenticatable
     public function role(): BelongsTo
     {
         return $this->belongsTo(Role::class);
+    }
+
+    // -----------------------------------------------------------------
+    // PHASE 7 ITEM 4 -- login lockout
+    // -----------------------------------------------------------------
+
+    /** Failures allowed before the account locks. The client asked for three. */
+    public const MAX_LOGIN_ATTEMPTS = 3;
+
+    /**
+     * How long a lock lasts without administrator involvement.
+     *
+     * A lock that ONLY an administrator can clear is the obvious reading of
+     * "3 failures locks", and it is the wrong one for this system. Barangay
+     * personnel work during a disaster, at night, on a phone, often with the
+     * City Admin unreachable -- and a hard lock at that moment takes a shelter's
+     * only operator offline until somebody answers a call. Fifteen minutes still
+     * makes online guessing hopeless (12 attempts an hour) while keeping the
+     * failure mode survivable. An administrator can still clear it instantly.
+     *
+     * It is also the difference between a lockout being a defect and a disaster
+     * during the defence itself.
+     */
+    public const LOCK_MINUTES = 15;
+
+    /** Locks are evaluated ON READ, like transfer overdue. Nothing expires them. */
+    public function isLocked(): bool
+    {
+        return $this->locked_until !== null && $this->locked_until->isFuture();
+    }
+
+    /** Whole minutes remaining, floor 1 so a live lock never reads "0 minutes". */
+    public function lockMinutesRemaining(): int
+    {
+        if (! $this->isLocked()) {
+            return 0;
+        }
+
+        return max(1, (int) ceil(now()->diffInSeconds($this->locked_until, false) / 60));
+    }
+
+    /**
+     * Record one failed sign-in. Returns true if this failure caused the lock.
+     *
+     * The counter is reset when the lock is applied rather than left at the cap,
+     * so an account that comes out of a lock gets a fresh allowance instead of
+     * re-locking on its very next mistake.
+     */
+    public function registerFailedLogin(): bool
+    {
+        $attempts = (int) $this->failed_login_attempts + 1;
+
+        if ($attempts >= self::MAX_LOGIN_ATTEMPTS) {
+            $this->forceFill([
+                'failed_login_attempts' => 0,
+                'locked_until' => now()->addMinutes(self::LOCK_MINUTES),
+            ])->save();
+
+            return true;
+        }
+
+        $this->forceFill(['failed_login_attempts' => $attempts])->save();
+
+        return false;
+    }
+
+    /** Clear both counters. Called on a successful sign-in, on an administrator
+     *  unlock, and whenever an administrator sets a new password. */
+    public function clearLoginLock(): void
+    {
+        if ((int) $this->failed_login_attempts === 0 && $this->locked_until === null) {
+            return; // nothing to write on the overwhelmingly common path
+        }
+
+        $this->forceFill([
+            'failed_login_attempts' => 0,
+            'locked_until' => null,
+        ])->save();
+    }
+
+    public function passwordResetRequests(): HasMany
+    {
+        return $this->hasMany(PasswordResetRequest::class);
     }
 
     /**

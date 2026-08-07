@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Auth\LoginController;
+use App\Http\Controllers\Auth\PasswordResetRequestController;
 use App\Http\Controllers\Barangay\DashboardController;
 use App\Http\Controllers\Barangay\EvacueeProfilingController;
 use App\Http\Controllers\Barangay\ReliefController;
@@ -12,7 +13,34 @@ use Illuminate\Support\Facades\Route;
 // ---- Auth (staff) ----
 Route::middleware('guest')->group(function () {
     Route::get('/login', [LoginController::class, 'showLoginForm'])->name('login');
-    Route::post('/login', [LoginController::class, 'login'])->name('login.attempt');
+
+    // PHASE 7 ITEM 4. Per-account lockout lives in LoginController; this is the
+    // second layer, per IP, and it is the one that answers "brute force" in the
+    // paper. The account lock stops guessing at ONE account; this stops a script
+    // walking a list of addresses, which no per-account counter can see.
+    //
+    // 20 a minute is deliberately generous. A shelter office is behind one
+    // connection and several people sign in at shift change; a tight limit would
+    // lock the desk out of its own system during exactly the surge the system
+    // exists for. Guessing at 20/minute is still hopeless.
+    //
+    // No `verified` anywhere near this -- seeded accounts are not email-verified
+    // and it causes a redirect loop.
+    Route::post('/login', [LoginController::class, 'login'])
+        ->middleware('throttle:20,1')
+        ->name('login.attempt');
+
+    // PHASE 7 ITEM 5. Unauthenticated by necessity: someone who has forgotten
+    // their password cannot sign in to ask for it to be reset.
+    Route::get('/password/request', [PasswordResetRequestController::class, 'create'])
+        ->name('password.request');
+
+    // Tighter than the login limiter because there is no legitimate reason to
+    // raise more than a handful of these, and the queue an administrator reads
+    // is the thing being protected.
+    Route::post('/password/request', [PasswordResetRequestController::class, 'store'])
+        ->middleware('throttle:5,10')
+        ->name('password.request.store');
 });
 Route::post('/logout', [LoginController::class, 'logout'])->middleware('auth')->name('logout');
 

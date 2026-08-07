@@ -106,4 +106,17 @@ Route::middleware(['auth', 'role:city_admin'])
         Route::post('/users', [UserManagementController::class, 'store'])->name('users.store');
         Route::put('/users/{user}', [UserManagementController::class, 'update'])->name('users.update');
         Route::post('/users/{user}/toggle', [UserManagementController::class, 'toggleStatus'])->name('users.toggle');
+
+        // PHASE 7 ITEM 4. Clears a lock before its 15 minutes are up. Separate
+        // from toggle(), which is about active/inactive -- a locked account is
+        // still an active one and must not be confused with a disabled one.
+        Route::post('/users/{user}/unlock', [UserManagementController::class, 'unlock'])->name('users.unlock');
+
+        // PHASE 7 ITEM 5. There is no "mark completed" route on purpose: setting
+        // a new password through users.update closes the request in the same
+        // transaction, so an administrator cannot resolve someone's problem and
+        // forget to clear the queue. Dismiss is for requests that turn out to be
+        // unfounded once the administrator telephones the person.
+        Route::post('/users/reset-requests/{resetRequest}/dismiss', [UserManagementController::class, 'dismissResetRequest'])
+            ->name('users.reset-requests.dismiss');
     });

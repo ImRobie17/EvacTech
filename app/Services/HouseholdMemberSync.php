@@ -23,6 +23,9 @@ class HouseholdMemberSync
     /** Cached per request -- this runs once per member row otherwise. */
     private ?Collection $selectableIds = null;
 
+    /** Same, for the Phase 7 item 2 sex check. */
+    private ?Collection $femaleOnlyIds = null;
+
     /**
      * @param  array  $members        validated members payload
      * @param  bool   $checkin        mark submitted members present
@@ -190,6 +193,20 @@ class HouseholdMemberSync
             ->intersect($selectable)
             ->values();
 
+        // PHASE 7 ITEM 2 -- the backstop. MemberRules::tags() rejects this at
+        // the controller and the form hides the checkboxes, but this method is
+        // the ONE write path shared by all four callers, and a future caller
+        // that skips those rules must not be able to put Pregnant Woman on a
+        // male evacuee. The member's stored sex is authoritative: writeMember()
+        // has already run, so $member->sex is the value just submitted.
+        //
+        // Dropping the ids here rather than ignoring them also self-heals: they
+        // fall into $unwanted below and are detached, so any row created before
+        // this rule existed is cleaned the next time the family is saved.
+        if ($member->sex !== 'female') {
+            $wanted = $wanted->diff($this->femaleOnlyIds())->values();
+        }
+
         $unwanted = $selectable->diff($wanted)->values();
 
         if ($unwanted->isNotEmpty()) {
@@ -208,5 +225,10 @@ class HouseholdMemberSync
     private function selectableIds(): Collection
     {
         return $this->selectableIds ??= VulnerableClassification::selectable()->pluck('id');
+    }
+
+    private function femaleOnlyIds(): Collection
+    {
+        return $this->femaleOnlyIds ??= VulnerableClassification::femaleOnly()->pluck('id');
     }
 }

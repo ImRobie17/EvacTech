@@ -277,6 +277,14 @@ function fillMemberRow(row, m) {
         box.checked = ids.includes(box.value);
     });
 
+    // PHASE 7 item 2. Dispatched AFTER the tag checkboxes are restored, and
+    // that order is load-bearing: sex-fields.js unticks the female-only boxes
+    // when the sex is not female, so running it first would let the tag loop
+    // immediately re-tick a hidden box and post a value the server rejects.
+    // Dispatched rather than called because sex-fields.js listens by
+    // delegation on document; a programmatic value assignment fires nothing.
+    row.querySelector('[data-field="sex"]').dispatchEvent(new Event('change', { bubbles: true }));
+
     // Restore any manually chosen group, then let wireAgeGroup settle the
     // lock/badge state from the birthdate.
     const groupSelect = row.querySelector('[data-field="age_group"]');

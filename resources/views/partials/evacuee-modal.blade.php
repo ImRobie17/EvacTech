@@ -112,7 +112,9 @@
             <div class="field"><label>Middle name <small>(optional)</small></label><input type="text" data-field="middle_name" maxlength="100"></div>
             {{-- Birthdate is OPTIONAL as of Phase 2 so staff can tag a family
                  fast during a surge and complete the record later. --}}
-            <div class="field"><label>Date of birth <small>(optional)</small></label><input type="date" data-field="birthdate" max="{{ now()->toDateString() }}"></div>
+            <div class="field"><label>Date of birth <small>(optional)</small></label><input type="date" data-field="birthdate"
+                       min="{{ \App\Support\MemberRules::minBirthdate() }}"
+                       max="{{ \App\Support\MemberRules::maxBirthdate() }}"></div>
             <div class="field"><label>Sex</label>
                 <select data-field="sex" required>
                     <option value="">Select&hellip;</option>
@@ -148,8 +150,16 @@
                 <legend class="mb-1 text-sm font-semibold">Vulnerable categories <small class="font-normal">(optional, choose any)</small></legend>
                 <div class="flex flex-wrap gap-x-5 gap-y-1">
                     @foreach($classifications as $c)
-                        <label class="inline-flex min-h-[44px] cursor-pointer items-center gap-2 text-sm">
-                            <input type="checkbox" data-field="tags" value="{{ $c->id }}" class="h-5 w-5 shrink-0">
+                        {{-- PHASE 7 ITEM 2. Pregnant Woman and Lactating Mother start
+                             HIDDEN and are revealed by sex-fields.js only when the sex
+                             select on this row reads Female. The default belongs in the
+                             markup because a fresh row has no sex chosen and hidden is
+                             already the right answer for that -- which means no JS has to
+                             observe rows being cloned into the page. --}}
+                        <label class="inline-flex min-h-[44px] cursor-pointer items-center gap-2 text-sm"
+                               @if($c->isFemaleOnly()) data-female-only hidden @endif>
+                            <input type="checkbox" data-field="tags" value="{{ $c->id }}"
+                                   data-code="{{ $c->code }}" class="h-5 w-5 shrink-0">
                             <span>{{ $c->name }}</span>
                         </label>
                     @endforeach

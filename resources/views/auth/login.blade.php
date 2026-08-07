@@ -26,6 +26,14 @@
             </div>
         @endif
 
+        {{-- PHASE 7 ITEM 5. The reset-request acknowledgement lands here after a
+             redirect back to this page. Identical wording whether or not the
+             email matched an account, so the form cannot be used to find out
+             which addresses exist. --}}
+        @if (session('success'))
+            <div class="alert alert-success" role="status">{{ session('success') }}</div>
+        @endif
+
         @if ($errors->any())
             <div class="alert alert-danger" role="alert">{{ $errors->first() }}</div>
         @endif
@@ -45,6 +53,14 @@
             </label>
             <button type="submit" class="btn-primary btn-block">Sign in</button>
         </form>
+
+        {{-- PHASE 7 ITEM 5. A link, not a modal: this page is a standalone
+             document that loads app.css and no JavaScript at all, so there is
+             nothing here to open one with. --}}
+        <p class="login-subtitle">
+            Forgotten your password, or locked out?
+            <a href="{{ route('password.request') }}" class="btn-link">Request a reset</a>
+        </p>
     </main>
 </body>
 </html>

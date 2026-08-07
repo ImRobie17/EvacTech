@@ -487,7 +487,9 @@
             <div class="field"><label>First name</label><input type="text" data-field="first_name" required maxlength="100"></div>
             <div class="field"><label>Middle name <small>(optional)</small></label><input type="text" data-field="middle_name" maxlength="100"></div>
             {{-- Birthdate is OPTIONAL as of Phase 2. --}}
-            <div class="field"><label>Date of birth <small>(optional)</small></label><input type="date" data-field="birthdate" max="{{ now()->toDateString() }}"></div>
+            <div class="field"><label>Date of birth <small>(optional)</small></label><input type="date" data-field="birthdate"
+                       min="{{ \App\Support\MemberRules::minBirthdate() }}"
+                       max="{{ \App\Support\MemberRules::maxBirthdate() }}"></div>
             <div class="field"><label>Sex</label>
                 <select data-field="sex" required>
                     <option value="">Select</option>
@@ -515,8 +517,16 @@
                 <legend class="mb-1 text-sm font-semibold">Vulnerable categories <small class="font-normal">(optional, choose any)</small></legend>
                 <div class="flex flex-wrap gap-x-5 gap-y-1">
                     @foreach($classifications as $c)
-                        <label class="inline-flex min-h-[44px] cursor-pointer items-center gap-2 text-sm">
-                            <input type="checkbox" data-field="tags" value="{{ $c->id }}" class="h-5 w-5 shrink-0">
+                        {{-- PHASE 7 ITEM 2. Pregnant Woman and Lactating Mother start
+                             HIDDEN and are revealed by sex-fields.js only when the sex
+                             select on this row reads Female. The default belongs in the
+                             markup because a fresh row has no sex chosen and hidden is
+                             already the right answer for that -- which means no JS has to
+                             observe rows being cloned into the page. --}}
+                        <label class="inline-flex min-h-[44px] cursor-pointer items-center gap-2 text-sm"
+                               @if($c->isFemaleOnly()) data-female-only hidden @endif>
+                            <input type="checkbox" data-field="tags" value="{{ $c->id }}"
+                                   data-code="{{ $c->code }}" class="h-5 w-5 shrink-0">
                             <span>{{ $c->name }}</span>
                         </label>
                     @endforeach
@@ -531,6 +541,24 @@
     </div>
 </template>
 @endpush
+
+@php
+    // PHASE 7 ITEM 7 (XSS sweep). Relief good names are operator-entered and
+    // were being encoded inline with no flags. Same reasoning as the
+    // TransferConfig block further down: the default slash escaping already
+    // kept an end-script sequence from closing the block, and the HEX flags
+    // make that explicit instead of incidental.
+    //
+    // Moved out of the script tag for a second reason: the expression used an
+    // arrow fn with => inside an array literal, on one very long line, which is
+    // exactly the shape that has to live in a @php block in this codebase.
+    $goodsOptionsJson = json_encode(
+        ($goods ?? collect())
+            ->map(fn ($g) => ['id' => $g->id, 'label' => $g->name . ' (' . $g->unit . ')'])
+            ->values(),
+        JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
+    );
+@endphp
 
 @push('scripts')
 <script>
@@ -549,7 +577,7 @@
         checkinUrlTemplate: "{{ route('city.shelters.households.checkin', [$center, ':id']) }}",
         updateUrlTemplate: "{{ route('city.shelters.households.update', [$center, ':id']) }}",
         reliefSearchUrl: "{{ route('city.shelters.relief.recipients', $center) }}",
-        goodsOptions: {!! json_encode(($goods ?? collect())->map(fn ($g) => ['id' => $g->id, 'label' => $g->name . ' (' . $g->unit . ')'])->values()) !!},
+        goodsOptions: {!! $goodsOptionsJson !!},
     };
 </script>
 @endpush
@@ -560,6 +588,25 @@
     {{-- PHASE 5 ITEM 8b -- shared Update Presence modal. --}}
     @include('partials.presence-modal')
 @endpush
+
+@php
+    // PHASE 7 ITEM 7 (XSS sweep). Built in a @php block with the HEX flags
+    // rather than json_encode() inline, matching the documented pattern used
+    // elsewhere in this file.
+    //
+    // What this actually changes: json_encode() already escapes a forward
+    // slash by default, so an operator-entered shelter name containing an
+    // end-script sequence was emitted with the slash escaped and never closed
+    // the block. The output was safe. It was safe BY DEFAULT, though, and one
+    // JSON_UNESCAPED_SLASHES added later for readability would have removed
+    // that protection silently. JSON_HEX_TAG escapes the angle brackets
+    // themselves, which makes the safety explicit and independent of any other
+    // flag.
+    //
+    // The array is built by the controller, so there are no => arrows here --
+    // @json with arrows or across lines fails to parse.
+    $txConfigJson = json_encode($txConfig, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
+@endphp
 
 @push('scripts')
 <script>
@@ -572,6 +619,6 @@
     // And note there is no Blade echo syntax anywhere in this comment: a JS
     // comment is still Blade source, so braces here would be compiled and would
     // break the whole file. Same trap as naming a Blade directive in a comment.
-    window.TransferConfig = {!! json_encode($txConfig) !!};
+    window.TransferConfig = {!! $txConfigJson !!};
 </script>
 @endpush

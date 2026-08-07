@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initConnectivity();
     initModals();
     initConfirmForms();
+    initDeleteHousehold();
     initEvacueeForm();
     initHouseholdView();
     initShelterModals();
@@ -200,6 +201,65 @@ function initConfirmForms() {
             if (!confirm(form.dataset.confirm)) e.preventDefault();
         });
     });
+}
+
+// ---------------------------------------------------------------------
+// PHASE 7 ITEM 1 -- Remove Household confirmation
+// ---------------------------------------------------------------------
+// Deleting a family is the only irreversible destructive action a barangay
+// operator can take, and it takes every member record with it. It used to be a
+// browser confirm() carrying the household code and nothing else -- which asks
+// someone to approve a deletion without showing them what they are deleting.
+// One mis-tapped row on a phone and the wrong family is gone.
+//
+// So: a real modal that names the head, the code and the family size, reusing
+// .modal-backdrop / .modal / .modal-actions rather than adding CSS.
+//
+// The other eight data-confirm sites keep the plain dialog on purpose. Check-in,
+// check-out, activate, deactivate and maintenance mode are all reversible; a
+// dialog is the right weight for those and escalating them all would train
+// people to click through the one that matters.
+//
+// Delegated on document, not bound per button: the household rows are paginated
+// and this stays correct however the table is rendered.
+function initDeleteHousehold() {
+    const modal = document.getElementById('deleteHouseholdModal');
+    if (!modal) return; // not the Evacuee Profiling screen
+
+    const form = document.getElementById('deleteHouseholdForm');
+    const submit = document.getElementById('dh-submit');
+    const blocked = document.getElementById('dh-blocked');
+    const template = modal.dataset.urlTemplate;
+
+    if (!form || !submit || !blocked || !template) {
+        console.warn('EvacTech delete-household: the modal is present but missing form, submit button, blocked note or data-url-template; falling back to no delete.');
+        return;
+    }
+
+    document.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-delete-household]');
+        if (!btn) return;
+
+        const d = btn.dataset;
+        setText('dh-code', d.hhCode);
+        setText('dh-head', d.hhHead);
+        setText('dh-members', d.hhMembers);
+
+        // destroy() refuses to delete a checked-in household anyway. Saying so
+        // here, before the round trip, turns a validation error into an
+        // instruction: check them out first.
+        const isCheckedIn = d.hhCheckedIn === '1';
+        blocked.hidden = !isCheckedIn;
+        submit.disabled = isCheckedIn;
+
+        form.action = template.replace(':id', d.deleteHousehold);
+        openModal('deleteHouseholdModal');
+    });
+}
+
+function setText(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value || '\u2014';
 }
 
 function csrfToken() {
@@ -411,6 +471,14 @@ function initEvacueeForm() {
             row.querySelectorAll('[data-field="tags"]').forEach((box) => {
                 box.checked = tagIds.includes(box.value);
             });
+
+            // PHASE 7 item 2. Dispatched AFTER the tag checkboxes are restored, and
+            // that order is load-bearing: sex-fields.js unticks the female-only boxes
+            // when the sex is not female, so running it first would let the tag loop
+            // immediately re-tick a hidden box and post a value the server rejects.
+            // Dispatched rather than called because sex-fields.js listens by
+            // delegation on document; a programmatic value assignment fires nothing.
+            row.querySelector('[data-field="sex"]').dispatchEvent(new Event('change', { bubbles: true }));
 
             // Restore the manually chosen group, then let wireAgeGroup settle
             // the lock/badge state from whatever the birthdate turns out to be.

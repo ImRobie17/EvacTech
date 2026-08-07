@@ -72,21 +72,6 @@
 @endpush
 
 @php
-    // PHASE 7 ITEM 7 (XSS sweep). Built in a @php block with the HEX flags
-    // rather than json_encode() inline, matching the documented pattern used
-    // elsewhere in this file.
-    //
-    // What this actually changes: json_encode() already escapes a forward
-    // slash by default, so an operator-entered shelter name containing an
-    // end-script sequence was emitted with the slash escaped and never closed
-    // the block. The output was safe. It was safe BY DEFAULT, though, and one
-    // JSON_UNESCAPED_SLASHES added later for readability would have removed
-    // that protection silently. JSON_HEX_TAG escapes the angle brackets
-    // themselves, which makes the safety explicit and independent of any other
-    // flag.
-    //
-    // The array is built by the controller, so there are no => arrows here --
-    // @json with arrows or across lines fails to parse.
     $txConfigJson = json_encode($txConfig, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
 @endphp
 

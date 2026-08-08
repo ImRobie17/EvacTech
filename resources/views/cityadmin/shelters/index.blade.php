@@ -223,8 +223,17 @@
                     A staff member works one shelter at a time, so adding someone here
                     removes them from any shelter they are currently assigned to.
                 </p>
+                {{-- PHASE 8 ITEM 3. Same fix as the shelter picker on
+                     cityadmin/users/index, and it has to be made in both places
+                     because the two rosters share initRoster() in cityadmin.js
+                     but NOT their markup. See that file for the full reasoning:
+                     .roster-search has no border of its own, so the input read
+                     as a caption rather than a control. --}}
+                <label for="sh-staff-search" class="mb-1 block text-sm font-medium text-ink-soft">Filter staff</label>
                 <div class="roster-toolbar">
-                    <input type="search" id="sh-staff-search" class="roster-search" placeholder="Filter staff by name" aria-label="Filter staff list">
+                    <input type="search" id="sh-staff-search"
+                           class="roster-search w-full min-w-0 rounded-sm border border-border bg-bg px-3 py-2 text-ink"
+                           placeholder="Type a staff name&hellip;">
                     <span class="roster-count" id="sh-staff-count">0 selected</span>
                 </div>
                 <div class="roster-list" id="sh-staff-list" role="group" aria-label="Assigned staff">

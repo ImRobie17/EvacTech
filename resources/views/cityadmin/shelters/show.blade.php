@@ -119,12 +119,50 @@
                 <option value="{{ $b->id }}" @selected(request('barangay') == $b->id)>{{ $b->name }}</option>
             @endforeach
         </select>
+        {{-- PHASE 8 ITEM 1. The same two selects as barangay/shelter/index, on
+             the same shared FiltersReports primitive, so a filtered City Admin
+             view and a filtered barangay view of the same shelter can never
+             disagree about what "Pregnant Woman" or "Teenage" selects.
+
+             $classifications and $ageGroups are already passed by
+             ShelterDetailController::show() for the member-row modal, so this
+             costs no new controller data.
+
+             Only the HOUSEHOLDS tab gets these. The second .filter-bar further
+             down this file belongs to the relief Distribution Log, which lists
+             transactions rather than households -- a member filter there would
+             need filterRelief(), a different column set and a different honesty
+             note, and that is not what item 1 asked for. --}}
+        <select name="category" aria-label="Filter vulnerable group">
+            <option value="">All vulnerable groups</option>
+            @foreach($classifications as $class)
+                <option value="{{ $class->code }}" @selected(request('category') === $class->code)>{{ $class->name }}</option>
+            @endforeach
+            <option value="single_headed" @selected(request('category') === 'single_headed')>Single Headed Household</option>
+        </select>
+        <select name="age_tier" aria-label="Filter age group">
+            <option value="">All age groups</option>
+            @foreach($ageGroups as $tierKey => $tierLabel)
+                <option value="{{ $tierKey }}" @selected(request('age_tier') === $tierKey)>{{ $tierLabel }}</option>
+            @endforeach
+        </select>
         <select name="sort" aria-label="Sort">
             <option value="recent" @selected(request('sort') !== 'name')>Most recent</option>
             <option value="name" @selected(request('sort') === 'name')>Head name (A-Z)</option>
         </select>
         <button type="submit" class="btn-secondary">Apply</button>
     </form>
+
+    {{-- PHASE 8 ITEM 1. Same honesty note as the barangay screen: the filter
+         chooses which households appear, it does not recompute the figures
+         inside them. See barangay/shelter/index for the full reasoning. --}}
+    @if (request('category') || request('age_tier'))
+        <p class="mb-3 rounded-md bg-info-bg p-3 text-sm font-medium leading-relaxed text-info">
+            Showing households with at least one matching member. Family size and
+            members present are whole-household figures, not counts of matching
+            members.
+        </p>
+    @endif
 
     <div class="card panel table-panel">
         <table class="data-table" data-stack>

@@ -165,9 +165,26 @@ function initMobileNav() {
 // ---------------------------------------------------------------------
 // Generic modal open/close (data-open-modal="id" / data-close-modal)
 // ---------------------------------------------------------------------
+/* PHASE 8 ITEM 2. openModal() now announces itself.
+
+   The pre-filled pickers need to run a search the moment their modal appears,
+   and a modal appears two ways: a click on [data-open-modal], and the ?open=
+   deep links (`?open=checkin`, `?open=distribute`, `?open=register`), which
+   never produce a click at all. A delegated click listener would catch the first
+   and silently miss the second, which is precisely the class of half-working
+   feature this codebase keeps paying for.
+
+   One event covers both, because every path already funnels through this
+   function. It bubbles so a listener may sit on `document`; nothing listens on
+   the modals that do not need it, and dispatching into an empty room is free. */
 function openModal(id) {
     const el = document.getElementById(id);
-    if (el) el.hidden = false;
+    if (!el) {
+        console.error(`[EvacTech/staff] openModal("${id}") found no such element.`);
+        return;
+    }
+    el.hidden = false;
+    el.dispatchEvent(new CustomEvent('evactech:modal-open', { bubbles: true }));
 }
 function closeModal(id) {
     const el = document.getElementById(id);
@@ -754,18 +771,48 @@ function initShelterModals() {
     const checkinForm = document.getElementById('checkinForm');
     let currentHousehold = null;
 
+    /* PHASE 8 ITEM 2. `if (!term) { resultsList.hidden = true; return; }` used to
+       be the first line here, and it was the ONLY reason this list started
+       empty. The endpoint has always returned its first ten rows for a blank
+       term -- Barangay\EvacueeProfilingController::search() wraps the name match
+       in when($term, ...) rather than requiring it -- so refusing to call it
+       meant staff had to guess a name before the system would show them the
+       families it already knew about.
+
+       Now a blank term is a legitimate search meaning "show me the recent ones",
+       and prefill() below fires one the moment the modal opens. */
     async function runSearch(term) {
-        if (!term) { resultsList.hidden = true; return; }
-        const res = await fetch(`${cfg.searchUrl}?q=${encodeURIComponent(term)}`, { headers: { Accept: 'application/json' } });
-        const items = await res.json();
-        resultsList.innerHTML = '';
-        items.forEach((item) => {
-            const li = document.createElement('li');
-            li.textContent = `${item.head} \u00B7 ${item.size} members \u00B7 ${item.status.replace('_', ' ')}`;
-            li.addEventListener('click', () => loadHousehold(item.id));
-            resultsList.appendChild(li);
-        });
-        resultsList.hidden = items.length === 0;
+        try {
+            const res = await fetch(`${cfg.searchUrl}?q=${encodeURIComponent(term || '')}`, { headers: { Accept: 'application/json' } });
+            if (!res.ok) {
+                console.error(`[EvacTech/staff] check-in household search failed with HTTP ${res.status}.`);
+                resultsList.hidden = true;
+                return;
+            }
+            const items = await res.json();
+            resultsList.innerHTML = '';
+            items.forEach((item) => {
+                const li = document.createElement('li');
+                li.textContent = `${item.head} \u00B7 ${item.size} members \u00B7 ${item.status.replace('_', ' ')}`;
+                li.addEventListener('click', () => loadHousehold(item.id));
+                resultsList.appendChild(li);
+            });
+            if (items.length === 0) {
+                const none = document.createElement('li');
+                none.className = 'search-empty';
+                /* Two different situations, two different sentences. On an empty
+                   term this list IS the whole candidate set, so "no match" would
+                   be a lie -- there is genuinely nobody to check in. */
+                none.textContent = term
+                    ? 'No household matches that name.'
+                    : 'No household is available to check in. Register one first.';
+                resultsList.appendChild(none);
+            }
+            resultsList.hidden = false;
+        } catch (err) {
+            console.error('[EvacTech/staff] check-in household search error.', err);
+            resultsList.hidden = true;
+        }
     }
 
     let debounce;
@@ -776,6 +823,21 @@ function initShelterModals() {
         });
     }
     if (loadBtn) loadBtn.addEventListener('click', () => runSearch(searchInput.value.trim()));
+
+    /* PHASE 8 ITEM 2. Open the modal, see candidates. The list is no longer a
+       reward for typing the right name first.
+
+       The previously loaded family is cleared at the same time. Without this,
+       reopening the modal showed a prefilled candidate list above a check-in
+       form still holding the LAST family that was loaded -- two different
+       households on screen at once, and the Check In button belonging to the
+       one you could no longer see. */
+    document.getElementById('checkinModal')?.addEventListener('evactech:modal-open', () => {
+        if (checkinForm) checkinForm.hidden = true;
+        currentHousehold = null;
+        if (searchInput) searchInput.value = '';
+        runSearch('');
+    });
 
     async function loadHousehold(id) {
         const url = cfg.showUrlTemplate.replace(':id', id);
@@ -967,26 +1029,58 @@ function initReliefModals() {
        household across instead of making staff search for it a second time. */
     let currentDistHousehold = null;
 
+    /* PHASE 8 ITEM 2. Lifted out of the debounce callback so the modal-open
+       handler below can call it too. cfg.searchUrl now points at
+       barangay.relief.recipients, which returns households CHECKED IN AT THIS
+       SHELTER -- not the roster-wide list evacuees.search returns -- so an empty
+       term is a meaningful default: everyone you could hand relief to. */
+    async function runDistSearch(term) {
+        try {
+            const res = await fetch(`${cfg.searchUrl}?q=${encodeURIComponent(term || '')}`, { headers: { Accept: 'application/json' } });
+            if (!res.ok) {
+                console.error(`[EvacTech/staff] relief recipient search failed with HTTP ${res.status}.`);
+                resultsList.hidden = true;
+                return;
+            }
+            const items = await res.json();
+            resultsList.innerHTML = '';
+            items.forEach((item) => {
+                const li = document.createElement('li');
+                li.textContent = `${item.head} \u00B7 ${item.size} members`;
+                li.addEventListener('click', () => selectHousehold(item.id));
+                resultsList.appendChild(li);
+            });
+            if (items.length === 0) {
+                const none = document.createElement('li');
+                none.className = 'search-empty';
+                none.textContent = term
+                    ? 'No checked-in household matches that name.'
+                    : 'No household is checked in at this shelter yet.';
+                resultsList.appendChild(none);
+            }
+            resultsList.hidden = false;
+        } catch (err) {
+            console.error('[EvacTech/staff] relief recipient search error.', err);
+            resultsList.hidden = true;
+        }
+    }
+
     let debounce;
     if (searchInput) {
         searchInput.addEventListener('input', () => {
             clearTimeout(debounce);
-            debounce = setTimeout(async () => {
-                const term = searchInput.value.trim();
-                if (!term) { resultsList.hidden = true; return; }
-                const res = await fetch(`${cfg.searchUrl}?q=${encodeURIComponent(term)}`, { headers: { Accept: 'application/json' } });
-                const items = await res.json();
-                resultsList.innerHTML = '';
-                items.forEach((item) => {
-                    const li = document.createElement('li');
-                    li.textContent = `${item.head} \u00B7 ${item.size} members`;
-                    li.addEventListener('click', () => selectHousehold(item.id));
-                    resultsList.appendChild(li);
-                });
-                resultsList.hidden = items.length === 0;
-            }, 250);
+            debounce = setTimeout(() => runDistSearch(searchInput.value.trim()), 250);
         });
     }
+
+    /* Same reset-then-prefill as the check-in modal: a stale household left in
+       the form under a fresh candidate list is worse than either alone. */
+    document.getElementById('distributeModal')?.addEventListener('evactech:modal-open', () => {
+        if (distForm) distForm.hidden = true;
+        currentDistHousehold = null;
+        if (searchInput) searchInput.value = '';
+        runDistSearch('');
+    });
 
     async function selectHousehold(id) {
         const url = cfg.showUrlTemplate.replace(':id', id);
@@ -1121,40 +1215,85 @@ function initSpecialRequest(cfg, getCurrentHousehold) {
         await fillFrom(await res.json());
     }
 
+    /* PHASE 8 ITEM 2. Shares cfg with the Distribute modal, so it shares the
+       scoping too: since ReliefConfig.searchUrl became relief.recipients, this
+       picker now also lists only households checked in at this shelter. That is
+       the right set -- a special item is requested FOR a family who is here. */
+    async function runSpecialSearch(term) {
+        if (!resultsList) return;
+        try {
+            const res = await fetch(`${cfg.searchUrl}?q=${encodeURIComponent(term || '')}`, {
+                headers: { Accept: 'application/json' },
+            });
+            if (!res.ok) {
+                console.error(`[EvacTech/staff] special request household search failed with HTTP ${res.status}.`);
+                resultsList.hidden = true;
+                return;
+            }
+            const items = await res.json();
+            resultsList.innerHTML = '';
+            items.forEach((item) => {
+                const li = document.createElement('li');
+                li.textContent = `${item.head} \u00B7 ${item.size} members`;
+                li.addEventListener('click', () => loadHousehold(item.id));
+                resultsList.appendChild(li);
+            });
+            if (items.length === 0) {
+                const none = document.createElement('li');
+                none.className = 'search-empty';
+                none.textContent = term
+                    ? 'No checked-in household matches that name.'
+                    : 'No household is checked in at this shelter yet.';
+                resultsList.appendChild(none);
+            }
+            resultsList.hidden = false;
+        } catch (err) {
+            console.error('[EvacTech/staff] special request household search error.', err);
+            resultsList.hidden = true;
+        }
+    }
+
     let debounce;
     if (searchInput) {
         searchInput.addEventListener('input', () => {
             clearTimeout(debounce);
-            debounce = setTimeout(async () => {
-                const term = searchInput.value.trim();
-                if (!term) { resultsList.hidden = true; return; }
-                const res = await fetch(`${cfg.searchUrl}?q=${encodeURIComponent(term)}`, {
-                    headers: { Accept: 'application/json' },
-                });
-                const items = await res.json();
-                resultsList.innerHTML = '';
-                items.forEach((item) => {
-                    const li = document.createElement('li');
-                    li.textContent = `${item.head} \u00B7 ${item.size} members`;
-                    li.addEventListener('click', () => loadHousehold(item.id));
-                    resultsList.appendChild(li);
-                });
-                resultsList.hidden = items.length === 0;
-            }, 250);
+            debounce = setTimeout(() => runSpecialSearch(searchInput.value.trim()), 250);
         });
     }
 
     /* Hand-off from the Distribute modal. Closing it first prevents two stacked
        backdrops, where Escape or a backdrop click dismisses only the top one and
-       the modal underneath is left open behind it. */
+       the modal underneath is left open behind it.
+
+       PHASE 8 ITEM 2. The `modal-open` listener below fires for BOTH entry
+       paths, including this one -- so when a household is already carried over
+       it has to be filled in AFTER the reset, not before, or the reset wipes it
+       out again. Hence the flag: the listener does the clearing, this does the
+       filling, and the order is guaranteed because dispatchEvent() inside
+       openModal() is synchronous. */
+    let carriedOver = null;
     document.getElementById('dist-special-link')?.addEventListener('click', () => {
-        const household = getCurrentHousehold();
+        carriedOver = getCurrentHousehold();
         closeModal('distributeModal');
         openModal('specialModal');
-        if (household) {
-            fillFrom(household);
+        if (carriedOver) {
+            fillFrom(carriedOver);
         } else {
             searchInput?.focus();
         }
+        carriedOver = null;
+    });
+
+    document.getElementById('specialModal')?.addEventListener('evactech:modal-open', () => {
+        /* The hand-off already knows the family and fills the form itself. Left
+           unguarded, runSpecialSearch() would resolve a moment LATER and unhide
+           the candidate list back over the top of that filled form -- the fetch
+           is async, the fillFrom() call is not, so the list would always win the
+           race despite being started first. */
+        if (carriedOver) return;
+
+        if (form) form.hidden = true;
+        if (searchInput) searchInput.value = '';
+        runSpecialSearch('');
     });
 }

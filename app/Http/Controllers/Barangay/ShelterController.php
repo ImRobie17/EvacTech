@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Barangay;
 
+use App\Http\Controllers\Concerns\FiltersReports;
 use App\Models\Barangay;
 use App\Models\EvacuationCenter;
 use App\Models\Household;
@@ -18,9 +19,25 @@ use Illuminate\Support\Facades\DB;
 
 class ShelterController extends BarangayController
 {
+    /* PHASE 8 ITEM 1 -- Vulnerable Group and Age Group on the shelter list.
+       The trait is named for the reports it was written for, but the thing it
+       owns is the DEFINITION of these filters, not the report layer. Reusing it
+       here is what stops a shelter screen filtered by "Pregnant Woman" and a
+       report filtered by "Pregnant Woman" from quietly selecting different
+       people -- the failure mode four copies of syncMembers() produced in
+       Phase 2, which is why the trait exists at all. */
+    use FiltersReports;
+
     public function index(Request $request, ?EvacuationCenter $center = null)
     {
         $center = $this->center($center);
+
+        /* Built from raw input rather than validate(): a bad ?category= in a
+           pasted URL should quietly show an unfiltered list, not throw a 422 at
+           someone mid-operation. reportFilters() drops anything empty, and
+           validFilters() below discards any value that is not a real key, so an
+           unrecognised code reaches no query. */
+        $filters = $this->shelterFilters($request);
 
         $households = collect();
         if ($center) {
@@ -36,6 +53,11 @@ class ShelterController extends BarangayController
             if ($status = $request->input('status')) {
                 $query->where('status', $status);
             }
+
+            /* Households containing at least one matching member. Applied
+               BEFORE the sort so the ordering runs over the filtered set, and
+               before paginate() so page 2 means page 2 of the matches. */
+            $query = $this->filterHouseholds($query, $filters);
 
             $sort = $request->input('sort', 'recent');
             if ($sort === 'name') {

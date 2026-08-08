@@ -6,6 +6,7 @@ use App\Models\VulnerableClassification;
 use App\Support\AgeTier;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\Request;
 
 /**
  * PHASE 3 ITEM 11b -- the sex / age group / vulnerable category report filters.
@@ -108,6 +109,44 @@ trait FiltersReports
         ];
 
         return array_filter($filters, fn ($value) => $value !== null && $value !== '');
+    }
+
+    /**
+     * PHASE 8 ITEM 1 -- the same two filters, read from a plain GET filter bar.
+     *
+     * WHY THIS IS NOT reportFilters().
+     *
+     * reportFilters() takes an ALREADY-VALIDATED array, because the report
+     * screen posts through generate() where a 422 is the right answer to bad
+     * input. A shelter list is not submitted; it is navigated. Its filters
+     * arrive in the query string, survive pagination via withQueryString(), and
+     * get pasted into chat messages and bookmarked. Throwing a validation error
+     * at an operator because a URL they were sent carries a category code that
+     * has since been retired would take a working screen away over something
+     * that should simply not filter.
+     *
+     * So this validates by DISCARDING: anything that is not a live key in
+     * reportFilterOptions() becomes null and never reaches a query. That closes
+     * the same door validate() would -- no unrecognised value is ever passed to
+     * applyMemberFilters(), and in particular no arbitrary string reaches the
+     * whereRaw comparison in the age-tier branch -- while degrading to an
+     * unfiltered list instead of an error page.
+     *
+     * Sex is deliberately absent: the shelter screens carry two selects, not
+     * three. applyMemberFilters() reads each key with empty(), so a filter set
+     * without 'sex' is a normal input, not a special case.
+     */
+    protected function shelterFilters(Request $request): array
+    {
+        $options = $this->reportFilterOptions();
+
+        $tier = (string) $request->input('age_tier', '');
+        $category = (string) $request->input('category', '');
+
+        return array_filter([
+            'age_tier' => array_key_exists($tier, $options['tiers']) ? $tier : null,
+            'category' => array_key_exists($category, $options['categories']) ? $category : null,
+        ], fn ($value) => $value !== null && $value !== '');
     }
 
     // ---------------------------------------------------------------

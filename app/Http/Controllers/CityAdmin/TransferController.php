@@ -75,10 +75,35 @@ class TransferController extends Controller
         $household = Household::findOrFail($data['household_id']);
         $destination = EvacuationCenter::findOrFail($data['to_center_id']);
 
-        $this->transfers->request($household, $destination, $request->user(), $data['reason'] ?? null);
+        /* PHASE 8 ITEM 4 -- a transfer City Admin raises is approved on the spot.
+           
+           The pending state exists to collect City Admin's decision. When City
+           Admin is the one asking, that decision has already been made, and
+           parking the request in a queue for its own author to approve is
+           ceremony that delays a family standing in a shelter doorway.
+           
+           BOTH calls go through TransferService, not around it. That matters
+           more than the saved click: the service owns every transition, the
+           row lock, and the two occupancy recalculations, and it writes its own
+           audit entry per step. So the trail still reads request THEN approval,
+           as two rows -- exactly as it would if a human had confirmed it -- and
+           the $auto flag makes the second row say why no separate review
+           happened. Reproducing either step inline here would be the start of a
+           second lifecycle implementation. */
+        $transfer = $this->transfers->request($household, $destination, $request->user(), $data['reason'] ?? null);
+        $this->transfers->confirm($transfer, $request->user(), true);
 
-        return redirect()->route('city.transfers.index')
-            ->with('success', "Transfer requested. {$destination->name} has been asked to confirm.");
+        /* The ORIGIN records departure -- canBeDepartedBy() checks
+           from_center_id -- so the next action belongs to the shelter the family
+           is leaving, not the one they are going to. */
+        return redirect()->route('city.transfers.index')->with(
+            'success',
+            sprintf(
+                'Transfer to %s approved. %s can now record the family leaving.',
+                $destination->name,
+                $transfer->fromCenter?->name ?? 'The origin shelter'
+            )
+        );
     }
 
     public function confirm(ShelterTransfer $transfer, Request $request)

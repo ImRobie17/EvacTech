@@ -238,8 +238,30 @@
                     The one shelter this staff member operates. Choosing a different
                     shelter here reassigns them and revokes the previous one.
                 </p>
+                {{-- PHASE 8 ITEM 3. This search box already worked; it did not
+                     LOOK like a search box. .roster-search carries only
+                     `flex: 1` and a 44px min-height, and .roster-toolbar is
+                     neither .field nor .filter-bar -- so the two rules that give
+                     every other input in the system its border and background
+                     both miss it, and it rendered as bare text sitting above the
+                     list. The utilities below restate exactly what
+                     `.filter-bar input[type='search']` gives its inputs, so the
+                     control now matches every other search box on screen.
+
+                     Tailwind utilities in the markup, not a new rule in
+                     cityadmin.css: the class already exists and is shared with
+                     the shelter modal, and utilities win over the components
+                     layer without editing a sheet two screens depend on.
+
+                     The visible <label> replaces the aria-label. An aria-label
+                     is invisible, and "I did not know it was an input" is a
+                     sighted-user problem -- so the affordance has to be on
+                     screen, not only in the accessibility tree. --}}
+                <label for="u-shelter-search" class="mb-1 block text-sm font-medium text-ink-soft">Filter shelters</label>
                 <div class="roster-toolbar">
-                    <input type="search" id="u-shelter-search" class="roster-search" placeholder="Filter shelters" aria-label="Filter shelter list">
+                    <input type="search" id="u-shelter-search"
+                           class="roster-search w-full min-w-0 rounded-sm border border-border bg-bg px-3 py-2 text-ink"
+                           placeholder="Type a shelter or barangay name&hellip;">
                     <span class="roster-count" id="u-shelter-count">None selected</span>
                 </div>
                 {{-- radiogroup, not group: one choice, and screen readers should

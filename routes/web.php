@@ -93,6 +93,13 @@ Route::middleware(['auth', 'role:barangay_personnel', 'shelter.assigned'])
 
         // Relief Distribution
         Route::get('/relief', [ReliefController::class, 'index'])->name('relief.index');
+        /* PHASE 8 ITEM 2. Households this shelter may hand relief to: checked
+           in, and here. Both relief pickers used to call evacuees.search, which
+           answers a different question (the whole roster, any status) -- fine
+           while the list only appeared after someone typed a name, wrong the
+           moment it became the default view. GET and read-only, like the other
+           type-ahead endpoints in this group. */
+        Route::get('/relief/recipients', [ReliefController::class, 'searchRecipients'])->name('relief.recipients');
         Route::post('/relief/distribute', [ReliefController::class, 'distribute'])->name('relief.distribute');
         Route::post('/relief/receive', [ReliefController::class, 'receive'])->name('relief.receive');
         Route::post('/relief/request-restock', [ReliefController::class, 'requestRestock'])->name('relief.request-restock');

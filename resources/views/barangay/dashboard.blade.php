@@ -166,6 +166,13 @@
                     role="img"
                     aria-label="Bar chart of daily household registrations for the past 7 days"></canvas>
         </div>
+        {{-- PHASE 8 ITEM 5. Exports the canvas above as a PNG. Delegated in
+             charts.js, so the id here is the only wiring. --}}
+        <div class="mt-2 flex justify-end">
+            <button type="button" class="btn-secondary"
+                    data-chart-download="registrationsChart"
+                    data-chart-label="Daily Registrations">Download PNG</button>
+        </div>
         {{-- The chart is an image to a screen reader, so the same figures are
              available as text. Also the fallback when JS or the bundle fails. --}}
         <details class="mt-3 text-sm text-ink-soft">
@@ -239,6 +246,13 @@
                     role="img"
                     aria-label="Doughnut chart of checked-in persons by age group"></canvas>
         </div>
+        {{-- PHASE 8 ITEM 5. Exports the canvas above as a PNG. Delegated in
+             charts.js, so the id here is the only wiring. --}}
+        <div class="mt-2 flex justify-end">
+            <button type="button" class="btn-secondary"
+                    data-chart-download="ageGroupChart"
+                    data-chart-label="Age Group Distribution">Download PNG</button>
+        </div>
         <details class="mt-3 text-sm text-ink-soft">
             <summary class="min-h-tap cursor-pointer py-2">View these figures as a table</summary>
             {{-- Four columns, so data-stack plus a data-label on every cell. This
@@ -282,6 +296,13 @@
                     data-chart-data="categoryChartData"
                     role="img"
                     aria-label="Bar chart of checked-in persons by vulnerable category"></canvas>
+        </div>
+        {{-- PHASE 8 ITEM 5. Exports the canvas above as a PNG. Delegated in
+             charts.js, so the id here is the only wiring. --}}
+        <div class="mt-2 flex justify-end">
+            <button type="button" class="btn-secondary"
+                    data-chart-download="categoryChart"
+                    data-chart-label="Vulnerable Categories">Download PNG</button>
         </div>
         <details class="mt-3 text-sm text-ink-soft">
             <summary class="min-h-tap cursor-pointer py-2">View these figures as a table</summary>

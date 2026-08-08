@@ -81,52 +81,73 @@ async function cdJson(url) {
 // short enough to feel immediate. Minimum 2 characters.
 const searchTimers = {};
 
-function wireSearch(inputId, listId, urlKey, render) {
-    document.addEventListener('input', (e) => {
-        const input = e.target.closest('#' + inputId);
-        if (!input) return;
+/* PHASE 8 ITEM 2. Two changes here, and both are in this one helper because
+   City Admin -- unlike the barangay side, which has three copies -- funnels
+   every type-ahead through it.
 
+   1. The `term.length < 2` early return is gone. It was the only reason these
+      pickers opened blank: the endpoints have always returned their first ten
+      rows for an empty term, so the minimum length was refusing to ask a
+      question the server was ready to answer. The 250ms debounce and the
+      server's own limit(10) are what protect the endpoint; a character count
+      never was.
+
+   2. It now RETURNS run(), so the reset-on-open handlers further down can fire
+      a blank search themselves. Previously the search could only be triggered
+      by an `input` event, which opening a modal does not produce.
+
+   emptyText takes both cases because they are different claims. With a term,
+   nothing matched what was typed. Without one, this list IS the complete
+   candidate set and "no match" would be misleading -- there is nobody to pick. */
+function wireSearch(inputId, listId, urlKey, render, emptyText) {
+    const messages = emptyText || {};
+
+    async function run(term) {
         const list = document.getElementById(listId);
         const c = cfg();
         if (!list || !c) return;
 
+        list.innerHTML = '';
+        const pending = document.createElement('li');
+        pending.className = 'search-empty';
+        pending.textContent = 'Searching...';
+        list.appendChild(pending);
+        list.hidden = false;
+
+        try {
+            const rows = await cdJson(c[urlKey] + '?q=' + encodeURIComponent(term || ''));
+            list.innerHTML = '';
+            if (!rows.length) {
+                const none = document.createElement('li');
+                none.className = 'search-empty';
+                none.textContent = term
+                    ? (messages.term || 'No matching household found.')
+                    : (messages.blank || 'Nothing available to choose from yet.');
+                list.appendChild(none);
+                return;
+            }
+            rows.forEach((row) => list.appendChild(render(row)));
+        } catch (err) {
+            console.error(TAG + ' search failed:', err);
+            list.innerHTML = '';
+            const fail = document.createElement('li');
+            fail.className = 'search-empty';
+            fail.textContent = 'Search failed. See the browser console.';
+            list.appendChild(fail);
+        }
+    }
+
+    document.addEventListener('input', (e) => {
+        const input = e.target.closest('#' + inputId);
+        if (!input) return;
+        if (!document.getElementById(listId) || !cfg()) return;
+
         clearTimeout(searchTimers[inputId]);
         const term = input.value.trim();
-
-        if (term.length < 2) {
-            list.hidden = true;
-            return;
-        }
-
-        searchTimers[inputId] = setTimeout(async () => {
-            list.innerHTML = '';
-            const li = document.createElement('li');
-            li.className = 'search-empty';
-            li.textContent = 'Searching...';
-            list.appendChild(li);
-            list.hidden = false;
-
-            try {
-                const rows = await cdJson(c[urlKey] + '?q=' + encodeURIComponent(term));
-                list.innerHTML = '';
-                if (!rows.length) {
-                    const none = document.createElement('li');
-                    none.className = 'search-empty';
-                    none.textContent = 'No matching household found.';
-                    list.appendChild(none);
-                    return;
-                }
-                rows.forEach((row) => list.appendChild(render(row)));
-            } catch (err) {
-                console.error(TAG + ' search failed:', err);
-                list.innerHTML = '';
-                const fail = document.createElement('li');
-                fail.className = 'search-empty';
-                fail.textContent = 'Search failed. See the browser console.';
-                list.appendChild(fail);
-            }
-        }, 250);
+        searchTimers[inputId] = setTimeout(() => run(term), 250);
     });
+
+    return run;
 }
 
 function pickable(li, onPick) {
@@ -144,7 +165,8 @@ function pickable(li, onPick) {
 // ---------------------------------------------------------------------
 // Check-in Family
 // ---------------------------------------------------------------------
-wireSearch('cd-ci-search', 'cd-ci-results', 'checkinSearchUrl', (row) => {
+/* PHASE 8 ITEM 2. Captured so the reset-on-open handler below can prefill. */
+const runCheckinSearch = wireSearch('cd-ci-search', 'cd-ci-results', 'checkinSearchUrl', (row) => {
     const li = document.createElement('li');
     const bits = [row.head, row.size + ' members'];
     if (row.origin_barangay) bits.push('Brgy. ' + row.origin_barangay);
@@ -157,6 +179,9 @@ wireSearch('cd-ci-search', 'cd-ci-results', 'checkinSearchUrl', (row) => {
     }
     li.textContent = bits.join(' \u00B7 ');
     return pickable(li, () => loadForCheckin(row.id));
+}, {
+    term: 'No household matches that name.',
+    blank: 'No household is available to check in here. Register one first.',
 });
 
 async function loadForCheckin(id) {
@@ -212,6 +237,10 @@ document.addEventListener('click', (e) => {
     if (search) search.value = '';
     if (results) results.hidden = true;
     if (form) form.hidden = true;
+
+    // PHASE 8 ITEM 2. Reset, then fill. The clear above still runs first so a
+    // stale household cannot sit under a fresh candidate list.
+    runCheckinSearch('');
 });
 
 // ---------------------------------------------------------------------
@@ -425,7 +454,10 @@ document.addEventListener('blur', (e) => {
 // ---------------------------------------------------------------------
 // Distribute Relief
 // ---------------------------------------------------------------------
-wireSearch('cd-dist-search', 'cd-dist-results', 'reliefSearchUrl', (row) => {
+/* PHASE 8 ITEM 2. Captured so the reset-on-open handler below can prefill.
+   searchReliefRecipients() is already scoped to households CHECKED IN at this
+   shelter, so a blank term lists exactly who relief can be handed to. */
+const runReliefSearch = wireSearch('cd-dist-search', 'cd-dist-results', 'reliefSearchUrl', (row) => {
     const li = document.createElement('li');
     li.textContent = row.head + ' \u00B7 ' + row.size + ' present';
     return pickable(li, () => {
@@ -437,6 +469,9 @@ wireSearch('cd-dist-search', 'cd-dist-results', 'reliefSearchUrl', (row) => {
         if (results) results.hidden = true;
         if (form) form.hidden = false;
     });
+}, {
+    term: 'No checked-in household matches that name.',
+    blank: 'No household is checked in at this shelter yet.',
 });
 
 // ---------------------------------------------------------------------
@@ -500,6 +535,9 @@ document.addEventListener('click', (e) => {
     }
     distItemIndex = 1;
     cdSyncRemoveButtons();
+
+    // PHASE 8 ITEM 2. Reset, then fill -- same order as the check-in modal.
+    runReliefSearch('');
 });
 
 document.addEventListener('click', (e) => {

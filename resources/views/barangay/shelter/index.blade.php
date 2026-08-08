@@ -102,6 +102,36 @@
                 <option value="checked_out" @selected(request('status') === 'checked_out')>Checked out</option>
                 <option value="transferred" @selected(request('status') === 'transferred')>Transferred</option>
             </select>
+            {{-- PHASE 8 ITEM 1. Vulnerable Group and Age Group, matching the two
+                 that Report Generation has offered since Phase 3. The options
+                 come from $classifications and $ageGroups, which this view
+                 ALREADY receives for the Add/Edit Evacuee modal -- so these two
+                 selects cost the controller nothing new to render.
+
+                 Values are `code`, never `name`: the project-wide rule, and the
+                 same keys FiltersReports::applyMemberFilters() matches on.
+
+                 single_headed is offered alongside the real classifications
+                 because it is one of the six category rows on the CSWDO IDP
+                 form. It is DERIVED (members_present == 1 on a checked-in
+                 family), never a row in vulnerable_classifications, so it is
+                 appended by hand here exactly as reportFilterOptions() appends
+                 it there.
+
+                 No grid utilities, and the submit still says Apply. --}}
+            <select name="category" aria-label="Filter vulnerable group">
+                <option value="">All vulnerable groups</option>
+                @foreach($classifications as $class)
+                    <option value="{{ $class->code }}" @selected(request('category') === $class->code)>{{ $class->name }}</option>
+                @endforeach
+                <option value="single_headed" @selected(request('category') === 'single_headed')>Single Headed Household</option>
+            </select>
+            <select name="age_tier" aria-label="Filter age group">
+                <option value="">All age groups</option>
+                @foreach($ageGroups as $tierKey => $tierLabel)
+                    <option value="{{ $tierKey }}" @selected(request('age_tier') === $tierKey)>{{ $tierLabel }}</option>
+                @endforeach
+            </select>
             <select name="sort" aria-label="Sort">
                 <option value="recent" @selected(request('sort', 'recent') === 'recent')>Most recent</option>
                 <option value="name" @selected(request('sort') === 'name')>Name (A-Z)</option>
@@ -130,6 +160,34 @@
 
 {{-- ROW 2 -- the households table, full content width. --}}
 <div class="mt-4">
+        {{-- PHASE 8 ITEM 1. The sentence that keeps a filtered list honest.
+
+             A member filter chooses WHICH households appear; it does not
+             recompute the numbers inside them. A reader who sees "4 / 6" beside
+             "Vulnerable group: Pregnant Woman" and concludes there are four
+             pregnant women in that family has been misled by the screen. This is
+             the same disclosure FiltersReports::reportFilterNote() prints in the
+             PDF header, for the same reason.
+
+             Rendered only when a filter is on, so an unfiltered screen is
+             exactly what it was before. It sits OUTSIDE .table-panel rather than
+             inside it, because .data-table's stacked mode owns everything within
+             that card below 768px.
+
+             Tailwind utilities, NOT `.alert alert-info`: staff.css defines
+             .alert plus success, warning and danger only. There is no
+             .alert-info, and adding one would mean editing a stylesheet three
+             role areas share. --color-info and --color-info-bg are @theme tokens
+             in app.css, so bg-info-bg and text-info exist as utilities already
+             and both flip correctly under [data-theme='dark']. --}}
+        @if (request('category') || request('age_tier'))
+            <p class="mb-3 rounded-md bg-info-bg p-3 text-sm font-medium leading-relaxed text-info">
+                Showing households with at least one matching member. Family size
+                and members present are whole-household figures, not counts of
+                matching members.
+            </p>
+        @endif
+
         <div class="card panel table-panel">
             {{-- data-stack: below 768px this table becomes labelled cards rather
                  than a horizontally scrolling grid. Every <td> below therefore

@@ -99,9 +99,21 @@ class TransferService
     }
 
     /** Destination accepts. The family has not moved yet. */
-    public function confirm(ShelterTransfer $transfer, User $actor): ShelterTransfer
+    /**
+     * @param  bool  $auto  PHASE 8 ITEM 4 -- approval granted by policy at the
+     *                      moment of request, rather than by a human reviewing a
+     *                      queue. Changes the AUDIT SENTENCE only; the state
+     *                      change, the authorisation check and confirmed_by are
+     *                      identical either way.
+     *
+     *                      Defaulting to false leaves every existing caller
+     *                      behaving exactly as before, which is the point: this
+     *                      is a new sentence in the log, not a new code path
+     *                      through the lifecycle.
+     */
+    public function confirm(ShelterTransfer $transfer, User $actor, bool $auto = false): ShelterTransfer
     {
-        return DB::transaction(function () use ($transfer, $actor) {
+        return DB::transaction(function () use ($transfer, $actor, $auto) {
             $transfer = $this->lock($transfer);
             $this->authorize($transfer->canBeConfirmedBy($actor), 'confirm');
 
@@ -111,8 +123,21 @@ class TransferService
                 'confirmed_at' => now(),
             ]);
 
+            /* Two audit rows one second apart, by the same user, is a fair
+               record of what happened -- but only if the second one says WHY it
+               needed no review. Without this sentence, an auditor reading the
+               log sees a City Admin approving their own request in under a
+               second and has no way to tell policy from a rubber stamp.
+
+               confirmed_by is the City Admin, not a system actor. They did
+               approve it: City Admin approval is what the queue exists to
+               collect, and when City Admin is the requester that approval is
+               already present. A null actor would mean a nullable relation and
+               a guard at every read site, in exchange for a less honest record. */
             AuditLogger::log('updated', $transfer, sprintf(
-                'Confirmed transfer of %s into %s',
+                $auto
+                    ? 'Auto-approved transfer of %s into %s (requested by City Admin; City Admin approval is not required a second time)'
+                    : 'Confirmed transfer of %s into %s',
                 $transfer->household?->household_code,
                 $transfer->toCenter?->name
             ));

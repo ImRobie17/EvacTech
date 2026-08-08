@@ -454,7 +454,17 @@
 @push('scripts')
 <script>
     window.ReliefConfig = {
-        searchUrl: "{{ route('barangay.evacuees.search') }}",
+        {{-- PHASE 8 ITEM 2. Was barangay.evacuees.search, which returns the
+             whole roster plus unassigned households at any status. Both pickers
+             fed by this config -- Distribute Relief and the special item request
+             -- are prefilled now, so their default state is a list of families
+             the operator can actually give something to: checked in, at this
+             shelter. See ReliefController::searchRecipients().
+
+             evacuees.search is unchanged and still backs the check-in picker on
+             the shelter screen, which needs the opposite set: families who are
+             NOT yet here. --}}
+        searchUrl: "{{ route('barangay.relief.recipients') }}",
         showUrlTemplate: "{{ route('barangay.evacuees.show', ':id') }}",
         goods: {!! $goodsJson !!},
         autoOpen: {{ request('open') === 'distribute' ? 'true' : 'false' }},

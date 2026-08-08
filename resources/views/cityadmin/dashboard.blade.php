@@ -128,6 +128,13 @@
                     role="img"
                     aria-label="Bar chart of the top 5 barangays by evacuee count"></canvas>
         </div>
+        {{-- PHASE 8 ITEM 5. Exports the canvas above as a PNG. Delegated in
+             charts.js, so the id here is the only wiring. --}}
+        <div class="mt-2 flex justify-end">
+            <button type="button" class="btn-secondary"
+                    data-chart-download="topBarangaysChart"
+                    data-chart-label="Top Barangays by Evacuees">Download PNG</button>
+        </div>
         {{-- The chart is an image to a screen reader, so the same figures are
              available as text -- and this is the fallback if the bundle fails. --}}
         <details class="mt-3 text-sm text-ink-soft">
@@ -158,6 +165,13 @@
                     data-chart-data="categoryChartData"
                     role="img"
                     aria-label="Bar chart of checked-in persons by vulnerable category, city-wide"></canvas>
+        </div>
+        {{-- PHASE 8 ITEM 5. Exports the canvas above as a PNG. Delegated in
+             charts.js, so the id here is the only wiring. --}}
+        <div class="mt-2 flex justify-end">
+            <button type="button" class="btn-secondary"
+                    data-chart-download="categoryChart"
+                    data-chart-label="Vulnerable Categories">Download PNG</button>
         </div>
         <details class="mt-3 text-sm text-ink-soft">
             <summary class="min-h-tap cursor-pointer py-2">View these figures as a table</summary>
@@ -204,6 +218,13 @@
                     data-chart-data="ageGroupChartData"
                     role="img"
                     aria-label="Doughnut chart of checked-in persons by age group, city-wide"></canvas>
+        </div>
+        {{-- PHASE 8 ITEM 5. Exports the canvas above as a PNG. Delegated in
+             charts.js, so the id here is the only wiring. --}}
+        <div class="mt-2 flex justify-end">
+            <button type="button" class="btn-secondary"
+                    data-chart-download="ageGroupChart"
+                    data-chart-label="Age Group Distribution">Download PNG</button>
         </div>
         <details class="mt-3 text-sm text-ink-soft">
             <summary class="min-h-tap cursor-pointer py-2">View these figures as a table</summary>

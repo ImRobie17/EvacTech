@@ -249,4 +249,63 @@ class ReliefController extends BarangayController
 
         return back()->with('success', 'Special item request submitted for City Admin approval.');
     }
+
+    /**
+     * PHASE 8 ITEM 2 -- households this shelter may hand relief to.
+     *
+     * WHY THIS EXISTS RATHER THAN REUSING evacuees.search.
+     *
+     * Both relief pickers on this screen -- Distribute Relief and the special
+     * item request -- used to point at Barangay\EvacueeProfilingController::
+     * search(), which returns every household on the staff member's roster PLUS
+     * every unassigned one, regardless of status. That was tolerable while the
+     * list only appeared after someone typed a name they already had in mind.
+     * It stops being tolerable the moment the list is PREFILLED, because then
+     * the default state of the screen becomes a roster of families the operator
+     * cannot actually give anything to: checked out, never checked in, or
+     * sitting in a different shelter entirely.
+     *
+     * So this mirrors CityAdmin\ShelterDetailController::searchReliefRecipients()
+     * exactly -- checked in, at THIS shelter -- and the two roles now answer the
+     * question the same way. The scoping applies to the typed search as well as
+     * the prefill, which is the point: a family who is not here should not be
+     * offerable at all, not merely absent from the default list.
+     *
+     * `members_present`, not `number_of_members`: relief is issued against who
+     * is actually at the shelter, which is the same figure occupancy is derived
+     * from.
+     *
+     * NOTE ON THE SERVER RULE. distribute() and requestSpecial() still validate
+     * `exists:households,id` plus authorizeHousehold(), and neither requires the
+     * household to be checked in here. This narrows what the interface OFFERS;
+     * it does not add a new server-side constraint. Tightening those two is
+     * deliberately left alone -- check-in flexibility is Phase 9, and a rule
+     * added here would be a rule added in the middle of a screen that is about
+     * to change. Recorded in the phase notes rather than fixed in passing.
+     */
+    public function searchRecipients(Request $request)
+    {
+        $center = $this->centerOrFail();
+        $term = trim((string) $request->input('q'));
+
+        $results = Household::with('headMember')
+            ->where('evacuation_center_id', $center->id)
+            ->where('status', 'checked_in')
+            // when(), not a required filter: a blank term is a legitimate query
+            // meaning "everyone here", and it is what the prefill sends.
+            ->when($term, fn ($q) => $q->whereHas('members', fn ($m) => $m
+                ->where('is_household_head', true)
+                ->where('full_name', 'like', "%{$term}%")))
+            ->orderByDesc('checked_in_at')
+            ->limit(10)
+            ->get()
+            ->map(fn ($h) => [
+                'id' => $h->id,
+                'code' => $h->household_code,
+                'head' => $h->headMember?->full_name ?? '-',
+                'size' => $h->members_present,
+            ]);
+
+        return response()->json($results);
+    }
 }

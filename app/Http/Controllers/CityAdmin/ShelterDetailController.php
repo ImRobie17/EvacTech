@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\CityAdmin;
 
+use App\Http\Controllers\Concerns\FiltersReports;
 use App\Http\Controllers\Controller;
 use App\Models\EvacuationCenter;
 use App\Models\Household;
@@ -41,6 +42,12 @@ use Illuminate\Support\Facades\DB;
  */
 class ShelterDetailController extends Controller
 {
+    /* PHASE 8 ITEM 1. See Barangay\ShelterController for why the report filter
+       trait is the right home for these two: it owns the DEFINITION of a
+       vulnerable-group and age-group match, and reusing it is what keeps a
+       filtered shelter screen and a filtered report selecting the same people. */
+    use FiltersReports;
+
     public function __construct(
         private HouseholdMemberSync $sync,
         private TransferService $transfers,
@@ -101,6 +108,16 @@ class ShelterDetailController extends Controller
         if ($barangayId = $request->input('barangay')) {
             $query->where('origin_barangay_id', $barangayId);
         }
+
+        /* PHASE 8 ITEM 1. Households containing at least one member matching the
+           Vulnerable Group / Age Group selects. Same trait, same primitive, same
+           definitions the barangay shelter list and every report already use --
+           so the two roles cannot disagree about which families "Pregnant Woman"
+           or "Teenage" picks out of the same shelter.
+
+           Applied before the sort and before paginate(), so the ordering runs
+           over the filtered set and page 2 is page 2 of the matches. */
+        $query = $this->filterHouseholds($query, $this->shelterFilters($request));
 
         if ($request->input('sort') === 'name') {
             $query->orderBy(

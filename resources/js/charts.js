@@ -174,3 +174,94 @@ function initCharts() {
 }
 
 document.addEventListener('DOMContentLoaded', initCharts);
+
+/* =========================================================================
+   PHASE 8 ITEM 5 -- download a chart as a PNG.
+
+   A button carries data-chart-download="<canvas id>" and, optionally,
+   data-chart-label="<words for the filename>". Delegated on `document` per the
+   project convention, so it does not care whether the button was in the
+   server-rendered markup or appeared later, and every failure path says why in
+   the console instead of doing nothing.
+
+   WHY NOT canvas.toDataURL() ON ITS OWN
+   -------------------------------------
+   A Chart.js canvas has a TRANSPARENT background -- the card behind it supplies
+   the colour on screen. Export it directly and the PNG has an alpha channel with
+   nothing in it, which most viewers, Word and Google Docs composite onto black.
+   The result is dark-grey axis text on black: technically a correct export of
+   the pixels, and completely unreadable. So the bitmap is redrawn onto an opaque
+   rectangle first.
+
+   WHY THE THEME COLOUR AND NOT ALWAYS WHITE
+   -----------------------------------------
+   The obvious fix is to fill white every time. That is wrong in dark mode: the
+   axis labels, ticks and legend were rendered in the LIGHT-on-dark palette that
+   buildConfig() resolved from the tokens, so white behind them gives pale text
+   on a white field -- invisible in a different way. Filling with --color-bg,
+   read at export time, means the PNG always matches the chart the operator was
+   looking at when they pressed the button. A dark dashboard exports a dark
+   image; a light one exports a light image.
+
+   canvas.width / canvas.height are the BACKING STORE dimensions, which Chart.js
+   has already multiplied by devicePixelRatio, so the export comes out at the
+   screen's real resolution rather than CSS pixels.
+   ========================================================================= */
+function chartFilename(label) {
+    const slug = String(label || 'chart')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '') || 'chart';
+
+    /* Local date, not toISOString(): that converts to UTC first, so a download
+       taken after 8am in Manila (UTC+8) would be stamped with the previous day
+       for anyone exporting late in the evening. */
+    const now = new Date();
+    const stamp = [
+        now.getFullYear(),
+        String(now.getMonth() + 1).padStart(2, '0'),
+        String(now.getDate()).padStart(2, '0'),
+    ].join('-');
+
+    return `evactech-${slug}-${stamp}.png`;
+}
+
+function downloadChart(button) {
+    const canvasId = button.dataset.chartDownload;
+    const canvas = document.getElementById(canvasId);
+
+    if (!canvas) {
+        console.error(`[EvacTech] download button points at #${canvasId}, but no such canvas is on this page.`);
+        return;
+    }
+    if (!canvas.width || !canvas.height) {
+        console.error(`[EvacTech] #${canvasId} has no rendered size yet, so there is nothing to export. Is the chart data island valid?`);
+        return;
+    }
+
+    const flat = document.createElement('canvas');
+    flat.width = canvas.width;
+    flat.height = canvas.height;
+
+    const ctx = flat.getContext('2d');
+    if (!ctx) {
+        console.error('[EvacTech] could not obtain a 2d context for the export canvas.');
+        return;
+    }
+
+    ctx.fillStyle = token('--color-bg', '#ffffff');
+    ctx.fillRect(0, 0, flat.width, flat.height);
+    ctx.drawImage(canvas, 0, 0);
+
+    const link = document.createElement('a');
+    link.download = chartFilename(button.dataset.chartLabel || canvasId);
+    link.href = flat.toDataURL('image/png');
+    link.click();
+}
+
+document.addEventListener('click', (e) => {
+    const button = e.target.closest('[data-chart-download]');
+    if (!button) return;
+    e.preventDefault();
+    downloadChart(button);
+});

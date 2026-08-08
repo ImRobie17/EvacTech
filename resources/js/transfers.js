@@ -153,6 +153,17 @@ function openCreate(btn) {
             results.hidden = true;
             results.innerHTML = '';
         }
+
+        /* PHASE 8 ITEM 2. The picker used to open blank and stay blank until a
+           name was typed, even though the endpoint (Transfer*Controller::
+           searchHouseholds -> TransferService::searchHouseholds) has always
+           returned its first ten rows for an empty term. Staff on the Transfers
+           page have no household in hand -- that is why they are on that page --
+           so an empty box asked them to recall a name the system already knew.
+
+           Fired after the clear above, not instead of it: the clear resets the
+           control, this fills the list. */
+        runHouseholdSearch('');
     }
 
     show('transferCreateModal');
@@ -188,7 +199,21 @@ async function runHouseholdSearch(term) {
             }
             results.appendChild(li);
         });
-        results.hidden = items.length === 0;
+
+        /* PHASE 8 ITEM 2. Was `results.hidden = items.length === 0`, which
+           collapsed the list to nothing and left the operator staring at the
+           same empty box they started with. Now that a blank term is a real
+           search returning a real answer, "no candidates" has to be written
+           down -- and the two zero cases are not the same statement. */
+        if (items.length === 0) {
+            const none = document.createElement('li');
+            none.className = 'search-empty';
+            none.textContent = term
+                ? 'No household matches that name.'
+                : 'No household here is available to transfer right now.';
+            results.appendChild(none);
+        }
+        results.hidden = false;
     } catch (err) {
         console.error(TAG + ' household search error', err);
     }

@@ -24,8 +24,14 @@ class DashboardController extends Controller
             'total_evacuees' => Household::where('status', 'checked_in')->sum('members_present'),
             'active_shelters' => EvacuationCenter::where('status', 'active')->count(),
             'total_shelters' => EvacuationCenter::count(),
-            'families_registered' => Household::count(),
-            'families_today' => Household::whereDate('created_at', Carbon::today())->count(),
+            // PHASE 10A. These two are CITY-WIDE, so they dedupe by link: a
+            // confirmed separated member's fragment household is the same
+            // affected family as the household it points at, counted once.
+            // Per-shelter figures on the barangay dashboard deliberately do not
+            // do this -- see IdpForm::headcount().
+            'families_registered' => Household::whereNull('separated_from_household_id')->count(),
+            'families_today' => Household::whereNull('separated_from_household_id')
+                ->whereDate('created_at', Carbon::today())->count(),
             'relief_distributed' => ReliefTransaction::where('type', 'distributed')->sum('quantity'),
             // Phase 2 item 7: only SELECTABLE classifications count. The retired
             // Senior Citizen / Infant tags are age tiers now and are reported in
@@ -36,8 +42,13 @@ class DashboardController extends Controller
                     ->where('vulnerable_classifications.is_selectable', true))
                 ->count(),
             // Derived, never stored: one person present, currently checked in.
+            // PHASE 10A adds whereNull(separated_from_household_id): a separated
+            // individual living alone at a shelter is a FRAGMENT of a larger
+            // family, not a one-person household. This is a third hand copy of
+            // scopeSingleHeaded() -- change all of them together.
             'single_headed' => Household::where('status', 'checked_in')
                 ->where('members_present', 1)
+                ->whereNull('separated_from_household_id')
                 ->count(),
         ];
 

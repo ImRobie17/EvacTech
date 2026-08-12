@@ -34,7 +34,7 @@
 @section('content')
 <section class="flex flex-col gap-4">
     <form method="GET" class="filter-bar sm:grid sm:grid-cols-2 sm:items-end lg:grid-cols-4" role="search">
-        <input type="search" name="q" value="{{ request('q') }}" placeholder="Household code or head name" aria-label="Search transfers">
+        <input type="search" name="q" value="{{ request('q') }}" placeholder="Household code or any member name" aria-label="Search transfers">
 
         <select name="status" aria-label="Filter status">
             <option value="open" @selected(request('status', 'open') === 'open')>In progress</option>

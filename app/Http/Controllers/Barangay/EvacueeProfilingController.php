@@ -5,9 +5,12 @@ namespace App\Http\Controllers\Barangay;
 use App\Models\Barangay;
 use App\Models\EvacuationCenter;
 use App\Models\Household;
+use App\Models\HouseholdMember;
+use App\Models\SeparatedMemberLink;
 use App\Models\VulnerableClassification;
 use App\Services\AuditLogger;
 use App\Services\HouseholdMemberSync;
+use App\Services\SeparationService;
 use App\Support\AgeTier;
 use App\Support\HouseholdCode;
 use App\Support\MemberRules;
@@ -16,8 +19,10 @@ use Illuminate\Support\Facades\DB;
 
 class EvacueeProfilingController extends BarangayController
 {
-    public function __construct(private HouseholdMemberSync $sync)
-    {
+    public function __construct(
+        private HouseholdMemberSync $sync,
+        private SeparationService $separation
+    ) {
     }
 
     public function index(Request $request, ?EvacuationCenter $routeCenter = null)
@@ -38,9 +43,11 @@ class EvacueeProfilingController extends BarangayController
         }
 
         if ($search = trim((string) $request->input('q'))) {
-            $query->whereHas('members', fn ($q) => $q
-                ->where('is_household_head', true)
-                ->where('full_name', 'like', "%{$search}%"));
+            /* PHASE 9 ITEM 1. The head constraint is gone: a family is found by
+               ANY of its members. HouseholdMember::scopeNameMatches() is the
+               single definition -- see the note on that scope for why the two
+               ORDER BY subqueries keep the head. */
+            $query->whereHas('members', fn ($q) => $q->nameMatches($search));
         }
 
         if ($status = $request->input('status')) {
@@ -85,9 +92,76 @@ class EvacueeProfilingController extends BarangayController
         $barangays = Barangay::orderBy('name')->get();
         $defaultBarangayId = $center?->barangay_id;
 
+        /* PHASE 10A -- possible separated family members.
+           Computed on page load rather than pushed at the operator the instant
+           they finish registering someone. Two reasons. Registration posts back
+           to whichever screen it was opened from, so a flash payload would have
+           to be rendered on two pages and would be lost by the redirect on one
+           of them. And a panel that recomputes catches families registered
+           before this feature existed, which a
+           detect-once-at-registration hook never would.
+
+           Empty is a normal, common answer and the panel still renders -- see
+           the note in the view. */
+        $separatedCandidates = $center ? $this->separation->candidatesFor($center) : [];
+
+        $flaggedLinks = $center
+            ? SeparatedMemberLink::with(['familyMember', 'presentMember', 'familyHousehold', 'presentHousehold'])
+                ->where('present_household_id', '!=', null)
+                ->whereHas('presentHousehold', fn ($q) => $q->where('evacuation_center_id', $center->id))
+                ->latest()
+                ->limit(20)
+                ->get()
+            : collect();
+
         return view('barangay.evacuees.index', compact(
-            'households', 'classifications', 'ageGroups', 'center', 'barangays', 'defaultBarangayId'
+            'households', 'classifications', 'ageGroups', 'center', 'barangays', 'defaultBarangayId',
+            'separatedCandidates', 'flaggedLinks'
         ));
+    }
+
+    /**
+     * PHASE 10A -- barangay staff FLAG a suspected separated member.
+     *
+     * A flag moves nothing. It raises the question for City Admin, who alone
+     * can answer it, because confirming rewrites a person's household across
+     * two shelters and changes both occupancy figures.
+     *
+     * AUTHORISATION. The staff member must be able to act on the PRESENT end --
+     * the person physically in front of them. They are deliberately NOT
+     * required to have access to the family's shelter: not being able to see
+     * the other end is the entire situation this feature addresses.
+     *
+     * PRIVACY. Nothing about the family's shelter is read here and nothing is
+     * returned to the browser. See the view for what the operator is shown.
+     */
+    public function flagSeparated(Request $request)
+    {
+        $data = $request->validate([
+            'family_member_id' => ['required', 'integer', 'exists:household_members,id'],
+            'present_member_id' => ['required', 'integer', 'exists:household_members,id'],
+        ]);
+
+        $familyMember = HouseholdMember::with('household')->findOrFail($data['family_member_id']);
+        $presentMember = HouseholdMember::with('household')->findOrFail($data['present_member_id']);
+
+        // The present end must be a household this operator can act on.
+        if (! $presentMember->household || ! $this->canManageHousehold($presentMember->household)) {
+            abort(403);
+        }
+
+        if ((int) $familyMember->household_id === (int) $presentMember->household_id) {
+            return redirect()->back()->with('error', 'Both records are already in the same household.');
+        }
+
+        $link = $this->separation->flag($familyMember, $presentMember, $request->user());
+
+        return redirect()->back()->with(
+            'success',
+            $link
+                ? "Flagged for City Admin review. {$presentMember->full_name} stays exactly where they are until City Admin confirms."
+                : 'That suggestion has already been raised.'
+        );
     }
 
     /** Register a new household (Add Evacuee modal). checkin=1 also checks them in. */
@@ -167,6 +241,15 @@ class EvacueeProfilingController extends BarangayController
             'number_of_members' => $household->number_of_members,
             'center' => $household->evacuationCenter?->name,
             'center_id' => $household->evacuation_center_id,
+            // PHASE 9 ITEM 2. The view modal is reachable from every household
+            // list, so carrying the stand-in here is what makes it visible from
+            // the two rosters that do NOT print it in their own table.
+            'acting_head_member_id' => $household->acting_head_member_id,
+            'acting_head' => $household->actingHeadMember?->full_name,
+            // Derived once on the model rather than dug out of the members array:
+            // two of these three payloads do not carry per-member is_present, and
+            // a field the viewer silently never finds is worse than no field.
+            'head_is_present' => $household->substantiveHeadIsPresent(),
             'head_member_id' => $household->head_member_id,
             'single_headed' => $household->isSingleHeaded(),
             'members' => $household->members->map(fn ($m) => [
@@ -244,13 +327,31 @@ class EvacueeProfilingController extends BarangayController
         $term = trim((string) $request->input('q'));
         $user = auth()->user();
 
+        /* PHASE 9 ITEMS 3 + 5. The picker this backs is the CHECK-IN picker, so
+           the shelter it is deciding against is the one this member of staff is
+           working in. Resolved once here rather than per row. */
+        $activeCenterId = $this->center()?->id;
+
         $results = Household::with(['headMember', 'evacuationCenter', 'originBarangay'])
+            ->withCount(['members as absent_count' => fn ($m) => $m->where('is_present', false)])
+            /* PHASE 9 ITEM 1. members is eager-loaded ONLY when there is a term,
+               because it exists solely to let matchedMemberName() name the person
+               who matched. A blank-term prefill -- what every picker sends on open
+               -- therefore costs exactly what it did before. */
+            ->when($term, fn ($q) => $q->with('members'))
             ->where(fn ($q) => $q
                 ->whereIn('evacuation_center_id', $user->assignedCenterIds())
                 ->orWhereNull('evacuation_center_id'))
-            ->when($term, fn ($q) => $q->whereHas('members', fn ($m) => $m
-                ->where('is_household_head', true)
-                ->where('full_name', 'like', "%{$term}%")))
+            ->when($term, fn ($q) => $q->whereHas('members', fn ($m) => $m->nameMatches($term)))
+            /* Drop only the rows there is nothing to do with: checked in at this
+               shelter with everybody already present. A family with somebody
+               still absent STAYS in the list and is routed to presence
+               correction -- staff reach for Check-in when a late member arrives,
+               and this list used to answer them with silence. */
+            ->when($activeCenterId, fn ($q) => $q->whereNot(fn ($inner) => $inner
+                ->where('evacuation_center_id', $activeCenterId)
+                ->where('status', 'checked_in')
+                ->whereDoesntHave('members', fn ($m) => $m->where('is_present', false))))
             ->limit(10)
             ->get()
             ->map(fn ($h) => [
@@ -260,8 +361,16 @@ class EvacueeProfilingController extends BarangayController
                 'size' => $h->number_of_members,
                 'status' => $h->status,
                 'center' => $h->evacuationCenter?->name,
+                'current_center_id' => $h->evacuation_center_id,
                 'origin_barangay' => $h->originBarangay?->name,
                 'single_headed' => $h->isSingleHeaded(),
+                'absent' => (int) $h->absent_count,
+                'members_present' => (int) $h->members_present,
+                // PHASE 9 ITEM 1. Null unless the match was somebody other than
+                // the head, so the picker only speaks up when it needs to.
+                'matched' => $h->matchedMemberName($term),
+                // Derived on the model so both check-in pickers cannot disagree.
+                'action' => $h->checkinAction($activeCenterId),
             ]);
 
         return response()->json($results);

@@ -49,9 +49,9 @@ class ReliefController extends BarangayController
                 ->where('type', 'distributed');
 
             if ($search = trim((string) $request->input('q'))) {
-                $logQuery->whereHas('household.members', fn ($q) => $q
-                    ->where('is_household_head', true)
-                    ->where('full_name', 'like', "%{$search}%"));
+                // PHASE 9 ITEM 1. Any member, not only the head. Rooted on
+                // ReliefTransaction, hence the household.members path.
+                $logQuery->whereHas('household.members', fn ($q) => $q->nameMatches($search));
             }
 
             $log = $logQuery->latest('created_at')->paginate(15)->withQueryString();
@@ -289,13 +289,14 @@ class ReliefController extends BarangayController
         $term = trim((string) $request->input('q'));
 
         $results = Household::with('headMember')
+            // PHASE 9 ITEM 1. Loaded only when a term exists -- see the note in
+            // Barangay\EvacueeProfilingController::search().
+            ->when($term, fn ($q) => $q->with('members'))
             ->where('evacuation_center_id', $center->id)
             ->where('status', 'checked_in')
             // when(), not a required filter: a blank term is a legitimate query
             // meaning "everyone here", and it is what the prefill sends.
-            ->when($term, fn ($q) => $q->whereHas('members', fn ($m) => $m
-                ->where('is_household_head', true)
-                ->where('full_name', 'like', "%{$term}%")))
+            ->when($term, fn ($q) => $q->whereHas('members', fn ($m) => $m->nameMatches($term)))
             ->orderByDesc('checked_in_at')
             ->limit(10)
             ->get()
@@ -304,6 +305,9 @@ class ReliefController extends BarangayController
                 'code' => $h->household_code,
                 'head' => $h->headMember?->full_name ?? '-',
                 'size' => $h->members_present,
+                // PHASE 9 ITEM 1. Null unless the match was somebody other than
+                // the head, so the picker only speaks up when it needs to.
+                'matched' => $h->matchedMemberName($term),
             ]);
 
         return response()->json($results);

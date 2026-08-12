@@ -62,7 +62,7 @@
 <section class="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
     <div class="lg:col-span-2">
         <form method="GET" class="filter-bar sm:grid sm:grid-cols-[1fr_auto] sm:items-end" role="search">
-            <input type="search" name="q" value="{{ request('q') }}" placeholder="Search household head's relief history&hellip;" aria-label="Search household head">
+            <input type="search" name="q" value="{{ request('q') }}" placeholder="Search any member name&hellip;" aria-label="Search relief history by any member name">
             <button type="submit" class="btn-secondary">Apply</button>
         </form>
 
@@ -238,7 +238,7 @@
         </div>
 
         <div class="field search-inline">
-            <label for="dist-search">Household head name</label>
+            <label for="dist-search">Search by any member name</label>
             <div class="search-inline-row">
                 <input type="search" id="dist-search" placeholder="Search household&hellip;" autocomplete="off">
             </div>
@@ -407,7 +407,7 @@
         <div class="field search-inline">
             <label for="sp-search">Which family is this for?</label>
             <div class="search-inline-row">
-                <input type="search" id="sp-search" placeholder="Search household head&hellip;" autocomplete="off">
+                <input type="search" id="sp-search" placeholder="Search any member name&hellip;" autocomplete="off">
             </div>
             <ul class="search-results" id="sp-results" hidden></ul>
         </div>

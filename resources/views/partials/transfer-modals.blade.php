@@ -26,7 +26,7 @@
         {{-- Picker. Hidden when the modal is opened from a household row, where
              the family is already known. --}}
         <div class="field search-inline" id="txPicker" hidden>
-            <label for="tx-search">Household code or head name</label>
+            <label for="tx-search">Household code or any member name</label>
             <div class="flex flex-col gap-2 sm:flex-row">
                 <input type="search" id="tx-search" class="sm:flex-1" placeholder="e.g. Dela Cruz, Juan" autocomplete="off">
                 <button type="button" class="btn-secondary" id="tx-search-btn">Search</button>

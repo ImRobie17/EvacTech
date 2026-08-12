@@ -169,6 +169,15 @@ function openCreate(btn) {
     show('transferCreateModal');
 }
 
+/* PHASE 9 ITEM 1 -- say WHICH member matched, when it was not the head.
+
+   This picker can match on household CODE as well as on a name, and the server
+   returns `matched` as null in that case, so a code search stays silent rather
+   than claiming a member match it did not make. */
+function txMatchedSuffix(item) {
+    return item && item.matched ? ' \u00B7 matched: ' + item.matched : '';
+}
+
 async function runHouseholdSearch(term) {
     const c = cfg();
     const results = document.getElementById('tx-results');
@@ -190,11 +199,12 @@ async function runHouseholdSearch(term) {
             if (item.has_open_transfer) {
                 // Already moving. Shown but not selectable, so staff can see why
                 // the family they are looking for cannot be transferred again.
-                li.textContent = item.code + ' \u00B7 ' + item.head + ' \u00B7 transfer already in progress';
+                li.textContent = item.code + ' \u00B7 ' + item.head + txMatchedSuffix(item)
+                    + ' \u00B7 transfer already in progress';
                 li.setAttribute('aria-disabled', 'true');
             } else {
-                li.textContent = item.code + ' \u00B7 ' + item.head + ' \u00B7 ' +
-                    item.present + ' present \u00B7 ' + item.center;
+                li.textContent = item.code + ' \u00B7 ' + item.head + txMatchedSuffix(item)
+                    + ' \u00B7 ' + item.present + ' present \u00B7 ' + item.center;
                 li.addEventListener('click', () => loadIntoCreateForm(item));
             }
             results.appendChild(li);
@@ -437,7 +447,41 @@ function syncPresenceState() {
 
     if (save) save.disabled = ticked === 0;
     if (warning) warning.hidden = ticked !== 0;
+
+    syncActingHeadPrompt();
 }
+
+/* PHASE 9 ITEM 2 -- offer the stand-in decision, but only when there is one to
+   make.
+
+   BOTH conditions are required. With no stand-in designated there is nothing to
+   hand back; with the substantive head still unticked there is nothing to hand
+   it back TO, and asking anyway would invite staff to revert a family to a head
+   who is not at the shelter.
+
+   Recomputed on every tick change rather than once when the modal opens,
+   because the arrival of the head IS a tick change -- that is the whole moment
+   this prompt exists for. */
+function syncActingHeadPrompt() {
+    const block = document.getElementById('pr-acting');
+    const list = document.getElementById('pr-members');
+    if (!block || !list) return;
+
+    if (!presenceActing.actingId || !presenceActing.headId) {
+        block.hidden = true;
+        return;
+    }
+
+    const headBox = list.querySelector(
+        'input[type="checkbox"][value="' + presenceActing.headId + '"]'
+    );
+
+    block.hidden = !(headBox && headBox.checked);
+}
+
+// PHASE 9 ITEM 2. Which household the presence modal is currently showing, in
+// stand-in-head terms. Read by syncActingHeadPrompt() on every tick change.
+const presenceActing = { actingId: null, headId: null };
 
 async function openPresence(btn) {
     const c = cfg();
@@ -469,6 +513,14 @@ async function openPresence(btn) {
     fill('pr-code', '');
     fill('pr-head', '');
     fill('pr-summary', 'Loading...');
+
+    // PHASE 9 ITEM 2. Cleared with everything else: a modal reopened on a second
+    // household must not carry the first one's stand-in decision.
+    presenceActing.actingId = null;
+    presenceActing.headId = null;
+    const actingBlock = document.getElementById('pr-acting');
+    if (actingBlock) actingBlock.hidden = true;
+
     show('presenceModal');
 
     try {
@@ -497,10 +549,23 @@ async function openPresence(btn) {
 
         form.action = c.presenceSave.replace(':id', id);
 
+        // PHASE 9 ITEM 2. Recorded before the tick list is built, so the first
+        // syncPresenceState() below already has what it needs.
+        presenceActing.actingId = data.acting_head_member_id || null;
+        presenceActing.headId = data.head_member_id || null;
+        fill('pr-acting-head', data.acting_head || 'A member');
+        fill('pr-acting-substantive', data.head || 'The household head');
+
         (data.members || []).forEach((m) => {
             const label = document.createElement('label');
             label.className = 'checkbox-row';
-            const head = m.is_head ? ' (head)' : '';
+            // PHASE 9 ITEM 2. Two distinct labels, never both on one person:
+            // "household head" is the substantive fact, "standing in as head" is
+            // the operational one, and conflating them is what would make the
+            // panel above look like it disagreed with this list.
+            const head = m.is_head
+                ? ' (household head)'
+                : (m.is_acting_head ? ' (standing in as head)' : '');
             const checked = m.is_present ? ' checked' : '';
             label.innerHTML =
                 '<input type="checkbox" name="present[]" value="' + m.id + '"' + checked + '> ' +

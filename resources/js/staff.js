@@ -186,6 +186,20 @@ function openModal(id) {
     el.hidden = false;
     el.dispatchEvent(new CustomEvent('evactech:modal-open', { bubbles: true }));
 }
+/* PHASE 9 ITEM 1 -- say WHICH member matched, when it was not the head.
+
+   Item 1 widened every household search from "head only" to "any member", which
+   creates a question the old search never could: a search for "Maria" now
+   returns a row reading "Dela Cruz, Juan", and nothing on that row explains why.
+   The server sends `matched` only when the match was somebody other than the
+   head, so this appends nothing on the ordinary path.
+
+   Used by all three pickers in this module -- check-in, relief distribution and
+   special request -- so the phrasing cannot drift between them. */
+function matchedSuffix(item) {
+    return item && item.matched ? ' \u00B7 matched: ' + item.matched : '';
+}
+
 function closeModal(id) {
     const el = document.getElementById(id);
     if (el) el.hidden = true;
@@ -675,6 +689,24 @@ function initHouseholdView() {
         const head = data.members.find((m) => m.is_head);
         text('hv-head', head ? head.full_name : null);
 
+        /* PHASE 9 ITEM 2. Shown whenever a stand-in is designated -- including
+           after staff chose to KEEP one once the head arrived, which is why this
+           does not test the head's presence to decide whether to render. It
+           tests presence only to word the line. */
+        const acting = document.getElementById('hv-acting');
+        if (acting) {
+            if (data.acting_head_member_id) {
+                const name = data.acting_head || 'A member';
+                acting.textContent = data.head_is_present
+                    ? 'Standing in: ' + name
+                    : 'Standing in: ' + name + ' \u00B7 head not present';
+                acting.hidden = false;
+            } else {
+                acting.textContent = '';
+                acting.hidden = true;
+            }
+        }
+
         const present = document.getElementById('hv-present');
         present.textContent = (data.members_present ?? 0) + ' / ' + (data.number_of_members ?? data.members.length);
 
@@ -781,6 +813,66 @@ function initShelterModals() {
 
        Now a blank term is a legitimate search meaning "show me the recent ones",
        and prefill() below fires one the moment the modal opens. */
+    /* PHASE 9 ITEMS 3 + 5 -- one row, three possible destinations.
+
+       Staff reach for Check-in whatever the situation is, because that is what
+       the button is called. Before this, a family already checked in here with
+       one member still to arrive was simply absent from the list, and a family
+       checked in somewhere else could be checked in a second time -- moving them
+       with no transfer record at all.
+
+       The server decides which case a row is (Household::checkinAction), so the
+       barangay and City Admin pickers cannot disagree, and so the rule sits
+       beside the check-in guard that enforces it.
+
+       'arrival' and 'transfer' rows are rendered as BUTTONS carrying
+       data-presence / data-tx-create. transfers.js delegates both on document
+       and is imported by app.js, so it is already listening on this page -- which
+       is how one click can cross an ES module boundary without calling
+       show() or openModal() by bare name and throwing ReferenceError. */
+    function buildCheckinRow(item) {
+        const li = document.createElement('li');
+        const label = `${item.head}${matchedSuffix(item)} \u00B7 ${item.size} members`;
+
+        if (item.action === 'arrival') {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'btn-link text-left';
+            btn.dataset.presence = item.id;
+            const n = Number(item.absent) || 0;
+            btn.textContent = `${label} \u00B7 already checked in here, ${n} not yet arrived `
+                + '\u00B7 Record arrival';
+            /* The check-in modal must close, and it cannot close itself:
+               data-close-modal is bound at init over the elements that existed
+               then, so an attribute on a row built now would never fire. */
+            btn.addEventListener('click', () => closeModal('checkinModal'));
+            li.appendChild(btn);
+            return li;
+        }
+
+        if (item.action === 'transfer') {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'btn-link text-left';
+            btn.dataset.txCreate = '';
+            btn.dataset.householdId = item.id;
+            btn.dataset.householdCode = item.code || '';
+            btn.dataset.householdHead = item.head || '';
+            btn.dataset.householdPresent = item.members_present || 0;
+            btn.dataset.centerName = item.center || '';
+            btn.dataset.centerId = item.current_center_id || '';
+            btn.textContent = `${label} \u00B7 checked in at ${item.center || 'another shelter'} `
+                + '\u00B7 Move by Transfer';
+            btn.addEventListener('click', () => closeModal('checkinModal'));
+            li.appendChild(btn);
+            return li;
+        }
+
+        li.textContent = `${label} \u00B7 ${String(item.status || '').replace('_', ' ')}`;
+        li.addEventListener('click', () => loadHousehold(item.id));
+        return li;
+    }
+
     async function runSearch(term) {
         try {
             const res = await fetch(`${cfg.searchUrl}?q=${encodeURIComponent(term || '')}`, { headers: { Accept: 'application/json' } });
@@ -792,10 +884,7 @@ function initShelterModals() {
             const items = await res.json();
             resultsList.innerHTML = '';
             items.forEach((item) => {
-                const li = document.createElement('li');
-                li.textContent = `${item.head} \u00B7 ${item.size} members \u00B7 ${item.status.replace('_', ' ')}`;
-                li.addEventListener('click', () => loadHousehold(item.id));
-                resultsList.appendChild(li);
+                resultsList.appendChild(buildCheckinRow(item));
             });
             if (items.length === 0) {
                 const none = document.createElement('li');
@@ -836,7 +925,20 @@ function initShelterModals() {
         if (checkinForm) checkinForm.hidden = true;
         currentHousehold = null;
         if (searchInput) searchInput.value = '';
+        const acting = document.getElementById('ci-acting');
+        const actingOptions = document.getElementById('ci-acting-options');
+        if (acting) acting.hidden = true;
+        if (actingOptions) actingOptions.innerHTML = '';
         runSearch('');
+    });
+
+    /* Delegated on document, so it reaches tick boxes that did not exist when
+       this module ran. Gotcha 21: delegation cannot observe rows being cloned
+       into the DOM, so the state is recomputed on every change rather than
+       initialised once. */
+    document.addEventListener('change', (e) => {
+        if (!e.target.closest('#ci-members')) return;
+        syncActingHead();
     });
 
     async function loadHousehold(id) {
@@ -860,6 +962,66 @@ function initShelterModals() {
 
         checkinForm.action = cfg.checkinUrlTemplate.replace(':id', id);
         checkinForm.hidden = false;
+
+        // PHASE 9 ITEM 2. Everyone is ticked by default, so this normally hides
+        // itself immediately -- but a family whose head is already recorded away
+        // needs the prompt from the moment the form appears.
+        syncActingHead();
+    }
+
+    /* PHASE 9 ITEM 2 -- the stand-in head prompt.
+
+       Rebuilt from the LIVE tick state every time it changes, rather than once
+       when the family loads, because the operator decides who is present by
+       unticking people and the head is often the last one they untick.
+
+       The radio group only ever offers members who are currently ticked. The
+       server enforces the same thing -- a stand-in must be present -- but a
+       picker that can offer an invalid answer is a picker that will eventually
+       be given one. */
+    function syncActingHead() {
+        const block = document.getElementById('ci-acting');
+        const options = document.getElementById('ci-acting-options');
+        const emptyNote = document.getElementById('ci-acting-empty');
+        const membersEl = document.getElementById('ci-members');
+        if (!block || !options || !membersEl || !currentHousehold) return;
+
+        const headId = currentHousehold.head_member_id
+            || currentHousehold.members.find((m) => m.is_head)?.id
+            || null;
+
+        const ticked = Array.from(
+            membersEl.querySelectorAll('input[type="checkbox"]:checked')
+        ).map((cb) => Number(cb.value));
+
+        // Head present, or no head on record: nothing to stand in for. Clearing
+        // the options also clears any radio that would otherwise still post.
+        if (!headId || ticked.includes(Number(headId))) {
+            block.hidden = true;
+            options.innerHTML = '';
+            return;
+        }
+
+        // Keep whatever was already chosen if that person is still ticked.
+        const previous = options.querySelector('input[type="radio"]:checked')?.value;
+
+        const candidates = currentHousehold.members.filter(
+            (m) => ticked.includes(Number(m.id)) && Number(m.id) !== Number(headId)
+        );
+
+        options.innerHTML = '';
+        candidates.forEach((m) => {
+            const label = document.createElement('label');
+            label.className = 'radio-row';
+            const checked = String(m.id) === String(previous) ? ' checked' : '';
+            label.innerHTML =
+                '<input type="radio" name="acting_head_member_id" value="' + m.id + '"'
+                + checked + '> ' + m.full_name;
+            options.appendChild(label);
+        });
+
+        if (emptyNote) emptyNote.hidden = candidates.length > 0;
+        block.hidden = false;
     }
 
     /* PHASE 6 ITEM 11. "Edit Family" inside the check-in modal used to do
@@ -1046,7 +1208,7 @@ function initReliefModals() {
             resultsList.innerHTML = '';
             items.forEach((item) => {
                 const li = document.createElement('li');
-                li.textContent = `${item.head} \u00B7 ${item.size} members`;
+                li.textContent = `${item.head}${matchedSuffix(item)} \u00B7 ${item.size} members`;
                 li.addEventListener('click', () => selectHousehold(item.id));
                 resultsList.appendChild(li);
             });
@@ -1234,7 +1396,7 @@ function initSpecialRequest(cfg, getCurrentHousehold) {
             resultsList.innerHTML = '';
             items.forEach((item) => {
                 const li = document.createElement('li');
-                li.textContent = `${item.head} \u00B7 ${item.size} members`;
+                li.textContent = `${item.head}${matchedSuffix(item)} \u00B7 ${item.size} members`;
                 li.addEventListener('click', () => loadHousehold(item.id));
                 resultsList.appendChild(li);
             });

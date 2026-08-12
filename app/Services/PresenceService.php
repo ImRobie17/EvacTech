@@ -52,6 +52,8 @@ class PresenceService
      */
     public function checklist(Household $household): array
     {
+        $actingId = $household->acting_head_member_id;
+
         return $household->members()
             ->orderByDesc('is_household_head')
             ->orderBy('full_name')
@@ -61,6 +63,11 @@ class PresenceService
                 'name' => $m->full_name,
                 'is_head' => (bool) $m->is_household_head,
                 'is_present' => (bool) $m->is_present,
+                /* PHASE 9 ITEM 2. Without this the list would mark the
+                   SUBSTANTIVE head "(head)" while the panel above it said
+                   somebody else had been standing in as head -- two true
+                   statements that read as a contradiction. Both are labelled. */
+                'is_acting_head' => $actingId !== null && (int) $m->id === (int) $actingId,
             ])
             ->values()
             ->all();
@@ -101,11 +108,25 @@ class PresenceService
     /**
      * Write the corrected presence for one household.
      *
+     * PHASE 9 ITEM 2: $actingHeadChoice resolves a standing-in head, and it is
+     * handled HERE rather than in the two role controllers that call this,
+     * because an acting head is only ever resolved as a consequence of a
+     * presence change. Written in both controllers it would be the same rule in
+     * two places, which this codebase has already watched drift once -- the
+     * check-in guard that diverged between barangay and City Admin. One
+     * implementation, one transaction, one audit sentence.
+     *
      * @param  array<int, int>  $presentMemberIds  everyone ticked as present now
+     * @param  string|null      $actingHeadChoice  'revert' or 'keep'; null means
+     *                                             no choice was offered
      */
-    public function update(Household $household, array $presentMemberIds, User $actor): Household
-    {
-        return DB::transaction(function () use ($household, $presentMemberIds, $actor) {
+    public function update(
+        Household $household,
+        array $presentMemberIds,
+        User $actor,
+        ?string $actingHeadChoice = null
+    ): Household {
+        return DB::transaction(function () use ($household, $presentMemberIds, $actor, $actingHeadChoice) {
             // Re-read under a write lock INSIDE the transaction. blockedReason()
             // was answered when the modal opened, which may have been minutes
             // ago; a transfer could have been raised for this family since, and
@@ -153,12 +174,17 @@ class PresenceService
                 ->pluck('full_name', 'id')
                 ->all();
 
+            // PHASE 9 ITEM 2. Runs after the ticks are written, so it decides
+            // against the state that was just saved rather than the state the
+            // modal was opened on.
+            $headNote = $this->resolveActingHead($household, $actingHeadChoice);
+
             AuditLogger::log('updated', $household, $this->describe(
                 $household,
                 $center?->name,
                 $before,
                 $after
-            ));
+            ) . $headNote);
 
             return $household;
         });
@@ -167,6 +193,75 @@ class PresenceService
     // -----------------------------------------------------------------
     // Internals
     // -----------------------------------------------------------------
+
+    /**
+     * PHASE 9 ITEM 2 -- decide what happens to a standing-in head now that
+     * presence has changed. Returns the sentence to append to the audit note,
+     * or an empty string when nothing about the head changed.
+     *
+     * Three cases, in this order, and the order matters:
+     *
+     * 1. The STAND-IN is no longer present. Clear it. A stand-in who has left
+     *    the shelter cannot be the person answerable for the family, and
+     *    leaving the column set would name someone who is not there. Falling
+     *    back to the substantive head is the honest state even if that person is
+     *    also absent -- the record then says what it said before check-in.
+     *
+     * 2. The SUBSTANTIVE head is now present. Offer honoured: 'revert' clears
+     *    the stand-in, anything else keeps it.
+     *
+     * 3. Neither -- the head is still absent and the stand-in is still here.
+     *    Nothing to decide.
+     *
+     * DEFAULTS TO KEEPING. A null choice means the screen never asked, and
+     * silently handing the role back on a routine presence correction would be a
+     * state change nobody requested. Reverting is always an explicit act.
+     *
+     * Note this NEVER touches head_member_id or is_household_head. The
+     * substantive head has not changed; only the stand-in has been cleared.
+     * Permanently changing who the head is remains transferHead()'s job.
+     */
+    private function resolveActingHead(Household $household, ?string $choice): string
+    {
+        if (! $household->acting_head_member_id) {
+            return '';
+        }
+
+        $acting = $household->members()
+            ->whereKey($household->acting_head_member_id)
+            ->first();
+
+        $substantive = $household->head_member_id
+            ? $household->members()->whereKey($household->head_member_id)->first()
+            : null;
+
+        $actingName = $acting?->full_name ?? 'The stand-in head';
+        $headName = $substantive?->full_name ?? 'the household head';
+
+        // Case 1 -- the stand-in has gone.
+        if (! $acting || ! $acting->is_present) {
+            $household->update(['acting_head_member_id' => null]);
+
+            return " {$actingName} is no longer present, so the stand-in head designation was cleared"
+                . " and {$headName} is again recorded as head.";
+        }
+
+        // Case 2 -- the real head is back.
+        if ($substantive && $substantive->is_present) {
+            if ($choice === 'revert') {
+                $household->update(['acting_head_member_id' => null]);
+
+                return " {$headName} has arrived and was restored as head;"
+                    . " {$actingName} is no longer standing in.";
+            }
+
+            return " {$headName} has arrived, and staff chose to keep {$actingName}"
+                . ' standing in as head until check-out.';
+        }
+
+        // Case 3 -- nothing to decide.
+        return '';
+    }
 
     /**
      * The audit description: who was added, who was removed, and the resulting

@@ -38,26 +38,11 @@ class BarangayPersonnelDemoSeeder extends Seeder
         $role = Role::where('name', Role::BARANGAY_PERSONNEL)->firstOrFail();
 
         // ---- Shelters: two in Mamatid, one elsewhere ----
-        $court = $this->shelter('Mamatid Covered Court', $mamatid, 500, [
-            'has_water_supply' => true,
-            'has_medical_desk' => true,
-            'has_power' => true,
-            'has_communal_kitchen' => true,
-        ]);
+        $court = $this->shelter('Mamatid Covered Court', $mamatid, 500);
 
-        $school = $this->shelter('Mamatid Elementary School', $mamatid, 320, [
-            'has_water_supply' => true,
-            'has_medical_desk' => false,
-            'has_power' => true,
-            'has_communal_kitchen' => false,
-        ]);
+        $school = $this->shelter('Mamatid Elementary School', $mamatid, 320);
 
-        $barangayHall = $this->shelter($other->name . ' Barangay Hall', $other, 180, [
-            'has_water_supply' => true,
-            'has_medical_desk' => false,
-            'has_power' => true,
-            'has_communal_kitchen' => false,
-        ]);
+        $barangayHall = $this->shelter($other->name . ' Barangay Hall', $other, 180);
 
         // ---- Staff logins ----
         $multi = $this->staff($role, 'barangay.mamatid@evactech.cabuyao.gov.ph', 'Mamatid Shelter Staff', $mamatid);
@@ -85,16 +70,22 @@ class BarangayPersonnelDemoSeeder extends Seeder
         }
     }
 
-    private function shelter(string $name, Barangay $barangay, int $capacity, array $facilities): EvacuationCenter
+    /*
+     * PHASE 9 ITEM 7 -- the $facilities parameter is gone with the feature.
+     *
+     * The four columns still exist and still default to false, so an insert that
+     * never mentions them succeeds -- which is exactly what this now does.
+     */
+    private function shelter(string $name, Barangay $barangay, int $capacity): EvacuationCenter
     {
         return EvacuationCenter::firstOrCreate(
             ['name' => $name, 'barangay_id' => $barangay->id],
-            array_merge([
+            [
                 'address' => "Brgy. {$barangay->name}, City of Cabuyao, Laguna",
                 'capacity' => $capacity,
                 'current_occupancy' => 0,
                 'status' => 'active',
-            ], $facilities)
+            ]
         );
     }
 

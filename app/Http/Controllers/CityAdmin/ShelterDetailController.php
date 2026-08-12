@@ -92,13 +92,14 @@ class ShelterDetailController extends Controller
 
     private function householdData(Request $request, EvacuationCenter $center): array
     {
-        $query = Household::with(['headMember', 'originBarangay'])
+        // PHASE 9 ITEM 2. Same eager load, same reason, as the barangay roster.
+        $query = Household::with(['headMember', 'actingHeadMember', 'originBarangay'])
             ->where('evacuation_center_id', $center->id);
 
         if ($search = trim((string) $request->input('q'))) {
-            $query->whereHas('members', fn ($q) => $q
-                ->where('is_household_head', true)
-                ->where('full_name', 'like', "%{$search}%"));
+            // PHASE 9 ITEM 1. Any member, not only the head. The sort subquery
+            // below deliberately still selects the head.
+            $query->whereHas('members', fn ($q) => $q->nameMatches($search));
         }
 
         if ($status = $request->input('status')) {
@@ -150,15 +151,70 @@ class ShelterDetailController extends Controller
         $data = $request->validate([
             'present' => ['required', 'array', 'min:1'],
             'present.*' => ['integer'],
+            'acting_head_member_id' => ['nullable', 'integer'],
         ]);
 
-        if ($household->status === 'checked_in' && $household->evacuation_center_id === $center->id) {
-            return back()->withErrors(['household' => 'This household is already checked in here.']);
+        /* PHASE 9 ITEM 3 -- shelter exclusivity, and a REAL divergence closed.
+           This used to read `status === 'checked_in' && evacuation_center_id ===
+           $center->id`, so it blocked a duplicate check-in HERE but happily
+           accepted a household still checked in somewhere ELSE. Occupancy stayed
+           correct at both ends -- both recalcs below have always been here -- but
+           the family moved between shelters with NO shelter_transfers row, so
+           the transfer log showed a family that never travelled and the move had
+           no lifecycle, no origin acknowledgement and no arrival reconciliation.
+
+           This is now the same rule, and deliberately the same sentence, as
+           Barangay\ShelterController::checkIn(). Gotcha 19: a rule written in two
+           role controllers drifts, and this is the drift it produced.
+
+           City Admin loses nothing. CityAdmin\TransferController::store() calls
+           request() then confirm($transfer, $user, true), so a CDRRMO-initiated
+           transfer is auto-approved and never queues -- relocating a family is
+           one extra screen, not a lost power. */
+        if ($household->status === 'checked_in') {
+            $where = $household->evacuation_center_id === $center->id
+                ? 'here'
+                : "at {$household->evacuationCenter?->name}";
+
+            return back()->withErrors([
+                'household' => "This household is already checked in {$where}. Use Transfer instead.",
+            ]);
+        }
+
+        $present = array_map('intval', $data['present']);
+
+        // PHASE 9 ITEM 2 -- identical rule to the barangay side, and identically
+        // worded, for the same reason the guard above now is.
+        $actingHeadId = null;
+        $headAbsent = $household->head_member_id
+            && ! in_array((int) $household->head_member_id, $present, true);
+
+        if ($headAbsent) {
+            $actingHeadId = $data['acting_head_member_id'] ?? null;
+
+            if (! $actingHeadId) {
+                return back()->withErrors([
+                    'acting_head_member_id' => 'The household head is not among the people you ticked. '
+                        . 'Choose someone present to stand in as head for this stay.',
+                ])->withInput();
+            }
+
+            if (! $household->members()->whereKey($actingHeadId)->exists()) {
+                return back()->withErrors([
+                    'acting_head_member_id' => 'That person is not a member of this household.',
+                ])->withInput();
+            }
+
+            if (! in_array((int) $actingHeadId, $present, true)) {
+                return back()->withErrors([
+                    'acting_head_member_id' => 'The stand-in head must be someone who is present at the shelter.',
+                ])->withInput();
+            }
         }
 
         $previous = $household->evacuationCenter;
 
-        DB::transaction(function () use ($household, $center, $previous, $data) {
+        DB::transaction(function () use ($household, $center, $previous, $data, $actingHeadId) {
             $household->members()->update(['is_present' => false]);
             $household->members()->whereIn('id', $data['present'])->update(['is_present' => true]);
 
@@ -168,6 +224,7 @@ class ShelterDetailController extends Controller
                 'checked_in_at' => now(),
                 'checked_out_at' => null,
                 'members_present' => $household->members()->where('is_present', true)->count(),
+                'acting_head_member_id' => $actingHeadId,
             ]);
 
             $center->recalcOccupancy();
@@ -178,10 +235,23 @@ class ShelterDetailController extends Controller
 
         $household->refresh();
 
-        AuditLogger::log('updated', $household,
-            "City Admin checked in {$household->household_code} at {$center->name} ({$household->members_present} present)");
+        $note = "City Admin checked in {$household->household_code} at {$center->name} ({$household->members_present} present)";
 
-        return $this->backToTab($center, 'households', "Household {$household->household_code} checked in.");
+        if ($household->acting_head_member_id) {
+            $acting = $household->actingHeadMember?->full_name ?? 'a member';
+            $substantive = $household->headMember?->full_name ?? 'the household head';
+            $note .= ". {$acting} is standing in as head for this stay; {$substantive} remains the household head and is not present";
+        }
+
+        AuditLogger::log('updated', $household, $note);
+
+        $message = "Household {$household->household_code} checked in.";
+        if ($household->acting_head_member_id) {
+            $message .= ' ' . ($household->actingHeadMember?->full_name ?? 'A member')
+                . ' is standing in as head until the household head arrives.';
+        }
+
+        return $this->backToTab($center, 'households', $message);
     }
 
     /**
@@ -210,6 +280,15 @@ class ShelterDetailController extends Controller
             'total' => $household->members()->count(),
             'blocked' => $service->blockedReason($household, auth()->user()),
             'members' => $service->checklist($household),
+            // PHASE 9 ITEM 2 -- same payload as the barangay presence endpoint,
+            // because partials/presence-modal is shared and must not branch.
+            'acting_head_member_id' => $household->acting_head_member_id,
+            'acting_head' => $household->actingHeadMember?->full_name,
+            // Derived once on the model rather than dug out of the members array:
+            // two of these three payloads do not carry per-member is_present, and
+            // a field the viewer silently never finds is worse than no field.
+            'head_is_present' => $household->substantiveHeadIsPresent(),
+            'head_member_id' => $household->head_member_id,
         ]);
     }
 
@@ -222,11 +301,18 @@ class ShelterDetailController extends Controller
         $data = $request->validate([
             'present' => ['required', 'array', 'min:1'],
             'present.*' => ['integer'],
+            // PHASE 9 ITEM 2. Only submitted when the modal offered the choice.
+            'acting_head_action' => ['nullable', 'in:revert,keep'],
         ], [
             'present.required' => 'Tick at least one person who is present at the shelter.',
         ]);
 
-        app(PresenceService::class)->update($household, $data['present'], $request->user());
+        app(PresenceService::class)->update(
+            $household,
+            $data['present'],
+            $request->user(),
+            $data['acting_head_action'] ?? null
+        );
 
         $household->refresh();
 
@@ -260,6 +346,8 @@ class ShelterDetailController extends Controller
                 'status' => 'checked_out',
                 'checked_out_at' => now(),
                 'members_present' => 0,
+                // PHASE 9 ITEM 2. A stand-in head is scoped to one stay.
+                'acting_head_member_id' => null,
             ]);
             $center->recalcOccupancy();
         });
@@ -289,6 +377,15 @@ class ShelterDetailController extends Controller
             'checked_out_at' => $household->checked_out_at?->toIso8601String(),
             'members_present' => $household->members_present,
             'number_of_members' => $household->number_of_members,
+            // PHASE 9 ITEM 2. The view modal is reachable from every household
+            // list, so carrying the stand-in here is what makes it visible from
+            // lists that do not print it in their own table.
+            'acting_head_member_id' => $household->acting_head_member_id,
+            'acting_head' => $household->actingHeadMember?->full_name,
+            // Derived once on the model rather than dug out of the members array:
+            // two of these three payloads do not carry per-member is_present, and
+            // a field the viewer silently never finds is worse than no field.
+            'head_is_present' => $household->substantiveHeadIsPresent(),
             'single_headed' => $household->isSingleHeaded(),
             'head_member_id' => $household->head_member_id,
             'members' => $household->members->map(fn ($m) => [
@@ -332,13 +429,25 @@ class ShelterDetailController extends Controller
         $term = trim((string) $request->input('q'));
 
         $results = Household::with(['headMember', 'evacuationCenter', 'originBarangay'])
-            ->when($term, fn ($q) => $q->whereHas('members', fn ($m) => $m
-                ->where('is_household_head', true)
-                ->where('full_name', 'like', "%{$term}%")))
-            // Households already here and checked in are not check-in candidates.
+            ->withCount(['members as absent_count' => fn ($m) => $m->where('is_present', false)])
+            // PHASE 9 ITEM 1. Loaded only when a term exists, for the label.
+            ->when($term, fn ($q) => $q->with('members'))
+            ->when($term, fn ($q) => $q->whereHas('members', fn ($m) => $m->nameMatches($term)))
+            /* PHASE 9 ITEMS 3 + 5. Was a blanket exclusion of everyone checked
+               in here, which made the picker a dead end for the commonest real
+               situation on a shelter floor: a family is already checked in and
+               one more of them has just walked through the door. Staff reach for
+               Check-in, because that is what it is called, and the picker
+               refused to show the family at all.
+
+               So the exclusion now only removes families who are checked in here
+               with EVERYONE already present -- for whom there is genuinely
+               nothing to do. A family with somebody still absent is shown, and
+               routed to presence correction instead. */
             ->whereNot(fn ($q) => $q
                 ->where('evacuation_center_id', $center->id)
-                ->where('status', 'checked_in'))
+                ->where('status', 'checked_in')
+                ->whereDoesntHave('members', fn ($m) => $m->where('is_present', false)))
             ->orderByDesc('updated_at')
             ->limit(10)
             ->get()
@@ -349,7 +458,17 @@ class ShelterDetailController extends Controller
                 'size' => $h->number_of_members,
                 'status' => $h->status,
                 'current_center' => $h->evacuationCenter?->name,
+                'current_center_id' => $h->evacuation_center_id,
                 'origin_barangay' => $h->originBarangay?->name,
+                'absent' => (int) $h->absent_count,
+                'members_present' => (int) $h->members_present,
+                // PHASE 9 ITEM 1. Null unless the match was somebody other than
+                // the head, so the picker only speaks up when it needs to.
+                'matched' => $h->matchedMemberName($term),
+                /* Which control this row actually needs. Decided on the server so
+                   the two pickers cannot disagree about it, and so the rule sits
+                   beside the check-in guard that enforces the same thing. */
+                'action' => $h->checkinAction($center->id),
             ]);
 
         return response()->json($results);
@@ -458,9 +577,10 @@ class ShelterDetailController extends Controller
             ->where('type', 'distributed');
 
         if ($search = trim((string) $request->input('q'))) {
-            $logQuery->whereHas('household.members', fn ($q) => $q
-                ->where('is_household_head', true)
-                ->where('full_name', 'like', "%{$search}%"));
+            /* PHASE 9 ITEM 1. Rooted on ReliefTransaction rather than Household,
+               which is exactly why nameMatches() is a HouseholdMember scope --
+               both roots land on the same builder. */
+            $logQuery->whereHas('household.members', fn ($q) => $q->nameMatches($search));
         }
 
         return [
@@ -571,11 +691,11 @@ class ShelterDetailController extends Controller
         $term = trim((string) $request->input('q'));
 
         $results = Household::with('headMember')
+            // PHASE 9 ITEM 1. Loaded only when a term exists, for the label.
+            ->when($term, fn ($q) => $q->with('members'))
             ->where('evacuation_center_id', $center->id)
             ->where('status', 'checked_in')
-            ->when($term, fn ($q) => $q->whereHas('members', fn ($m) => $m
-                ->where('is_household_head', true)
-                ->where('full_name', 'like', "%{$term}%")))
+            ->when($term, fn ($q) => $q->whereHas('members', fn ($m) => $m->nameMatches($term)))
             ->limit(10)
             ->get()
             ->map(fn ($h) => [
@@ -583,6 +703,8 @@ class ShelterDetailController extends Controller
                 'code' => $h->household_code,
                 'head' => $h->headMember?->full_name ?? '-',
                 'size' => $h->members_present,
+                // PHASE 9 ITEM 1. Mirrors Barangay\ReliefController::searchRecipients().
+                'matched' => $h->matchedMemberName($term),
             ]);
 
         return response()->json($results);

@@ -13,7 +13,7 @@
          class of character that has been double-encoded into mojibake in this
          codebase before. Entities in raw HTML; plain ASCII inside {{ }}, because
          Blade's e() double-encodes an entity written there into literal text. --}}
-    <input type="search" name="q" value="{{ request('q') }}" placeholder="Search household head" aria-label="Search head">
+    <input type="search" name="q" value="{{ request('q') }}" placeholder="Search any member name" aria-label="Search by any member name">
     <select name="barangay" aria-label="Filter barangay">
         <option value="">All barangays</option>
         @foreach($barangays as $b)<option value="{{ $b->id }}" @selected(request('barangay') == $b->id)>{{ $b->name }}</option>@endforeach
@@ -45,6 +45,112 @@
     </label>
     <button type="submit" class="btn-secondary">Apply</button>
 </form>
+
+{{-- ======== PHASE 10A -- separated member confirmation queue ========
+     Barangay staff flag; CITY ADMIN CONFIRMS. Confirming is not a formality:
+     it MOVES a person's record out of their family's household and into the
+     household at the shelter where they physically are, deletes the duplicate
+     row, recalculates occupancy at BOTH shelters and links the two families.
+     That is more authority than one shelter's staff should hold over a family
+     they can only see one end of, which is why it lands here.
+
+     ALWAYS RENDERED, with the count in the heading and a written empty state.
+
+     UNLIKE THE BARANGAY PANEL, THIS ONE SHOWS BOTH SHELTERS. City Admin has
+     city-wide authority and cannot judge a match without knowing where the two
+     records are. The privacy rule constrains what a BARANGAY operator sees
+     about a family at another shelter before confirmation, not what CDRRMO
+     sees when deciding. --}}
+<div class="card panel table-panel">
+    <h2 class="panel-title">Separated Member Confirmations ({{ $pendingLinks->count() }})</h2>
+    <p class="text-sm text-ink-muted">
+        Barangay staff have flagged these as possibly the same person, separated from
+        their family. Confirming moves the person&rsquo;s record into the household at the
+        shelter where they physically are and links the two families. Check the details
+        with both shelters before you confirm &mdash; two people really can share a name.
+    </p>
+
+    <table class="data-table mt-3" data-stack>
+        <thead>
+            <tr>
+                <th scope="col">Person</th>
+                <th scope="col">Family Record</th>
+                <th scope="col">Currently At</th>
+                <th scope="col">Flagged By</th>
+                <th scope="col">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            @forelse($pendingLinks as $link)
+                @php
+                    $blocked = $linkBlocks[$link->id] ?? null;
+                    $famHh = $link->familyHousehold;
+                    $presHh = $link->presentHousehold;
+                    $famOthers = $famHh
+                        ? $famHh->members
+                            ->where('id', '!=', $link->family_member_id)
+                            ->pluck('full_name')
+                            ->take(5)
+                            ->implode(', ')
+                        : '';
+                @endphp
+                <tr>
+                    <td data-label="Person">
+                        <span class="font-semibold">{{ $link->presentMember->full_name ?? 'Record removed' }}</span>
+                    </td>
+                    <td data-label="Family Record" data-fit>
+                        <span class="font-mono">@if($famHh && $famHh->household_code){{ $famHh->household_code }}@else&mdash;@endif</span>
+                        <span class="block text-sm text-ink-soft">
+                            {{ $famHh->evacuationCenter->name ?? 'No shelter' }}
+                        </span>
+                        <span class="block text-sm text-ink-soft">
+                            {{ $famOthers !== '' ? 'With: ' . $famOthers : 'No other members listed' }}
+                        </span>
+                    </td>
+                    <td data-label="Currently At" data-fit>
+                        <span class="font-mono">@if($presHh && $presHh->household_code){{ $presHh->household_code }}@else&mdash;@endif</span>
+                        <span class="block text-sm text-ink-soft">
+                            {{ $presHh->evacuationCenter->name ?? 'No shelter' }}
+                        </span>
+                    </td>
+                    <td data-label="Flagged By">
+                        {{-- flagger() is a soft-deleting relation and returns null
+                             for a removed account. Guard before use (gotcha 13). --}}
+                        {{ $link->flagger->name ?? 'Account removed' }}
+                        <span class="block text-sm text-ink-soft">{{ $link->created_at?->format('d M Y') }}</span>
+                    </td>
+                    <td data-label="Actions">
+                        @if($blocked)
+                            {{-- The SAME sentence confirm() would refuse with. One
+                                 method decides, so the disabled reason and the
+                                 refusal can never disagree. --}}
+                            <p class="text-sm text-ink-soft">{{ $blocked }}</p>
+                        @else
+                            <div class="flex flex-col gap-2 sm:flex-row">
+                                <form method="POST" action="{{ route('city.evacuees.separated.confirm', $link) }}">
+                                    @csrf
+                                    <button type="submit" class="btn-primary">Confirm</button>
+                                </form>
+                                <form method="POST" action="{{ route('city.evacuees.separated.reject', $link) }}">
+                                    @csrf
+                                    <button type="submit" class="btn-secondary">Not the same person</button>
+                                </form>
+                            </div>
+                        @endif
+                    </td>
+                </tr>
+            @empty
+                <tr>
+                    <td colspan="5" class="empty-note">
+                        Nothing awaiting confirmation. Barangay staff raise these from
+                        Evacuee Profiling when somebody registering at their shelter has the
+                        exact same name as a member of a family sheltering elsewhere.
+                    </td>
+                </tr>
+            @endforelse
+        </tbody>
+    </table>
+</div>
 
 <div class="card panel table-panel">
     <table class="data-table" data-stack>
@@ -125,10 +231,18 @@
                         @foreach($barangays as $b)<option value="{{ $b->id }}">{{ $b->name }}</option>@endforeach
                     </select>
                 </div>
+                {{-- PHASE 9 ITEM 4 -- pre-registration.
+
+                     `required` is gone. It made the field mandatory for BOTH
+                     buttons, including Save, whose whole purpose is to record a
+                     family before anyone knows where they will be sheltered --
+                     and the controller then discarded the choice anyway. The
+                     server now requires it only when checkin=1, which is what
+                     "Save &amp; Check-in" posts. --}}
                 <div class="field">
-                    <label for="ce-shelter">Evacuation shelter</label>
-                    <select id="ce-shelter" name="evacuation_center_id" required>
-                        <option value="">Select&hellip;</option>
+                    <label for="ce-shelter">Evacuation shelter <small>(only needed to check in now)</small></label>
+                    <select id="ce-shelter" name="evacuation_center_id">
+                        <option value="">Not assigned yet</option>
                         @foreach($shelters as $s)<option value="{{ $s->id }}">{{ $s->name }}</option>@endforeach
                     </select>
                 </div>

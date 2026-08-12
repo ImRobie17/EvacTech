@@ -21,7 +21,7 @@
      Nothing is clipped at any width, and a filter added later needs no column
      count updating. --}}
 <form method="GET" class="filter-bar" role="search">
-    <input type="search" name="q" value="{{ request('q') }}" placeholder="Search household head&hellip;" aria-label="Search household head">
+    <input type="search" name="q" value="{{ request('q') }}" placeholder="Search any member name&hellip;" aria-label="Search by any member name">
     <select name="status" aria-label="Filter by status">
         <option value="">All statuses</option>
         @foreach(['registered' => 'Registered', 'checked_in' => 'Checked in', 'checked_out' => 'Checked out', 'transferred' => 'Transferred'] as $val => $label)
@@ -59,6 +59,127 @@
     </label>
     <button type="submit" class="btn-secondary">Apply</button>
 </form>
+
+{{-- ======== PHASE 10A -- possible separated family members ========
+     THE SCENARIO. Someone who was elsewhere when the disaster struck evacuates
+     to the nearest shelter. Her family is at a different shelter and has
+     already listed her among their members. One person, two records.
+
+     ALWAYS RENDERED, empty or not, with the count in the heading. A panel that
+     only appears when it has rows makes "nobody matches" and "this system has
+     no such feature" look identical, which cost a full debugging round in
+     Phase 7 on the password-reset queue. Empty is the normal answer here and
+     the written empty state says so.
+
+     PRIVACY -- THE RULE THIS PANEL EXISTS TO HOLD. An UNCONFIRMED match shows
+     the other family members by NAME and the household CODE, and NEVER the
+     shelter, the barangay or any address. That is deliberate and it is not a
+     display detail: until City Admin has confirmed these are the same person,
+     showing where the other household is would disclose one family's location
+     to a stranger who happens to share a name with one of them. The shelter
+     becomes visible at both ends only AFTER confirmation.
+
+     STAFF FLAG; CITY ADMIN CONFIRMS. Nothing on this screen moves a record. --}}
+<div class="card panel table-panel">
+    <h2 class="panel-title">Possible Separated Family Members ({{ count($separatedCandidates) }})</h2>
+    <p class="text-sm text-ink-muted">
+        Someone registered here has the exact same name as a member of a family sheltering elsewhere.
+        They may be the same person, separated from their family when the disaster struck.
+        Flagging sends the suggestion to City Admin, who alone can confirm it.
+        Nobody is moved and no record changes until City Admin confirms.
+    </p>
+
+    <div class="mt-3 rounded bg-info-bg p-3 text-sm text-info">
+        The other family&rsquo;s shelter is not shown here on purpose. It becomes visible to
+        both shelters only after City Admin confirms the link.
+    </div>
+
+    <table class="data-table mt-3" data-stack>
+        <thead>
+            <tr>
+                <th scope="col">Registered Here</th>
+                <th scope="col">Possible Family</th>
+                <th scope="col">That Family&rsquo;s Members</th>
+                <th scope="col">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            @forelse($separatedCandidates as $cand)
+                @php
+                    $p = $cand['present'];
+                    $f = $cand['family'];
+                    $famHousehold = $f->household;
+                    // Names only. No shelter, no barangay, no address.
+                    $otherNames = $famHousehold
+                        ? $famHousehold->members
+                            ->where('id', '!=', $f->id)
+                            ->pluck('full_name')
+                            ->take(6)
+                            ->implode(', ')
+                        : '';
+                @endphp
+                <tr>
+                    <td data-label="Registered Here">
+                        <span class="font-semibold">{{ $p->full_name }}</span>
+                        <span class="block text-sm text-ink-soft">
+                            Household @if($p->household && $p->household->household_code){{ $p->household->household_code }}@else&mdash;@endif
+                        </span>
+                    </td>
+                    <td data-label="Possible Family">
+                        <span class="font-mono">@if($famHousehold && $famHousehold->household_code){{ $famHousehold->household_code }}@else&mdash;@endif</span>
+                        <span class="block text-sm text-ink-soft">Listed as {{ $f->full_name }}</span>
+                    </td>
+                    <td data-label="That Family&rsquo;s Members" data-fit>
+                        {{ $otherNames !== '' ? $otherNames : 'No other members listed' }}
+                    </td>
+                    <td data-label="Actions">
+                        <form method="POST" action="{{ route('barangay.evacuees.separated.flag') }}">
+                            @csrf
+                            <input type="hidden" name="family_member_id" value="{{ $f->id }}">
+                            <input type="hidden" name="present_member_id" value="{{ $p->id }}">
+                            <button type="submit" class="btn-secondary">Flag for review</button>
+                        </form>
+                    </td>
+                </tr>
+            @empty
+                <tr>
+                    <td colspan="4" class="empty-note">
+                        No possible separated members right now. This is the normal result &mdash; a
+                        suggestion appears only when somebody registered at this shelter has the
+                        exact same name as a member of a family sheltering somewhere else.
+                    </td>
+                </tr>
+            @endforelse
+        </tbody>
+    </table>
+
+    @if($flaggedLinks->isNotEmpty())
+        <h3 class="mt-4 mb-2 text-base font-semibold">Already flagged from this shelter</h3>
+        <table class="data-table" data-stack>
+            <thead>
+                <tr>
+                    <th scope="col">Person</th>
+                    <th scope="col">Family Household</th>
+                    <th scope="col">Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach($flaggedLinks as $link)
+                    <tr>
+                        <td data-label="Person">{{ $link->presentMember->full_name ?? 'Record removed' }}</td>
+                        <td data-label="Family Household" class="font-mono">
+                            @if($link->familyHousehold && $link->familyHousehold->household_code){{ $link->familyHousehold->household_code }}@else&mdash;@endif
+                        </td>
+                        <td data-label="Status">
+                            {{-- Status is never colour-only. --}}
+                            <span class="badge">{{ $link->statusLabel() }}</span>
+                        </td>
+                    </tr>
+                @endforeach
+            </tbody>
+        </table>
+    @endif
+</div>
 
 <div class="card panel table-panel">
     {{-- data-stack + a data-label on every <td>: one change, never one without

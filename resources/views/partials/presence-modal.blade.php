@@ -56,6 +56,40 @@
                 close this and use Check-out instead.
             </div>
 
+            {{-- PHASE 9 ITEM 2 -- the stand-in head decision.
+
+                 Revealed by transfers.js ONLY when this household has a stand-in
+                 head AND the substantive head has just been ticked present. Both
+                 conditions matter: with the head still absent there is nothing
+                 to decide, and with no stand-in there is nothing to hand back.
+
+                 Default is Keep, and it is pre-selected. Reverting is a state
+                 change, and a state change nobody asked for is worse than one
+                 more click. The server treats an absent value as Keep for the
+                 same reason.
+
+                 bg-info-bg / text-info utilities, not a class: there is no
+                 .alert-info in staff.css. --}}
+            <div id="pr-acting" class="mt-3 rounded-md bg-info-bg p-3 text-info" hidden>
+                <p class="font-semibold">
+                    <span id="pr-acting-head"></span> has been standing in as head.
+                </p>
+                <p class="mt-1 text-sm">
+                    <span id="pr-acting-substantive"></span> is now marked present. Hand the role
+                    back, or keep the stand-in until this family checks out?
+                </p>
+                <div class="radio-list mt-2" role="radiogroup" aria-label="Household head decision">
+                    <label class="radio-row">
+                        <input type="radio" name="acting_head_action" value="keep" checked>
+                        Keep the stand-in until check-out
+                    </label>
+                    <label class="radio-row">
+                        <input type="radio" name="acting_head_action" value="revert">
+                        Hand the role back to the household head
+                    </label>
+                </div>
+            </div>
+
             <p class="text-sm text-ink-muted">
                 The shelter headcount is recalculated from these ticks. Anyone left unticked is not
                 counted in this shelter's occupancy, and stays on their family's record.

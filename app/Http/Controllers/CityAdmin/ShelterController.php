@@ -13,6 +13,16 @@ use Illuminate\Support\Facades\DB;
 
 class ShelterController extends Controller
 {
+    /*
+     * PHASE 9 ITEM 7 -- Facilities removed.
+     *
+     * store() and update() no longer validate or write has_water_supply,
+     * has_medical_desk, has_power or has_communal_kitchen, and the checkboxes are
+     * gone from both shelter views. The columns remain in the table with their
+     * ->default(false), so inserts that never mention them still succeed -- see
+     * the note on EvacuationCenter::$fillable for why no migration ships here.
+     */
+
     public function index(Request $request)
     {
         $query = EvacuationCenter::with(['barangay', 'assignedStaff'])
@@ -68,10 +78,6 @@ class ShelterController extends Controller
             'longitude' => ['nullable', 'numeric', 'between:-180,180'],
             'staff' => ['nullable', 'array'],
             'staff.*' => ['integer', 'exists:users,id'],
-            'has_water_supply' => ['nullable', 'boolean'],
-            'has_medical_desk' => ['nullable', 'boolean'],
-            'has_power' => ['nullable', 'boolean'],
-            'has_communal_kitchen' => ['nullable', 'boolean'],
         ]);
 
         $center = DB::transaction(function () use ($request, $data) {
@@ -84,10 +90,6 @@ class ShelterController extends Controller
                 'longitude' => $data['longitude'] ?? null,
                 'current_occupancy' => 0,
                 'status' => 'active',
-                'has_water_supply' => $request->boolean('has_water_supply'),
-                'has_medical_desk' => $request->boolean('has_medical_desk'),
-                'has_power' => $request->boolean('has_power'),
-                'has_communal_kitchen' => $request->boolean('has_communal_kitchen'),
                 'created_by' => auth()->id(),
             ]);
 
@@ -117,10 +119,6 @@ class ShelterController extends Controller
             'longitude' => ['nullable', 'numeric', 'between:-180,180'],
             'staff' => ['nullable', 'array'],
             'staff.*' => ['integer', 'exists:users,id'],
-            'has_water_supply' => ['nullable', 'boolean'],
-            'has_medical_desk' => ['nullable', 'boolean'],
-            'has_power' => ['nullable', 'boolean'],
-            'has_communal_kitchen' => ['nullable', 'boolean'],
         ]);
 
         DB::transaction(function () use ($request, $data, $center) {
@@ -132,10 +130,6 @@ class ShelterController extends Controller
                 'status' => $data['status'],
                 'latitude' => $data['latitude'] ?? null,
                 'longitude' => $data['longitude'] ?? null,
-                'has_water_supply' => $request->boolean('has_water_supply'),
-                'has_medical_desk' => $request->boolean('has_medical_desk'),
-                'has_power' => $request->boolean('has_power'),
-                'has_communal_kitchen' => $request->boolean('has_communal_kitchen'),
             ]);
 
             $this->syncStaff($center, $data['staff'] ?? []);

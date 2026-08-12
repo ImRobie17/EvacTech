@@ -41,13 +41,17 @@ class ShelterController extends BarangayController
 
         $households = collect();
         if ($center) {
-            $query = Household::with(['headMember', 'originBarangay'])
+            /* PHASE 9 ITEM 2. actingHeadMember joins the eager load rather than
+               being resolved per row: the roster is the screen staff scan all
+               day, and a lazy relation here would be an N+1 across every
+               household at the shelter. */
+            $query = Household::with(['headMember', 'actingHeadMember', 'originBarangay'])
                 ->where('evacuation_center_id', $center->id);
 
             if ($search = trim((string) $request->input('q'))) {
-                $query->whereHas('members', fn ($q) => $q
-                    ->where('is_household_head', true)
-                    ->where('full_name', 'like', "%{$search}%"));
+                // PHASE 9 ITEM 1. Any member, not only the head. The sort
+                // subquery below deliberately still selects the head.
+                $query->whereHas('members', fn ($q) => $q->nameMatches($search));
             }
 
             if ($status = $request->input('status')) {
@@ -132,6 +136,10 @@ class ShelterController extends BarangayController
         $data = $request->validate([
             'present' => ['required', 'array', 'min:1'],
             'present.*' => ['integer'],
+            // PHASE 9 ITEM 2. Nullable at the validator, then required
+            // conditionally below -- the rule is "required when the head is not
+            // among the ticked members", which no single built-in rule states.
+            'acting_head_member_id' => ['nullable', 'integer'],
         ]);
 
         if ($household->status === 'checked_in') {
@@ -140,9 +148,44 @@ class ShelterController extends BarangayController
             ]);
         }
 
+        $present = array_map('intval', $data['present']);
+
+        /* PHASE 9 ITEM 2 -- the substantive head is not here.
+           Resolved BEFORE the transaction so a refusal costs no writes. */
+        $actingHeadId = null;
+        $headAbsent = $household->head_member_id
+            && ! in_array((int) $household->head_member_id, $present, true);
+
+        if ($headAbsent) {
+            $actingHeadId = $data['acting_head_member_id'] ?? null;
+
+            if (! $actingHeadId) {
+                return back()->withErrors([
+                    'acting_head_member_id' => 'The household head is not among the people you ticked. '
+                        . 'Choose someone present to stand in as head for this stay.',
+                ])->withInput();
+            }
+
+            /* Two separate guards, and they fail for different reasons worth
+               distinguishing: a stand-in from another family is a tampered form,
+               a stand-in who is not ticked is an operator mistake. */
+            $belongs = $household->members()->whereKey($actingHeadId)->exists();
+            if (! $belongs) {
+                return back()->withErrors([
+                    'acting_head_member_id' => 'That person is not a member of this household.',
+                ])->withInput();
+            }
+
+            if (! in_array((int) $actingHeadId, $present, true)) {
+                return back()->withErrors([
+                    'acting_head_member_id' => 'The stand-in head must be someone who is present at the shelter.',
+                ])->withInput();
+            }
+        }
+
         $previousCenter = $household->evacuationCenter;
 
-        DB::transaction(function () use ($household, $center, $previousCenter, $data) {
+        DB::transaction(function () use ($household, $center, $previousCenter, $data, $actingHeadId) {
             $household->members()->update(['is_present' => false]);
             $household->members()->whereIn('id', $data['present'])->update(['is_present' => true]);
             $present = $household->members()->where('is_present', true)->count();
@@ -153,6 +196,9 @@ class ShelterController extends BarangayController
                 'checked_in_at' => now(),
                 'checked_out_at' => null,
                 'members_present' => $present,
+                // Null when the head IS present, which also clears any stand-in
+                // left over from a previous stay.
+                'acting_head_member_id' => $actingHeadId,
             ]);
 
             // Derived, not incremented. If the household came from another
@@ -165,10 +211,23 @@ class ShelterController extends BarangayController
 
         $household->refresh();
 
-        AuditLogger::log('updated', $household,
-            "Checked in household {$household->household_code} at {$center->name} ({$household->members_present} present)");
+        $note = "Checked in household {$household->household_code} at {$center->name} ({$household->members_present} present)";
 
-        return $this->backToShelter($center, "Household {$household->household_code} checked in.");
+        if ($household->acting_head_member_id) {
+            $acting = $household->actingHeadMember?->full_name ?? 'a member';
+            $substantive = $household->headMember?->full_name ?? 'the household head';
+            $note .= ". {$acting} is standing in as head for this stay; {$substantive} remains the household head and is not present";
+        }
+
+        AuditLogger::log('updated', $household, $note);
+
+        $message = "Household {$household->household_code} checked in.";
+        if ($household->acting_head_member_id) {
+            $message .= ' ' . ($household->actingHeadMember?->full_name ?? 'A member')
+                . ' is standing in as head until the household head arrives.';
+        }
+
+        return $this->backToShelter($center, $message);
     }
 
     /**
@@ -194,6 +253,13 @@ class ShelterController extends BarangayController
             'total' => $household->members()->count(),
             'blocked' => $service->blockedReason($household, auth()->user()),
             'members' => $service->checklist($household),
+            // PHASE 9 ITEM 2. The modal offers "revert or keep" only once the
+            // substantive head is actually ticked present, so it needs both the
+            // stand-in's identity and the head's id to watch for.
+            'acting_head_member_id' => $household->acting_head_member_id,
+            'acting_head' => $household->actingHeadMember?->full_name,
+            'head_is_present' => $household->substantiveHeadIsPresent(),
+            'head_member_id' => $household->head_member_id,
         ]);
     }
 
@@ -205,11 +271,19 @@ class ShelterController extends BarangayController
         $data = $request->validate([
             'present' => ['required', 'array', 'min:1'],
             'present.*' => ['integer'],
+            // PHASE 9 ITEM 2. Only submitted when the modal actually offered the
+            // choice; PresenceService treats null as "keep".
+            'acting_head_action' => ['nullable', 'in:revert,keep'],
         ], [
             'present.required' => 'Tick at least one person who is present at the shelter.',
         ]);
 
-        app(PresenceService::class)->update($household, $data['present'], $request->user());
+        app(PresenceService::class)->update(
+            $household,
+            $data['present'],
+            $request->user(),
+            $data['acting_head_action'] ?? null
+        );
 
         $household->refresh();
 
@@ -247,6 +321,10 @@ class ShelterController extends BarangayController
                 'status' => 'checked_out',
                 'checked_out_at' => now(),
                 'members_present' => 0,
+                // PHASE 9 ITEM 2. A stand-in head is scoped to one stay. Leaving
+                // it set would mean a family checking in somewhere next week
+                // arrived with a stand-in nobody had designated.
+                'acting_head_member_id' => null,
             ]);
             $center?->recalcOccupancy();
         });

@@ -6,9 +6,11 @@ use App\Http\Controllers\Controller;
 use App\Models\Barangay;
 use App\Models\EvacuationCenter;
 use App\Models\Household;
+use App\Models\SeparatedMemberLink;
 use App\Models\VulnerableClassification;
 use App\Services\AuditLogger;
 use App\Services\HouseholdMemberSync;
+use App\Services\SeparationService;
 use App\Support\AgeTier;
 use App\Support\HouseholdCode;
 use App\Support\MemberRules;
@@ -17,8 +19,10 @@ use Illuminate\Support\Facades\DB;
 
 class EvacueeProfilingController extends Controller
 {
-    public function __construct(private HouseholdMemberSync $sync)
-    {
+    public function __construct(
+        private HouseholdMemberSync $sync,
+        private SeparationService $separation
+    ) {
     }
 
     public function index(Request $request)
@@ -27,9 +31,8 @@ class EvacueeProfilingController extends Controller
         $query = Household::with(['headMember', 'originBarangay', 'evacuationCenter', 'members.vulnerableClassifications']);
 
         if ($search = trim((string) $request->input('q'))) {
-            $query->whereHas('members', fn ($q) => $q
-                ->where('is_household_head', true)
-                ->where('full_name', 'like', "%{$search}%"));
+            // PHASE 9 ITEM 1. Any member, not only the head.
+            $query->whereHas('members', fn ($q) => $q->nameMatches($search));
         }
         if ($barangay = $request->input('barangay')) {
             $query->where('origin_barangay_id', $barangay);
@@ -65,9 +68,78 @@ class EvacueeProfilingController extends Controller
         $classifications = VulnerableClassification::selectable()->orderBy('name')->get();
         $ageGroups = AgeTier::options();
 
+        /* PHASE 10A -- the confirmation queue.
+           SCOPED TO WHAT THIS USER CAN ACT ON, and for City Admin that is
+           everything: canAccessCenter() returns true for every non-barangay
+           role, so a city-wide queue offers no button that would 403.
+
+           Eager-loaded three deep because the table prints the family's other
+           members. Without it this is an N+1 across every pending row. */
+        $pendingLinks = SeparatedMemberLink::pending()
+            ->with([
+                'familyMember', 'presentMember',
+                'familyHousehold.members', 'familyHousehold.evacuationCenter',
+                'presentHousehold.evacuationCenter', 'flagger',
+            ])
+            ->oldest()
+            ->get();
+
+        // blockedReason() is asked ONCE per row here rather than in the view, so
+        // the reason a button is disabled and the reason confirm() would refuse
+        // are the same sentence from the same method.
+        $linkBlocks = [];
+        foreach ($pendingLinks as $link) {
+            $linkBlocks[$link->id] = $this->separation->blockedReason($link);
+        }
+
         return view('cityadmin.evacuees.index', compact(
-            'households', 'barangays', 'shelters', 'classifications', 'ageGroups'
+            'households', 'barangays', 'shelters', 'classifications', 'ageGroups',
+            'pendingLinks', 'linkBlocks'
         ));
+    }
+
+    /**
+     * PHASE 10A -- City Admin confirms a separated member. THIS MOVES A RECORD.
+     *
+     * The whole transition lives in SeparationService::confirm(): two
+     * households, two shelters, two occupancy recalculations and an audit row.
+     * Reproducing any of it here is exactly the drift gotcha 19 records.
+     *
+     * The service throws rather than returning false so a refusal can never be
+     * mistaken for a success by a caller that forgot to check a return value.
+     */
+    public function confirmSeparated(Request $request, SeparatedMemberLink $link)
+    {
+        try {
+            $this->separation->confirm($link, $request->user());
+        } catch (\RuntimeException $e) {
+            return redirect()->back()->with('error', $e->getMessage());
+        }
+
+        $link->refresh()->load(['familyHousehold', 'presentHousehold']);
+
+        return redirect()->back()->with(
+            'success',
+            'Confirmed. The record was moved to household '
+            . ($link->presentHousehold->household_code ?? '')
+            . ' and the two families are now linked.'
+        );
+    }
+
+    /** Rules a suggestion out. Two people genuinely can share a name. */
+    public function rejectSeparated(Request $request, SeparatedMemberLink $link)
+    {
+        $data = $request->validate([
+            'note' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        try {
+            $this->separation->reject($link, $request->user(), $data['note'] ?? null);
+        } catch (\RuntimeException $e) {
+            return redirect()->back()->with('error', $e->getMessage());
+        }
+
+        return redirect()->back()->with('success', 'Marked as not the same person.');
     }
 
     /** City Admin can register into ANY shelter (extra shelter-selector field). */
@@ -100,6 +172,15 @@ class EvacueeProfilingController extends Controller
             'checked_out_at' => $household->checked_out_at?->toIso8601String(),
             'members_present' => $household->members_present,
             'number_of_members' => $household->number_of_members,
+            // PHASE 9 ITEM 2. The view modal is reachable from every household
+            // list, so carrying the stand-in here is what makes it visible from
+            // lists that do not print it in their own table.
+            'acting_head_member_id' => $household->acting_head_member_id,
+            'acting_head' => $household->actingHeadMember?->full_name,
+            // Derived once on the model rather than dug out of the members array:
+            // two of these three payloads do not carry per-member is_present, and
+            // a field the viewer silently never finds is worse than no field.
+            'head_is_present' => $household->substantiveHeadIsPresent(),
             'single_headed' => $household->isSingleHeaded(),
             'head_member_id' => $household->head_member_id,
             'members' => $household->members->map(fn ($m) => [
@@ -128,7 +209,19 @@ class EvacueeProfilingController extends Controller
     {
         $data = $request->validate([
             'origin_barangay_id' => ['required', 'exists:barangays,id'],
-            'evacuation_center_id' => ['required', 'exists:evacuation_centers,id'],
+            /* PHASE 9 ITEM 4 -- pre-registration.
+
+               This was ['required', ...], and then the chosen shelter was
+               DISCARDED unless checkin was true: City Admin was forced to pick a
+               shelter and the pick was thrown away. The barangay side has never
+               required it -- Barangay\EvacueeProfilingController::validateHousehold()
+               has no rule for this field at all -- so a family could be
+               pre-registered from one screen and not the other. Gotcha 19 again.
+
+               required_if rather than nullable alone: a shelter is genuinely
+               needed when the family is being checked in on the same submit, and
+               the two buttons post checkin=0 and checkin=1 respectively. */
+            'evacuation_center_id' => ['nullable', 'required_if:checkin,1', 'exists:evacuation_centers,id'],
             'address' => ['required', 'string', 'max:255'],
             'checkin' => ['nullable', 'boolean'],
             'members' => ['required', 'array', 'min:1'],
@@ -167,6 +260,8 @@ class EvacueeProfilingController extends Controller
             'members.*.tags' => MemberRules::tags($request),
             'members.*.tags.*' => ['integer', 'exists:vulnerable_classifications,id'],
         ], [
+            'evacuation_center_id.required_if' => 'Choose a shelter to check this family in to, '
+                . 'or use Save to register them without one.',
             'members.*.age_group.required_without' => 'Choose an age group for any member without a date of birth.',
             'members.*.sex.required' => 'Sex is required for every member.',
             'members.*.birthdate.before_or_equal' => 'A date of birth cannot be in the future.',
@@ -175,7 +270,13 @@ class EvacueeProfilingController extends Controller
         ]);
 
         $checkin = $request->boolean('checkin');
-        $center = EvacuationCenter::findOrFail($data['evacuation_center_id']);
+
+        // PHASE 9 ITEM 4. Only resolved when it is going to be used. A
+        // pre-registration leaves evacuation_center_id null and status
+        // 'registered', which is exactly what the barangay side already
+        // produces, and what the check-in picker already looks for -- both
+        // search endpoints match unassigned households.
+        $center = $checkin ? EvacuationCenter::findOrFail($data['evacuation_center_id']) : null;
 
         $household = HouseholdCode::attempt(fn ($code) => DB::transaction(function () use ($code, $data, $checkin, $center) {
             $household = Household::create([

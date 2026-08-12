@@ -555,11 +555,11 @@ class TransferService
         }
 
         if ($term = trim((string) ($filters['q'] ?? ''))) {
+            // PHASE 9 ITEM 1. Any member, not only the head. The household_code
+            // branch is unchanged -- a transfer is often looked up by code.
             $query->whereHas('household', fn ($q) => $q
                 ->where('household_code', 'like', "%{$term}%")
-                ->orWhereHas('members', fn ($m) => $m
-                    ->where('is_household_head', true)
-                    ->where('full_name', 'like', "%{$term}%")));
+                ->orWhereHas('members', fn ($m) => $m->nameMatches($term)));
         }
 
         // Anything still moving floats to the top. Written as a CASE rather than
@@ -788,14 +788,14 @@ class TransferService
     public function searchHouseholds(string $term, int $limit = 10): Collection
     {
         return Household::with(['headMember', 'evacuationCenter.barangay'])
+            // PHASE 9 ITEM 1. Loaded only when a term exists, for the label.
+            ->when($term, fn ($q) => $q->with('members'))
             ->where('status', 'checked_in')
             ->whereNotNull('evacuation_center_id')
             ->when($term, fn ($q) => $q
                 ->where(fn ($inner) => $inner
                     ->where('household_code', 'like', "%{$term}%")
-                    ->orWhereHas('members', fn ($m) => $m
-                        ->where('is_household_head', true)
-                        ->where('full_name', 'like', "%{$term}%"))))
+                    ->orWhereHas('members', fn ($m) => $m->nameMatches($term))))
             ->orderByDesc('checked_in_at')
             ->limit($limit)
             ->get()
@@ -811,6 +811,9 @@ class TransferService
                     'center' => $h->evacuationCenter?->name,
                     'barangay' => $h->evacuationCenter?->barangay?->name,
                     'has_open_transfer' => $open,
+                    // PHASE 9 ITEM 1. Null when the term hit the household CODE
+                    // or the head, both of which the row already shows.
+                    'matched' => $h->matchedMemberName($term),
                 ];
             });
     }

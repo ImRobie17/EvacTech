@@ -46,6 +46,11 @@
             <div>
                 <dt class="text-sm font-semibold text-ink-soft">Household head</dt>
                 <dd id="hv-head">&mdash;</dd>
+                {{-- PHASE 9 ITEM 2. A second <dd> under the same <dt>, which is
+                     valid in a <dl> and keeps the stand-in visually attached to
+                     the head it stands in for. Revealed by staff.js only when
+                     one is designated. --}}
+                <dd id="hv-acting" class="text-sm text-ink-soft" hidden></dd>
             </div>
             <div>
                 <dt class="text-sm font-semibold text-ink-soft">Origin barangay</dt>

@@ -77,6 +77,13 @@ Route::middleware(['auth', 'role:barangay_personnel', 'shelter.assigned'])
         Route::put('/evacuees/{household}', [EvacueeProfilingController::class, 'update'])->name('evacuees.update');
         Route::delete('/evacuees/{household}', [EvacueeProfilingController::class, 'destroy'])->name('evacuees.destroy');
 
+        /* PHASE 10A -- flag a suspected separated family member.
+           Declared AFTER the /evacuees/{household} bindings but on its own
+           literal path, so nothing can swallow it. A flag moves no record;
+           confirmation is City Admin's, under city.evacuees.separated.*. */
+        Route::post('/evacuees/separated/flag', [EvacueeProfilingController::class, 'flagSeparated'])
+            ->name('evacuees.separated.flag');
+
         // Evacuation Shelter (check-in / check-out / transfer head)
         Route::get('/shelter', [ShelterController::class, 'index'])->name('shelter.index');
         Route::post('/shelter/{household}/check-in', [ShelterController::class, 'checkIn'])->name('shelter.checkin');

@@ -95,7 +95,7 @@
              thirds of row 1, and fixed columns there are narrower still.
              .filter-bar wraps on its own. --}}
         <form method="GET" class="filter-bar" role="search">
-            <input type="search" name="q" value="{{ request('q') }}" placeholder="Search household head&hellip;" aria-label="Search household head name">
+            <input type="search" name="q" value="{{ request('q') }}" placeholder="Search any member name&hellip;" aria-label="Search by any member name">
             <select name="status" aria-label="Filter status">
                 <option value="">All statuses</option>
                 <option value="checked_in" @selected(request('status') === 'checked_in')>Checked in</option>
@@ -207,7 +207,27 @@
                 <tbody>
                     @forelse($households as $h)
                         <tr>
-                            <td data-label="Household Head" data-fit>{{ $h->headMember?->full_name ?? '-' }}</td>
+                            <td data-label="Household Head" data-fit>
+                            {{ $h->headMember?->full_name ?? '-' }}
+            @if($h->acting_head_member_id)
+                            {{-- PHASE 9 ITEM 2. A second LINE inside the existing
+                                 cell, not a sixth column: the table rules prefer a
+                                 note to another column, and text-fit.js has a 15px
+                                 floor that a new column would push against.
+
+                                 Shown whenever a stand-in is designated, including
+                                 after staff chose to KEEP one once the head
+                                 arrived. Hiding it then would make the roster
+                                 disagree with the record, and "keep" was a
+                                 deliberate decision worth being able to see. --}}
+                            <span class="block text-sm text-ink-soft">
+                                Standing in: {{ $h->actingHeadMember?->full_name ?? 'a member' }}
+                                @if(! $h->headMember?->is_present)
+                                    &middot; head not present
+                                @endif
+                            </span>
+                        @endif
+                        </td>
                             <td data-label="Family Size" data-numeric class="whitespace-nowrap">{{ $h->members_present }} / {{ $h->number_of_members }}</td>
                             {{-- PHASE 6 ITEM 2. nowrap. "Aug 02, 2026 - 08:48 AM" has five break
                                  opportunities in it, and in a squeezed column the browser
@@ -332,9 +352,9 @@
         </div>
 
         <div class="field search-inline">
-            <label for="ci-search">Household head name</label>
+            <label for="ci-search">Search by any member name</label>
             <div class="flex flex-col gap-2 sm:flex-row">
-                <input type="search" id="ci-search" class="sm:flex-1" placeholder="e.g. Dela Cruz, Juan" autocomplete="off">
+                <input type="search" id="ci-search" class="sm:flex-1" placeholder="Any member name" autocomplete="off">
                 <button type="button" class="btn-secondary" id="ci-load">Load Profile</button>
             </div>
             <ul class="search-results" id="ci-results" hidden></ul>
@@ -346,6 +366,30 @@
                 <p><strong id="ci-code"></strong> &middot; <span id="ci-head"></span></p>
                 <p class="kpi-note">Tick everyone who is present at the shelter right now:</p>
                 <div id="ci-members" class="checkbox-list"></div>
+            </div>
+
+            {{-- PHASE 9 ITEM 2 -- stand-in head.
+
+                 Shown by staff.js only when the household head is NOT among the
+                 ticked members. The radio group is built from the people who ARE
+                 ticked, so it cannot offer somebody who is not here.
+
+                 bg-info-bg / text-info rather than a class: there is no
+                 .alert-info in staff.css, only -success, -warning and -danger.
+                 Both tokens are real @theme entries in app.css and are dark-mode
+                 aware. --}}
+            <div id="ci-acting" class="mt-3 rounded-md bg-info-bg p-3 text-info" hidden>
+                <p class="font-semibold">The household head is not present.</p>
+                <p class="mt-1 text-sm">
+                    Choose someone who is here to stand in as head for this stay. This does
+                    not change who the household head is &mdash; when they arrive you can hand
+                    the role back from Update Presence.
+                </p>
+                <div id="ci-acting-options" class="radio-list mt-2" role="radiogroup"
+                     aria-label="Select a stand-in head"></div>
+                <p class="mt-2 text-sm" id="ci-acting-empty" hidden>
+                    Tick at least one other person who is present before choosing a stand-in.
+                </p>
             </div>
             {{-- Stacks below 640px with the primary action last, so a thumb
                  reaching the bottom of the sheet lands on Confirm, not Cancel. --}}

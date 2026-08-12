@@ -87,10 +87,6 @@
                         'latitude' => $c->latitude,
                         'longitude' => $c->longitude,
                         'staff' => $staffIds,
-                        'has_water_supply' => (bool) $c->has_water_supply,
-                        'has_medical_desk' => (bool) $c->has_medical_desk,
-                        'has_power' => (bool) $c->has_power,
-                        'has_communal_kitchen' => (bool) $c->has_communal_kitchen,
                         'update_url' => route('city.shelters.update', $c),
                     ];
                     $editShelterJson = json_encode($editShelter);
@@ -249,15 +245,10 @@
                 </div>
             </fieldset>
 
-            <fieldset class="member-fieldset">
-                <legend>Facilities</legend>
-                <div class="grid grid-cols-1 gap-1 sm:grid-cols-2">
-                    <label class="checkbox-row"><input type="checkbox" name="has_water_supply" value="1"> Water supply</label>
-                    <label class="checkbox-row"><input type="checkbox" name="has_medical_desk" value="1"> Medical desk</label>
-                    <label class="checkbox-row"><input type="checkbox" name="has_power" value="1"> Power</label>
-                    <label class="checkbox-row"><input type="checkbox" name="has_communal_kitchen" value="1"> Communal kitchen</label>
-                </div>
-            </fieldset>
+            {{-- PHASE 9 ITEM 7 -- the Facilities fieldset is removed. The four
+                 columns stay in the table with their ->default(false); see the
+                 note on EvacuationCenter::$fillable for why no migration ships
+                 with this. --}}
 
             </div>{{-- end left column --}}
 

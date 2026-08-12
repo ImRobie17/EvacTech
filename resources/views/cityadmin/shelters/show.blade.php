@@ -76,18 +76,10 @@
                     {{ $center->assignedStaff->pluck('name')->implode(', ') }}
                 @endif
             </dd>
-            <dt>Facilities</dt>
-            <dd>
-                @php
-                    $facilities = collect([
-                        'Water' => $center->has_water_supply,
-                        'Medical desk' => $center->has_medical_desk,
-                        'Power' => $center->has_power,
-                        'Kitchen' => $center->has_communal_kitchen,
-                    ])->filter()->keys();
-                @endphp
-                {{ $facilities->isEmpty() ? 'None recorded' : $facilities->implode(', ') }}
-            </dd>
+            {{-- PHASE 9 ITEM 7 -- the Facilities row is removed. It took a whole
+                 @php ... @endphp block with it, which is a MATCHED pair, so this
+                 file's open-minus-close delta is unchanged and the directive
+                 balance check still reports "same" against the baseline. --}}
         </dl>
     </article>
 </section>
@@ -106,7 +98,7 @@
     {{-- =============== HOUSEHOLDS TAB =============== --}}
     <form method="GET" class="filter-bar" role="search">
         <input type="hidden" name="tab" value="households">
-        <input type="search" name="q" value="{{ request('q') }}" placeholder="Search household head" aria-label="Search household head">
+        <input type="search" name="q" value="{{ request('q') }}" placeholder="Search any member name" aria-label="Search by any member name">
         <select name="status" aria-label="Filter status">
             <option value="">All statuses</option>
             <option value="checked_in" @selected(request('status') === 'checked_in')>Checked in</option>
@@ -182,7 +174,27 @@
                 @forelse($households as $h)
                     <tr>
                         <td data-label="Household ID" data-numeric class="whitespace-nowrap">{{ $h->household_code }}</td>
-                        <td data-label="Head" data-fit>{{ $h->headMember?->full_name ?? '-' }}</td>
+                        <td data-label="Head" data-fit>
+                            {{ $h->headMember?->full_name ?? '-' }}
+            @if($h->acting_head_member_id)
+                            {{-- PHASE 9 ITEM 2. A second LINE inside the existing
+                                 cell, not a sixth column: the table rules prefer a
+                                 note to another column, and text-fit.js has a 15px
+                                 floor that a new column would push against.
+
+                                 Shown whenever a stand-in is designated, including
+                                 after staff chose to KEEP one once the head
+                                 arrived. Hiding it then would make the roster
+                                 disagree with the record, and "keep" was a
+                                 deliberate decision worth being able to see. --}}
+                            <span class="block text-sm text-ink-soft">
+                                Standing in: {{ $h->actingHeadMember?->full_name ?? 'a member' }}
+                                @if(! $h->headMember?->is_present)
+                                    &middot; head not present
+                                @endif
+                            </span>
+                        @endif
+                        </td>
                         <td data-label="Origin" data-fit>{{ $h->originBarangay?->name ?? '-' }}</td>
                         <td data-label="Size" data-numeric>{{ $h->number_of_members }}</td>
                         <td data-label="Present" data-numeric>{{ $h->members_present }}</td>
@@ -296,7 +308,7 @@
 
     <form method="GET" class="filter-bar" role="search">
         <input type="hidden" name="tab" value="relief">
-        <input type="search" name="q" value="{{ request('q') }}" placeholder="Search household head" aria-label="Search distribution log">
+        <input type="search" name="q" value="{{ request('q') }}" placeholder="Search any member name" aria-label="Search distribution log by any member name">
         <button type="submit" class="btn-secondary">Apply</button>
     </form>
 
@@ -339,8 +351,8 @@
         </div>
 
         <div class="field search-inline">
-            <label for="cd-ci-search">Household head name</label>
-            <input type="search" id="cd-ci-search" placeholder="Search registered household" autocomplete="off">
+            <label for="cd-ci-search">Search by any member name</label>
+            <input type="search" id="cd-ci-search" placeholder="Search any member name" autocomplete="off">
             <ul class="search-results" id="cd-ci-results" hidden></ul>
         </div>
 
@@ -354,6 +366,24 @@
                 <legend>Who is present?</legend>
                 <div id="cd-ci-members"></div>
             </fieldset>
+
+            {{-- PHASE 9 ITEM 2 -- stand-in head. Same block, same wording and
+                 same behaviour as the barangay check-in modal; the ids differ
+                 because the two modals sit on different pages and
+                 cityadmin-shelter.js finds its controls by id. --}}
+            <div id="cd-ci-acting" class="mt-3 rounded-md bg-info-bg p-3 text-info" hidden>
+                <p class="font-semibold">The household head is not present.</p>
+                <p class="mt-1 text-sm">
+                    Choose someone who is here to stand in as head for this stay. This does
+                    not change who the household head is &mdash; when they arrive you can hand
+                    the role back from Update Presence.
+                </p>
+                <div id="cd-ci-acting-options" class="radio-list mt-2" role="radiogroup"
+                     aria-label="Select a stand-in head"></div>
+                <p class="mt-2 text-sm" id="cd-ci-acting-empty" hidden>
+                    Tick at least one other person who is present before choosing a stand-in.
+                </p>
+            </div>
             <div class="modal-actions">
                 <button type="button" class="btn-secondary" data-close-modal>Cancel</button>
                 <button type="submit" class="btn-primary">Confirm Check-in</button>
@@ -416,7 +446,7 @@
         </div>
 
         <div class="field search-inline">
-            <label for="cd-dist-search">Household head name</label>
+            <label for="cd-dist-search">Search by any member name</label>
             <input type="search" id="cd-dist-search" placeholder="Search checked-in household" autocomplete="off">
             <ul class="search-results" id="cd-dist-results" hidden></ul>
         </div>

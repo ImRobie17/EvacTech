@@ -150,6 +150,15 @@ function wireSearch(inputId, listId, urlKey, render, emptyText) {
     return run;
 }
 
+/* PHASE 9 ITEM 1 -- say WHICH member matched, when it was not the head. Same
+   rule and same wording as matchedSuffix() in staff.js; the two are separate
+   because they are separate ES modules, and the phrasing is short enough that
+   duplicating it beats exporting it across a boundary this codebase otherwise
+   keeps closed. */
+function cdMatchedSuffix(row) {
+    return row && row.matched ? ' \u00B7 matched: ' + row.matched : '';
+}
+
 function pickable(li, onPick) {
     li.tabIndex = 0;
     li.addEventListener('click', onPick);
@@ -166,23 +175,72 @@ function pickable(li, onPick) {
 // Check-in Family
 // ---------------------------------------------------------------------
 /* PHASE 8 ITEM 2. Captured so the reset-on-open handler below can prefill. */
+/* PHASE 9 ITEMS 3 + 5 -- one row, three possible destinations.
+
+   The comment this replaces said that checking in someone who is checked in
+   elsewhere is "a legitimate transfer, not an error". The intent was right and
+   the implementation was the bug: it was a legitimate transfer that produced no
+   transfer record, so a family moved between shelters and the transfer log
+   showed nothing. Occupancy was always correct at both ends; the history was
+   not.
+
+   Now the server labels each row (Household::checkinAction) and the row renders
+   the control that case actually needs. 'arrival' and 'transfer' rows are
+   BUTTONS carrying data-presence / data-tx-create, which transfers.js already
+   delegates on document -- so the click crosses an ES module boundary without
+   anyone calling show() or cdOpen() by bare name and throwing ReferenceError. */
 const runCheckinSearch = wireSearch('cd-ci-search', 'cd-ci-results', 'checkinSearchUrl', (row) => {
     const li = document.createElement('li');
-    const bits = [row.head, row.size + ' members'];
-    if (row.origin_barangay) bits.push('Brgy. ' + row.origin_barangay);
-    // Surface where they currently are: checking in someone who is checked in
-    // elsewhere is a legitimate transfer, not an error.
-    if (row.status === 'checked_in' && row.current_center) {
-        bits.push('currently at ' + row.current_center);
-    } else {
-        bits.push(String(row.status || '').replace('_', ' '));
+    const label = row.head + cdMatchedSuffix(row) + ' \u00B7 ' + row.size + ' members'
+        + (row.origin_barangay ? ' \u00B7 Brgy. ' + row.origin_barangay : '');
+
+    if (row.action === 'arrival') {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn-link text-left';
+        btn.dataset.presence = row.id;
+        btn.textContent = label + ' \u00B7 already checked in here, '
+            + (Number(row.absent) || 0) + ' not yet arrived \u00B7 Record arrival';
+        // data-close-modal is bound over elements that existed at init, so a row
+        // built now cannot close the modal by attribute. Close it explicitly.
+        btn.addEventListener('click', () => {
+            const modal = document.getElementById('cdCheckinModal');
+            if (modal) modal.hidden = true;
+        });
+        li.appendChild(btn);
+        return li;
     }
-    li.textContent = bits.join(' \u00B7 ');
+
+    if (row.action === 'transfer') {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn-link text-left';
+        btn.dataset.txCreate = '';
+        btn.dataset.householdId = row.id;
+        btn.dataset.householdCode = row.code || '';
+        btn.dataset.householdHead = row.head || '';
+        btn.dataset.householdPresent = row.members_present || 0;
+        btn.dataset.centerName = row.current_center || '';
+        btn.dataset.centerId = row.current_center_id || '';
+        btn.textContent = label + ' \u00B7 checked in at '
+            + (row.current_center || 'another shelter') + ' \u00B7 Move by Transfer';
+        btn.addEventListener('click', () => {
+            const modal = document.getElementById('cdCheckinModal');
+            if (modal) modal.hidden = true;
+        });
+        li.appendChild(btn);
+        return li;
+    }
+
+    li.textContent = label + ' \u00B7 ' + String(row.status || '').replace('_', ' ');
     return pickable(li, () => loadForCheckin(row.id));
 }, {
     term: 'No household matches that name.',
     blank: 'No household is available to check in here. Register one first.',
 });
+
+// PHASE 9 ITEM 2. Module-scoped, like currentHousehold in staff.js.
+let cdCheckinHousehold = null;
 
 async function loadForCheckin(id) {
     const c = cfg();
@@ -226,7 +284,73 @@ async function loadForCheckin(id) {
 
     if (results) results.hidden = true;
     form.hidden = false;
+
+    // PHASE 9 ITEM 2. Kept so the stand-in prompt can rebuild itself from the
+    // live tick state without refetching the family on every change.
+    cdCheckinHousehold = data;
+    cdSyncActingHead();
 }
+
+/* PHASE 9 ITEM 2 -- the stand-in head prompt.
+
+   Same rule, same wording and same behaviour as initCheckin() in staff.js. The
+   two are separate because the two modals live on different pages and each
+   module finds its controls by id; the RULE they enforce is shared, and it lives
+   on the server in Household::checkinAction() and in the two check-in guards.
+
+   Rebuilt from the live ticks rather than once on load, because the operator
+   decides who is present by unticking people and the head is often the last one
+   they untick. */
+function cdSyncActingHead() {
+    const block = document.getElementById('cd-ci-acting');
+    const options = document.getElementById('cd-ci-acting-options');
+    const emptyNote = document.getElementById('cd-ci-acting-empty');
+    const membersEl = document.getElementById('cd-ci-members');
+    if (!block || !options || !membersEl || !cdCheckinHousehold) return;
+
+    const headId = cdCheckinHousehold.head_member_id
+        || (cdCheckinHousehold.members || []).find((m) => m.is_head)?.id
+        || null;
+
+    const ticked = Array.from(
+        membersEl.querySelectorAll('input[type="checkbox"]:checked')
+    ).map((cb) => Number(cb.value));
+
+    // Head present, or no head on record: nothing to stand in for. Emptying the
+    // options also removes any radio that would otherwise still post.
+    if (!headId || ticked.includes(Number(headId))) {
+        block.hidden = true;
+        options.innerHTML = '';
+        return;
+    }
+
+    const previous = options.querySelector('input[type="radio"]:checked')?.value;
+
+    const candidates = (cdCheckinHousehold.members || []).filter(
+        (m) => ticked.includes(Number(m.id)) && Number(m.id) !== Number(headId)
+    );
+
+    options.innerHTML = '';
+    candidates.forEach((m) => {
+        const label = document.createElement('label');
+        label.className = 'radio-row';
+        const checked = String(m.id) === String(previous) ? ' checked' : '';
+        label.innerHTML =
+            '<input type="radio" name="acting_head_member_id" value="' + m.id + '"'
+            + checked + '> ' + m.full_name;
+        options.appendChild(label);
+    });
+
+    if (emptyNote) emptyNote.hidden = candidates.length > 0;
+    block.hidden = false;
+}
+
+/* Delegated on document: the tick boxes are built by loadForCheckin() and did
+   not exist when this module ran. Gotcha 21. */
+document.addEventListener('change', (e) => {
+    if (!e.target.closest('#cd-ci-members')) return;
+    cdSyncActingHead();
+});
 
 // Reset the check-in modal each time it opens.
 document.addEventListener('click', (e) => {
@@ -237,6 +361,14 @@ document.addEventListener('click', (e) => {
     if (search) search.value = '';
     if (results) results.hidden = true;
     if (form) form.hidden = true;
+
+    // PHASE 9 ITEM 2. Clear the stand-in prompt with everything else, or a
+    // reopened modal shows the previous family's radio group.
+    cdCheckinHousehold = null;
+    const acting = document.getElementById('cd-ci-acting');
+    const actingOptions = document.getElementById('cd-ci-acting-options');
+    if (acting) acting.hidden = true;
+    if (actingOptions) actingOptions.innerHTML = '';
 
     // PHASE 8 ITEM 2. Reset, then fill. The clear above still runs first so a
     // stale household cannot sit under a fresh candidate list.
@@ -459,7 +591,7 @@ document.addEventListener('blur', (e) => {
    shelter, so a blank term lists exactly who relief can be handed to. */
 const runReliefSearch = wireSearch('cd-dist-search', 'cd-dist-results', 'reliefSearchUrl', (row) => {
     const li = document.createElement('li');
-    li.textContent = row.head + ' \u00B7 ' + row.size + ' present';
+    li.textContent = row.head + cdMatchedSuffix(row) + ' \u00B7 ' + row.size + ' present';
     return pickable(li, () => {
         document.getElementById('cd-dist-household-id').value = row.id;
         document.getElementById('cd-dist-code').textContent = row.code;

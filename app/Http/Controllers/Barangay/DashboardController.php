@@ -72,7 +72,14 @@ class DashboardController extends BarangayController
 
             // Single-headed households: derived from members_present == 1 on a
             // checked-in family. Never a stored tag.
-            $kpis['single_headed'] = (clone $checkedIn)->where('members_present', 1)->count();
+            // PHASE 10A. Fourth hand copy of scopeSingleHeaded(); see the note
+            // on the City Admin dashboard. A separated individual sheltering
+            // alone here is a fragment of a family elsewhere, not a
+            // single-headed household.
+            $kpis['single_headed'] = (clone $checkedIn)
+                ->where('members_present', 1)
+                ->whereNull('separated_from_household_id')
+                ->count();
 
             // Age-tier breakdown, bucketed in SQL and grouped by sex so the same
             // query shape feeds the Phase 3 IDP Monitoring Form.

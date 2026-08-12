@@ -220,10 +220,10 @@ document.addEventListener('click', (e) => {
     // 'full' no longer exists as a status; overcapacity is derived.
     document.getElementById('sh-status').value = d.status === 'inactive' ? 'inactive' : 'active';
 
-    form.querySelector('[name="has_water_supply"]').checked = !!d.has_water_supply;
-    form.querySelector('[name="has_medical_desk"]').checked = !!d.has_medical_desk;
-    form.querySelector('[name="has_power"]').checked = !!d.has_power;
-    form.querySelector('[name="has_communal_kitchen"]').checked = !!d.has_communal_kitchen;
+    /* PHASE 9 ITEM 7 -- Facilities removed. These four lines set checkboxes that
+       no longer exist in the shelter form; left in place they would each throw
+       "Cannot set properties of null" on the FIRST one and abandon the rest of
+       this function, so the staff roster below would silently never populate. */
 
     shelterRoster?.set(d.staff);
 

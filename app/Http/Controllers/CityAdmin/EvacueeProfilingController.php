@@ -6,11 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Models\Barangay;
 use App\Models\EvacuationCenter;
 use App\Models\Household;
-use App\Models\SeparatedMemberLink;
 use App\Models\VulnerableClassification;
 use App\Services\AuditLogger;
 use App\Services\HouseholdMemberSync;
-use App\Services\SeparationService;
 use App\Support\AgeTier;
 use App\Support\HouseholdCode;
 use App\Support\MemberRules;
@@ -19,10 +17,8 @@ use Illuminate\Support\Facades\DB;
 
 class EvacueeProfilingController extends Controller
 {
-    public function __construct(
-        private HouseholdMemberSync $sync,
-        private SeparationService $separation
-    ) {
+    public function __construct(private HouseholdMemberSync $sync)
+    {
     }
 
     public function index(Request $request)
@@ -68,78 +64,9 @@ class EvacueeProfilingController extends Controller
         $classifications = VulnerableClassification::selectable()->orderBy('name')->get();
         $ageGroups = AgeTier::options();
 
-        /* PHASE 10A -- the confirmation queue.
-           SCOPED TO WHAT THIS USER CAN ACT ON, and for City Admin that is
-           everything: canAccessCenter() returns true for every non-barangay
-           role, so a city-wide queue offers no button that would 403.
-
-           Eager-loaded three deep because the table prints the family's other
-           members. Without it this is an N+1 across every pending row. */
-        $pendingLinks = SeparatedMemberLink::pending()
-            ->with([
-                'familyMember', 'presentMember',
-                'familyHousehold.members', 'familyHousehold.evacuationCenter',
-                'presentHousehold.evacuationCenter', 'flagger',
-            ])
-            ->oldest()
-            ->get();
-
-        // blockedReason() is asked ONCE per row here rather than in the view, so
-        // the reason a button is disabled and the reason confirm() would refuse
-        // are the same sentence from the same method.
-        $linkBlocks = [];
-        foreach ($pendingLinks as $link) {
-            $linkBlocks[$link->id] = $this->separation->blockedReason($link);
-        }
-
         return view('cityadmin.evacuees.index', compact(
-            'households', 'barangays', 'shelters', 'classifications', 'ageGroups',
-            'pendingLinks', 'linkBlocks'
+            'households', 'barangays', 'shelters', 'classifications', 'ageGroups'
         ));
-    }
-
-    /**
-     * PHASE 10A -- City Admin confirms a separated member. THIS MOVES A RECORD.
-     *
-     * The whole transition lives in SeparationService::confirm(): two
-     * households, two shelters, two occupancy recalculations and an audit row.
-     * Reproducing any of it here is exactly the drift gotcha 19 records.
-     *
-     * The service throws rather than returning false so a refusal can never be
-     * mistaken for a success by a caller that forgot to check a return value.
-     */
-    public function confirmSeparated(Request $request, SeparatedMemberLink $link)
-    {
-        try {
-            $this->separation->confirm($link, $request->user());
-        } catch (\RuntimeException $e) {
-            return redirect()->back()->with('error', $e->getMessage());
-        }
-
-        $link->refresh()->load(['familyHousehold', 'presentHousehold']);
-
-        return redirect()->back()->with(
-            'success',
-            'Confirmed. The record was moved to household '
-            . ($link->presentHousehold->household_code ?? '')
-            . ' and the two families are now linked.'
-        );
-    }
-
-    /** Rules a suggestion out. Two people genuinely can share a name. */
-    public function rejectSeparated(Request $request, SeparatedMemberLink $link)
-    {
-        $data = $request->validate([
-            'note' => ['nullable', 'string', 'max:500'],
-        ]);
-
-        try {
-            $this->separation->reject($link, $request->user(), $data['note'] ?? null);
-        } catch (\RuntimeException $e) {
-            return redirect()->back()->with('error', $e->getMessage());
-        }
-
-        return redirect()->back()->with('success', 'Marked as not the same person.');
     }
 
     /** City Admin can register into ANY shelter (extra shelter-selector field). */

@@ -66,19 +66,6 @@ Route::middleware(['auth', 'role:city_admin'])
         Route::post('/evacuees', [CityEvacuees::class, 'store'])->name('evacuees.store');
         // PHASE 6 ITEM 10. JSON for the read-only view modal. Declared AFTER the
         // two literal /evacuees routes so the model binding cannot swallow them.
-        /* PHASE 10A -- the confirmation queue's two actions. Declared BEFORE
-           /evacuees/{household} so the literal 'separated' segment is not
-           swallowed by the Household model binding -- the same ordering rule
-           the households.search route follows above.
-
-           There is no 'unconfirm'. Undoing a confirmed link means moving the
-           person back to her family, which is a shelter transfer, and that is
-           Phase 10B through the existing module. */
-        Route::post('/evacuees/separated/{link}/confirm', [CityEvacuees::class, 'confirmSeparated'])
-            ->name('evacuees.separated.confirm');
-        Route::post('/evacuees/separated/{link}/reject', [CityEvacuees::class, 'rejectSeparated'])
-            ->name('evacuees.separated.reject');
-
         Route::get('/evacuees/{household}', [CityEvacuees::class, 'show'])->name('evacuees.show');
 
         // ---- Relief Distribution (city-wide overview + approvals) ----

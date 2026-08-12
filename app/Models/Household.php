@@ -19,10 +19,6 @@ class Household extends Model
         // a column absent from $fillable is silently discarded by update(), and
         // an acting head that never saved would look exactly like a UI bug.
         'acting_head_member_id',
-        // PHASE 10A. Same rule again. Set ONLY by SeparationService::confirm();
-        // a link that never saved would look exactly like a confirm button that
-        // does nothing, and the counting changes below would silently no-op.
-        'separated_from_household_id',
         'origin_address', 'number_of_members', 'members_present', 'status',
         'checked_in_at', 'checked_out_at', 'registered_by',
     ];
@@ -50,51 +46,16 @@ class Household extends Model
      * is tied to check-in state, the flag correctly does not exist before
      * check-in, and clears itself if the family checks out or the rest of them
      * arrive.
-     *
-     * PHASE 10A adds the separated-fragment exclusion. A confirmed separated
-     * individual is a checked-in household of one and would otherwise satisfy
-     * the rule exactly -- but she is a FRAGMENT of a larger family, not a
-     * one-person household, and Single Headed Household is a welfare category
-     * that travels onto a signed CSWDO form. Counting her there is a false
-     * figure about a real family's circumstances.
      */
     public function isSingleHeaded(): bool
     {
-        return $this->status === 'checked_in'
-            && (int) $this->members_present === 1
-            && $this->separated_from_household_id === null;
+        return $this->status === 'checked_in' && (int) $this->members_present === 1;
     }
 
     /** Query-side twin of isSingleHeaded(), for counts and report cross-tabs. */
     public function scopeSingleHeaded($query)
     {
-        return $query->where('status', 'checked_in')
-            ->where('members_present', 1)
-            ->whereNull('separated_from_household_id');
-    }
-
-    /**
-     * PHASE 10A -- true when this household exists only because one of its
-     * occupants was separated from a family sheltering elsewhere.
-     *
-     * The one clause behind both counting rules, named so call sites read as
-     * intent rather than as a null check on a foreign key.
-     */
-    public function isSeparatedFragment(): bool
-    {
-        return $this->separated_from_household_id !== null;
-    }
-
-    /** The family this household is a fragment of, once City Admin has confirmed. */
-    public function separatedFrom(): BelongsTo
-    {
-        return $this->belongsTo(Household::class, 'separated_from_household_id');
-    }
-
-    /** Fragments confirmed as belonging to THIS family, at whatever shelter. */
-    public function separatedFragments(): HasMany
-    {
-        return $this->hasMany(Household::class, 'separated_from_household_id');
+        return $query->where('status', 'checked_in')->where('members_present', 1);
     }
 
     public function originBarangay(): BelongsTo
@@ -160,15 +121,56 @@ class Household extends Model
      * returns 'arrival' too, but those rows are excluded from the query -- there
      * is nothing for staff to do with them.
      */
-    public function checkinAction(?int $targetCenterId): string
+    public function checkinAction(?int $targetCenterId, ?string $term = null): string
     {
         if ($this->status !== 'checked_in') {
             return 'checkin';
         }
 
-        return (int) $this->evacuation_center_id === (int) $targetCenterId
-            ? 'arrival'
-            : 'transfer';
+        if ((int) $this->evacuation_center_id === (int) $targetCenterId) {
+            return 'arrival';
+        }
+
+        /* A FOURTH outcome, from a real wrong-action prompt found in testing.
+
+           Phase 9 widened household search to every member, so typing a name
+           finds the household somebody is LISTED in, not the one they are
+           standing in. Returning 'transfer' unconditionally told the operator
+           to move that whole family here -- catastrophic for a person who was
+           separated from a family that is not going anywhere.
+
+           The distinguishing fact is whether the MATCHED MEMBER is present at
+           that other shelter. Absent there and standing here is one person with
+           two places to be, which is a registration, not a transfer. */
+        $matched = $this->matchedMember($term);
+
+        if ($matched && ! $matched->is_present) {
+            return 'separated';
+        }
+
+        return 'transfer';
+    }
+
+    /**
+     * The member a search term actually hit, head or not.
+     *
+     * Split out so the picker's "matched: NAME" label and the routing decision
+     * above share one matching rule. Note the deliberate difference:
+     * matchedMemberName() stays silent when the head matched, because the row
+     * already shows the head's name; this returns them anyway, because
+     * checkinAction() cares whether that person is present regardless of their
+     * standing in the family.
+     */
+    public function matchedMember(?string $term): ?HouseholdMember
+    {
+        $term = trim((string) $term);
+        if ($term === '') {
+            return null;
+        }
+
+        return $this->members->first(
+            fn ($m) => stripos((string) $m->full_name, $term) !== false
+        );
     }
 
     /**

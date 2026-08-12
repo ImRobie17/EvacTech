@@ -5,12 +5,9 @@ namespace App\Http\Controllers\Barangay;
 use App\Models\Barangay;
 use App\Models\EvacuationCenter;
 use App\Models\Household;
-use App\Models\HouseholdMember;
-use App\Models\SeparatedMemberLink;
 use App\Models\VulnerableClassification;
 use App\Services\AuditLogger;
 use App\Services\HouseholdMemberSync;
-use App\Services\SeparationService;
 use App\Support\AgeTier;
 use App\Support\HouseholdCode;
 use App\Support\MemberRules;
@@ -19,10 +16,8 @@ use Illuminate\Support\Facades\DB;
 
 class EvacueeProfilingController extends BarangayController
 {
-    public function __construct(
-        private HouseholdMemberSync $sync,
-        private SeparationService $separation
-    ) {
+    public function __construct(private HouseholdMemberSync $sync)
+    {
     }
 
     public function index(Request $request, ?EvacuationCenter $routeCenter = null)
@@ -92,76 +87,9 @@ class EvacueeProfilingController extends BarangayController
         $barangays = Barangay::orderBy('name')->get();
         $defaultBarangayId = $center?->barangay_id;
 
-        /* PHASE 10A -- possible separated family members.
-           Computed on page load rather than pushed at the operator the instant
-           they finish registering someone. Two reasons. Registration posts back
-           to whichever screen it was opened from, so a flash payload would have
-           to be rendered on two pages and would be lost by the redirect on one
-           of them. And a panel that recomputes catches families registered
-           before this feature existed, which a
-           detect-once-at-registration hook never would.
-
-           Empty is a normal, common answer and the panel still renders -- see
-           the note in the view. */
-        $separatedCandidates = $center ? $this->separation->candidatesFor($center) : [];
-
-        $flaggedLinks = $center
-            ? SeparatedMemberLink::with(['familyMember', 'presentMember', 'familyHousehold', 'presentHousehold'])
-                ->where('present_household_id', '!=', null)
-                ->whereHas('presentHousehold', fn ($q) => $q->where('evacuation_center_id', $center->id))
-                ->latest()
-                ->limit(20)
-                ->get()
-            : collect();
-
         return view('barangay.evacuees.index', compact(
-            'households', 'classifications', 'ageGroups', 'center', 'barangays', 'defaultBarangayId',
-            'separatedCandidates', 'flaggedLinks'
+            'households', 'classifications', 'ageGroups', 'center', 'barangays', 'defaultBarangayId'
         ));
-    }
-
-    /**
-     * PHASE 10A -- barangay staff FLAG a suspected separated member.
-     *
-     * A flag moves nothing. It raises the question for City Admin, who alone
-     * can answer it, because confirming rewrites a person's household across
-     * two shelters and changes both occupancy figures.
-     *
-     * AUTHORISATION. The staff member must be able to act on the PRESENT end --
-     * the person physically in front of them. They are deliberately NOT
-     * required to have access to the family's shelter: not being able to see
-     * the other end is the entire situation this feature addresses.
-     *
-     * PRIVACY. Nothing about the family's shelter is read here and nothing is
-     * returned to the browser. See the view for what the operator is shown.
-     */
-    public function flagSeparated(Request $request)
-    {
-        $data = $request->validate([
-            'family_member_id' => ['required', 'integer', 'exists:household_members,id'],
-            'present_member_id' => ['required', 'integer', 'exists:household_members,id'],
-        ]);
-
-        $familyMember = HouseholdMember::with('household')->findOrFail($data['family_member_id']);
-        $presentMember = HouseholdMember::with('household')->findOrFail($data['present_member_id']);
-
-        // The present end must be a household this operator can act on.
-        if (! $presentMember->household || ! $this->canManageHousehold($presentMember->household)) {
-            abort(403);
-        }
-
-        if ((int) $familyMember->household_id === (int) $presentMember->household_id) {
-            return redirect()->back()->with('error', 'Both records are already in the same household.');
-        }
-
-        $link = $this->separation->flag($familyMember, $presentMember, $request->user());
-
-        return redirect()->back()->with(
-            'success',
-            $link
-                ? "Flagged for City Admin review. {$presentMember->full_name} stays exactly where they are until City Admin confirms."
-                : 'That suggestion has already been raised.'
-        );
     }
 
     /** Register a new household (Add Evacuee modal). checkin=1 also checks them in. */
@@ -370,7 +298,13 @@ class EvacueeProfilingController extends BarangayController
                 // the head, so the picker only speaks up when it needs to.
                 'matched' => $h->matchedMemberName($term),
                 // Derived on the model so both check-in pickers cannot disagree.
-                'action' => $h->checkinAction($activeCenterId),
+                'action' => $h->checkinAction($activeCenterId, $term),
+                /* The name to seed the register form with for a 'separated'
+                   row. Deliberately NOT 'matched' above, which is null when the
+                   term hit the head -- right for a label that would otherwise
+                   repeat the row, wrong for a prefill that would be blank in
+                   exactly that case. */
+                'separated_name' => $h->matchedMember($term)?->full_name,
             ]);
 
         return response()->json($results);

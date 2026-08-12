@@ -554,6 +554,31 @@ function initEvacueeForm() {
     window.EvacTech = window.EvacTech || {};
     window.EvacTech.reloadHouseholdIntoForm = (id) => loadHouseholdIntoForm(id);
 
+    /* DROP D. The check-in picker's 'separated' row needs a blank register form,
+       and resetForm() is scoped to this initialiser. Published on the SAME
+       bridge object rather than made a global, for the reason the whole file
+       exists: openModal/closeModal are module-scoped and calling one by bare
+       name from elsewhere throws ReferenceError.
+
+       Optionally seeds the head row's name. full_name is stored "Last, First
+       Middle" -- the same split loadHouseholdIntoForm() uses -- so a prefill
+       that guessed differently would put a surname in the wrong box. */
+    window.EvacTech.resetEvacueeFormFor = (fullName) => {
+        resetForm();
+        if (!fullName) return;
+
+        const [last, firstMiddle] = String(fullName).split(',').map((x) => x.trim());
+        const lastEl = headRow.querySelector('[data-field="last_name"]');
+        const firstEl = headRow.querySelector('[data-field="first_name"]');
+
+        /* Guard every lookup. A querySelector(...).value line pointing at markup
+           that is not there throws on the FIRST one and silently abandons the
+           rest of the function -- the bug that hid three features when
+           Facilities was removed. */
+        if (lastEl) lastEl.value = last || '';
+        if (firstEl) firstEl.value = firstMiddle || '';
+    };
+
     // Support deep-link ?edit={id} from the Shelter page's "Edit Family" action.
     const params = new URLSearchParams(window.location.search);
     const deepLinkId = params.get('edit');
@@ -846,6 +871,45 @@ function initShelterModals() {
                data-close-modal is bound at init over the elements that existed
                then, so an attribute on a row built now would never fire. */
             btn.addEventListener('click', () => closeModal('checkinModal'));
+            li.appendChild(btn);
+            return li;
+        }
+
+        /* DROP B. A person listed with a family at another shelter but NOT
+           present there is one person with two places to be, not a family that
+           needs moving. Offering Transfer here would move their whole family.
+
+           Deliberately NOT a button. The operator's next step is to register a
+           new household, which lives in a different modal, and a cross-modal
+           shortcut is more machinery than this is worth. The row states the
+           situation and stops the wrong action, which is the actual harm. */
+        if (item.action === 'separated') {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'btn-link text-left';
+            btn.textContent = `${label} \u00B7 listed with a family at `
+                + `${item.center || 'another shelter'} but not present there `
+                + '\u00B7 Register them here as a new household';
+            /* DROP D. This was plain text and it was a dead end: it told the
+               operator what to do and gave them no way to do it. Check-in
+               cannot help -- it acts on households that already exist, and this
+               person needs a NEW one -- so the row hands over to the register
+               form instead, with their name already in it.
+
+               The check-in modal must be closed explicitly. data-close-modal is
+               bound at init over elements that existed then, so an attribute on
+               a row built now would never fire. */
+            btn.addEventListener('click', () => {
+                closeModal('checkinModal');
+                openModal('evacueeModal');
+                if (window.EvacTech?.resetEvacueeFormFor) {
+                    window.EvacTech.resetEvacueeFormFor(item.separated_name || '');
+                } else {
+                    console.error('[EvacTech/staff] the evacuee modal is not on this page '
+                        + '(window.EvacueeConfig missing), so the separated-member row has '
+                        + 'nothing to open. Include partials/evacuee-modal.');
+                }
+            });
             li.appendChild(btn);
             return li;
         }

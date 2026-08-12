@@ -124,25 +124,8 @@ final class IdpForm
         $households = Household::where('status', 'checked_in')
             ->when($center, fn ($q) => $q->where('evacuation_center_id', $center->id));
 
-        /* PHASE 10A -- city-wide family totals DEDUPLICATE by link; per-shelter
-           totals do not.
-
-           A confirmed separated member creates a fragment household at her own
-           shelter that points at her family's household. City-wide, that is ONE
-           affected family in two places and counting it twice overstates the
-           figure. Per shelter, shelter B really is sheltering a fragment of a
-           family and its own count must say so -- which is why the exclusion is
-           applied only when there is no centre.
-
-           PERSONS is deliberately NOT deduplicated. The move guarantees one
-           person exists exactly once, so summing members_present across every
-           shelter already counts each human being once. */
-        $families = (clone $households)
-            ->when(! $center, fn ($q) => $q->whereNull('separated_from_household_id'))
-            ->count();
-
         return [
-            'families' => (int) $families,
+            'families' => (int) (clone $households)->count(),
             'persons' => (int) (clone $households)->sum('members_present'),
         ];
     }
@@ -397,12 +380,6 @@ final class IdpForm
             ->join('household_members', 'household_members.household_id', '=', 'households.id')
             ->where('households.status', 'checked_in')
             ->where('households.members_present', 1)
-            // PHASE 10A. This clause is a HAND COPY of scopeSingleHeaded(),
-            // because a groupBy needs the query builder rather than Eloquent.
-            // It must be changed in step with the scope or the printed TOTAL and
-            // its own male/female split disagree on a signed form -- and the
-            // reader will believe the split.
-            ->whereNull('households.separated_from_household_id')
             ->where('household_members.is_present', true)
             ->when($center, fn ($q) => $q->where('households.evacuation_center_id', $center->id))
             ->groupBy('household_members.sex')

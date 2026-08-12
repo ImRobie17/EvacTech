@@ -211,6 +211,24 @@ const runCheckinSearch = wireSearch('cd-ci-search', 'cd-ci-results', 'checkinSea
         return li;
     }
 
+    /* DROP B -- see the matching note in staff.js. Listed with a family
+       elsewhere but absent there means a registration, not a transfer.
+       Plain text on purpose: it stops the wrong action without wiring a
+       shortcut across modals. */
+    if (row.action === 'separated') {
+        /* DROP D. Left as plain text HERE, unlike the barangay picker, and the
+           reason is structural rather than a preference: this screen has no
+           register modal at all (cdCheckinModal, cdEditModal, cdDistributeModal
+           and cdReceiveModal are the only four), so there is nothing for a
+           button to open. Registration lives on Evacuee Profiling, so the row
+           says so rather than offering a control that cannot exist. */
+        li.className = 'text-sm';
+        li.textContent = label + ' \u00B7 listed with a family at '
+            + (row.current_center || 'another shelter') + ' but not present there '
+            + '\u00B7 Do NOT transfer. Register them as a new household from Evacuee Profiling.';
+        return li;
+    }
+
     if (row.action === 'transfer') {
         const btn = document.createElement('button');
         btn.type = 'button';

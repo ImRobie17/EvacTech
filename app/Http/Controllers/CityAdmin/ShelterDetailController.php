@@ -468,7 +468,15 @@ class ShelterDetailController extends Controller
                 /* Which control this row actually needs. Decided on the server so
                    the two pickers cannot disagree about it, and so the rule sits
                    beside the check-in guard that enforces the same thing. */
-                'action' => $h->checkinAction($center->id),
+                // DROP B passes the term -- see the note in the barangay
+                // endpoint. Both pickers must route a row the same way.
+                'action' => $h->checkinAction($center->id, $term),
+                /* DROP D. The name to seed the register form with, for a
+                   'separated' row. Deliberately NOT 'matched' above, which is
+                   null when the term hit the head -- correct for a label that
+                   would otherwise repeat the row, wrong for a prefill that
+                   would then be blank in exactly that case. */
+                'separated_name' => $h->matchedMember($term)?->full_name,
             ]);
 
         return response()->json($results);

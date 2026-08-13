@@ -480,6 +480,16 @@ function initEvacueeForm() {
         const data = await res.json();
 
         document.getElementById('ev-address').value = data.address || '';
+        /* DROP 1. Without this, form.reset() clears the box and the next save
+           writes is_separated = false -- silently discarding a declared fact
+           about somebody's family.
+
+           Guarded, because a querySelector line pointing at markup that is not
+           there throws on the FIRST one and silently abandons the rest of the
+           function. That is the bug that hid three features when Facilities was
+           removed. */
+        const evSep = document.getElementById('ev-separated');
+        if (evSep) evSep.checked = !!data.is_separated;
         const brgySelect = document.getElementById('ev-barangay');
         if (brgySelect && data.origin_barangay_id) {
             brgySelect.value = String(data.origin_barangay_id);
@@ -1523,3 +1533,33 @@ function initSpecialRequest(cfg, getCurrentHousehold) {
         runSpecialSearch('');
     });
 }
+
+/* DROP 2 -- reunification panel: show only the selected family's existing
+   entries. Everything is already in the DOM; this only toggles visibility.
+
+   Delegated on document, like every other handler in this file, so it works for
+   panels rendered after load. Toggles el.hidden rather than a class, because
+   design-system.css restates [hidden] { display: none !important } on purpose. */
+document.addEventListener('change', (e) => {
+    const sel = e.target.closest('[data-reunite-select]');
+    if (!sel) return;
+
+    const fragId = sel.dataset.reuniteSelect;
+    const list = document.querySelector(`[data-reunite-list="${fragId}"]`);
+    if (!list) {
+        console.error('[EvacTech/staff] reunification: no checkbox list for fragment ' + fragId);
+        return;
+    }
+
+    const hint = list.querySelector(`[data-reunite-hint="${fragId}"]`);
+    if (hint) hint.hidden = !!sel.value;
+
+    list.querySelectorAll('[data-reunite-group]').forEach((g) => {
+        const match = g.dataset.reuniteGroup === sel.value;
+        g.hidden = !match;
+        // Clear any tick left inside a group the operator has navigated away
+        // from, so a hidden checkbox can never post an id for a family that was
+        // not chosen.
+        if (!match) g.querySelectorAll('input[type="checkbox"]').forEach((c) => { c.checked = false; });
+    });
+});

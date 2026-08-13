@@ -95,6 +95,10 @@ class EvacueeProfilingController extends Controller
             'origin_barangay' => $household->originBarangay?->name,
             'status' => $household->status,
             'center' => $household->evacuationCenter?->name,
+            // DROP 1. The edit form must be able to re-tick this. Without it
+            // form.reset() leaves the box clear and the next save silently
+            // writes is_separated = false, quietly losing a declared fact.
+            'is_separated' => (bool) $household->is_separated,
             'checked_in_at' => $household->checked_in_at?->toIso8601String(),
             'checked_out_at' => $household->checked_out_at?->toIso8601String(),
             'members_present' => $household->members_present,
@@ -150,6 +154,10 @@ class EvacueeProfilingController extends Controller
                the two buttons post checkin=0 and checkin=1 respectively. */
             'evacuation_center_id' => ['nullable', 'required_if:checkin,1', 'exists:evacuation_centers,id'],
             'address' => ['required', 'string', 'max:255'],
+            /* DROP 1. Declared by the operator, never inferred. Absent from the
+               post when the box is unticked, so it must be nullable rather than
+               boolean-required. */
+            'is_separated' => ['nullable', 'boolean'],
             'checkin' => ['nullable', 'boolean'],
             'members' => ['required', 'array', 'min:1'],
             'members.*.id' => ['nullable', 'integer'],
@@ -210,6 +218,10 @@ class EvacueeProfilingController extends Controller
                 'household_code' => $code,
                 'origin_barangay_id' => $data['origin_barangay_id'],
                 'origin_address' => $data['address'],
+                // DROP 1. Unticked boxes are absent from the post entirely, so
+                // coalesce rather than index -- and cast, because an HTML
+                // checkbox posts the string "1", not a boolean.
+                'is_separated' => (bool) ($data['is_separated'] ?? false),
                 'number_of_members' => count($data['members']),
                 'status' => 'registered',
                 'registered_by' => auth()->id(),

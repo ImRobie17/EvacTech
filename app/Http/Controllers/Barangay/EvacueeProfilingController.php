@@ -8,6 +8,7 @@ use App\Models\Household;
 use App\Models\VulnerableClassification;
 use App\Services\AuditLogger;
 use App\Services\HouseholdMemberSync;
+use App\Services\ReunificationService;
 use App\Support\AgeTier;
 use App\Support\HouseholdCode;
 use App\Support\MemberRules;
@@ -16,8 +17,10 @@ use Illuminate\Support\Facades\DB;
 
 class EvacueeProfilingController extends BarangayController
 {
-    public function __construct(private HouseholdMemberSync $sync)
-    {
+    public function __construct(
+        private HouseholdMemberSync $sync,
+        private ReunificationService $reunification
+    ) {
     }
 
     public function index(Request $request, ?EvacuationCenter $routeCenter = null)
@@ -87,9 +90,69 @@ class EvacueeProfilingController extends BarangayController
         $barangays = Barangay::orderBy('name')->get();
         $defaultBarangayId = $center?->barangay_id;
 
+        /* DROP 2. Households declared separated at registration, still at this
+           shelter. ALWAYS passed and always rendered -- empty is the normal
+           answer, and a panel that only appears when it has rows makes
+           "nobody is separated here" and "this feature does not exist" look
+           identical.
+
+           familyOptions is keyed by fragment id so the modal can offer only
+           households at this shelter, and never has to guess which family. */
+        $separatedHouseholds = $center ? $this->reunification->pendingAt($center) : collect();
+
+        $familyOptions = [];
+        if ($center) {
+            foreach ($separatedHouseholds as $frag) {
+                $familyOptions[$frag->id] = $this->reunification->familyOptionsAt($center, $frag);
+            }
+        }
+
         return view('barangay.evacuees.index', compact(
-            'households', 'classifications', 'ageGroups', 'center', 'barangays', 'defaultBarangayId'
+            'households', 'classifications', 'ageGroups', 'center', 'barangays', 'defaultBarangayId',
+            'separatedHouseholds', 'familyOptions'
         ));
+    }
+
+    /**
+     * DROP 2 -- reunite a separated household with its family.
+     *
+     * Both households must be at THIS shelter and the operator must be able to
+     * act on both, so authorisation is checked at both ends rather than
+     * inferred from one.
+     *
+     * The whole transition lives in ReunificationService. It throws rather than
+     * returning false, so a refusal cannot be mistaken for success by a caller
+     * that ignores a return value.
+     */
+    public function reunite(Request $request)
+    {
+        $data = $request->validate([
+            'fragment_id' => ['required', 'integer', 'exists:households,id'],
+            'family_id' => ['required', 'integer', 'exists:households,id'],
+            // Rows inside the FAMILY that the operator says are the same people
+            // now arriving. May legitimately be empty: the family may never have
+            // listed them.
+            'stale' => ['nullable', 'array'],
+            'stale.*' => ['integer'],
+        ]);
+
+        $fragment = Household::findOrFail($data['fragment_id']);
+        $family = Household::findOrFail($data['family_id']);
+
+        if (! $this->canManageHousehold($fragment) || ! $this->canManageHousehold($family)) {
+            abort(403);
+        }
+
+        try {
+            $this->reunification->reunite($fragment, $family, $data['stale'] ?? [], $request->user());
+        } catch (\RuntimeException $e) {
+            return redirect()->back()->with('error', $e->getMessage());
+        }
+
+        return redirect()->back()->with(
+            'success',
+            'Reunited. Their records are now one household, ' . $family->household_code . '.'
+        );
     }
 
     /** Register a new household (Add Evacuee modal). checkin=1 also checks them in. */
@@ -106,6 +169,10 @@ class EvacueeProfilingController extends BarangayController
                 'household_code' => $code,
                 'origin_barangay_id' => $data['origin_barangay_id'],
                 'origin_address' => $data['address'],
+                // DROP 1. Unticked boxes are absent from the post entirely, so
+                // coalesce rather than index -- and cast, because an HTML
+                // checkbox posts the string "1", not a boolean.
+                'is_separated' => (bool) ($data['is_separated'] ?? false),
                 'number_of_members' => count($data['members']),
                 'status' => 'registered',
                 'registered_by' => auth()->id(),
@@ -156,6 +223,10 @@ class EvacueeProfilingController extends BarangayController
             'code' => $household->household_code,
             'address' => $household->origin_address,
             'origin_barangay_id' => $household->origin_barangay_id,
+            // DROP 1. The edit form must be able to re-tick this. Without it
+            // form.reset() leaves the box clear and the next save silently
+            // writes is_separated = false, quietly losing a declared fact.
+            'is_separated' => (bool) $household->is_separated,
             'origin_barangay' => $household->originBarangay?->name,
             'status' => $household->status,
             /* PHASE 6 ITEM 10. The read-only view modal shows check-in and
@@ -211,6 +282,10 @@ class EvacueeProfilingController extends BarangayController
         DB::transaction(function () use ($household, $data) {
             $household->update([
                 'origin_address' => $data['address'],
+                // DROP 1. Unticked boxes are absent from the post entirely, so
+                // coalesce rather than index -- and cast, because an HTML
+                // checkbox posts the string "1", not a boolean.
+                'is_separated' => (bool) ($data['is_separated'] ?? false),
                 'origin_barangay_id' => $data['origin_barangay_id'],
             ]);
             $this->sync->sync($household, $data['members'], keepPresence: true);
@@ -317,6 +392,10 @@ class EvacueeProfilingController extends BarangayController
         return $request->validate([
             'origin_barangay_id' => ['required', 'exists:barangays,id'],
             'address' => ['required', 'string', 'max:255'],
+            /* DROP 1. Declared by the operator, never inferred. Absent from the
+               post when the box is unticked, so it must be nullable rather than
+               boolean-required. */
+            'is_separated' => ['nullable', 'boolean'],
             'members' => ['required', 'array', 'min:1'],
             'members.*.id' => ['nullable', 'integer'],
             // PHASE 3 ITEM 9. Blank on a non-head row is allowed:

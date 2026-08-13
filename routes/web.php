@@ -77,6 +77,12 @@ Route::middleware(['auth', 'role:barangay_personnel', 'shelter.assigned'])
         Route::put('/evacuees/{household}', [EvacueeProfilingController::class, 'update'])->name('evacuees.update');
         Route::delete('/evacuees/{household}', [EvacueeProfilingController::class, 'destroy'])->name('evacuees.destroy');
 
+        /* DROP 2 -- reunite a separated household with its family. Its own
+           literal path, declared after the model bindings, so nothing can be
+           swallowed by {household}. */
+        Route::post('/evacuees/reunite', [EvacueeProfilingController::class, 'reunite'])
+            ->name('evacuees.reunite');
+
         // Evacuation Shelter (check-in / check-out / transfer head)
         Route::get('/shelter', [ShelterController::class, 'index'])->name('shelter.index');
         Route::post('/shelter/{household}/check-in', [ShelterController::class, 'checkIn'])->name('shelter.checkin');

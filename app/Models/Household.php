@@ -19,7 +19,14 @@ class Household extends Model
         // a column absent from $fillable is silently discarded by update(), and
         // an acting head that never saved would look exactly like a UI bug.
         'acting_head_member_id',
-        'origin_address', 'number_of_members', 'members_present', 'status',
+        'origin_address',
+        /* DROP 1. A DECLARED fact: the person at the desk said their family is
+           sheltering elsewhere. Not inferred, not a link -- see the migration.
+           In $fillable and cast, because a column that is neither is silently
+           dropped by create()/update(), which is the bug that held the
+           headcount at 0 for a whole phase. */
+        'is_separated',
+        'number_of_members', 'members_present', 'status',
         'checked_in_at', 'checked_out_at', 'registered_by',
     ];
 
@@ -28,6 +35,7 @@ class Household extends Model
     protected function casts(): array
     {
         return [
+            'is_separated' => 'boolean',
             'checked_in_at' => 'datetime',
             'checked_out_at' => 'datetime',
         ];

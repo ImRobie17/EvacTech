@@ -142,6 +142,26 @@
                 </div>
             </div>
             <div class="field"><label for="ce-address">Family address</label><input type="text" id="ce-address" name="address" required maxlength="255"></div>
+                <div class="field">
+                    {{-- DROP 1. A DECLARED fact, not a detected one. The person
+                         at the desk says their family is sheltering elsewhere and
+                         the operator records it. Nothing is matched by name --
+                         that approach missed "Maria Santos" against "Maria Santos
+                         Jr." and would have proposed merging strangers if it were
+                         loosened.
+
+                         Nothing happens to counts. This household is its own
+                         affected family at this shelter. The flag is what lets
+                         the arrival screen offer to reunite them later. --}}
+                    <label for="ce-separated" class="flex items-start gap-2">
+                        <input type="checkbox" id="ce-separated" name="is_separated" value="1"
+                               class="mt-1">
+                        <span>Separated from their family (family is sheltering elsewhere)</span>
+                    </label>
+                    <small class="field-hint">Tick when this household is part of a
+                        larger family that evacuated to a different shelter. They stay
+                        registered here; staff can reunite the records later.</small>
+                </div>
 
             <fieldset class="member-fieldset" id="ceHeadFieldset"><legend>Household Head</legend><div id="ceHeadRow"></div></fieldset>
             <fieldset class="member-fieldset"><legend>Family Members</legend><div id="ceMemberRows"></div>

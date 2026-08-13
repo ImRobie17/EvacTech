@@ -183,7 +183,19 @@ class HouseholdMemberSync
      * The auto-tagging of Senior (60+) and Infant (0-5) that used to live here
      * is GONE. Those are age tiers now, derived on read.
      */
-    private function applyTags(HouseholdMember $member, array $submitted): void
+    /*
+     * SEPARATED HOUSEHOLDS DROP 2 made this public. It was private, and
+     * reunification needs to carry a vulnerability tag from a record being
+     * deleted onto the record being kept.
+     *
+     * Published rather than worked around deliberately. This is the ONE write
+     * path for member tags -- it is where female-only categories are stripped
+     * from any non-female member, and where rows created before that rule
+     * existed self-heal. Writing to member_vulnerabilities directly from the
+     * new service would have created a second path and, in time, a
+     * disagreement. Nothing about the method's behaviour changes.
+     */
+    public function applyTags(HouseholdMember $member, array $submitted): void
     {
         $selectable = $this->selectableIds();
 

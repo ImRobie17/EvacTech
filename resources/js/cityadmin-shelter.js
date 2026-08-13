@@ -505,6 +505,9 @@ document.addEventListener('click', async (e) => {
     editIndex = 1;
 
     document.getElementById('cd-ed-address').value = data.address || '';
+    // DROP 1 -- see the matching note in staff.js. Guarded for the same reason.
+    const cdSep = document.getElementById('cd-ed-separated');
+    if (cdSep) cdSep.checked = !!data.is_separated;
     const brgy = document.getElementById('cd-ed-barangay');
     if (brgy) brgy.value = data.origin_barangay_id ? String(data.origin_barangay_id) : '';
 

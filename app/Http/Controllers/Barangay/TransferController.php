@@ -135,7 +135,24 @@ class TransferController extends BarangayController
             $data['reasons'] ?? []
         );
 
-        return back()->with('success', 'Arrival recorded. Both shelter headcounts have been updated.');
+        /* DROP 2. Point at the panel rather than interrupting with a modal.
+
+           A modal here would be a ONE-SHOT decision at the worst possible
+           moment: staff are mid-arrival, possibly with a queue behind them, and
+           once dismissed there would be no second chance -- both households are
+           now at the same shelter, so no future transfer would ever raise it
+           again. "Not now" would silently mean "never".
+
+           The panel on Evacuee Profiling is always there, so declining costs
+           nothing and needs no stored decision. */
+        $msg = 'Arrival recorded. Both shelter headcounts have been updated.';
+
+        if ($transfer->household?->fresh()?->is_separated) {
+            $msg .= ' This household is marked separated from their family -- you can reunite'
+                . ' the records from the Separated Households panel on Evacuee Profiling.';
+        }
+
+        return back()->with('success', $msg);
     }
 
     /**

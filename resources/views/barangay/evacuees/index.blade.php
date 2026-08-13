@@ -60,6 +60,116 @@
     <button type="submit" class="btn-secondary">Apply</button>
 </form>
 
+{{-- ======== DROP 2 -- separated households at this shelter ========
+     A household declared "separated from their family" at registration. Once
+     the family is also at this shelter, the two records can be collapsed into
+     one.
+
+     ALWAYS RENDERED, count in the heading, written empty state. Empty is the
+     normal answer.
+
+     NOTHING IS MATCHED BY NAME. The operator picks the family and identifies
+     which of that family's existing entries are the same people now standing
+     here. Both are human statements. The previous design inferred this from
+     names and could not be made to work.
+
+     Everything is server-rendered -- no fetch, no dynamically built rows. Each
+     fragment gets its own complete form with every family and every family
+     member already in the markup, so there is nothing to load and nothing that
+     can race. --}}
+<div class="card panel table-panel">
+    <h2 class="panel-title">Separated Households at This Shelter ({{ $separatedHouseholds->count() }})</h2>
+    <p class="text-sm text-ink-muted">
+        These households told us at registration that their family evacuated somewhere else.
+        When that family is also sheltering here, reunite the records so the family appears once.
+        Each household below still counts as its own family at this shelter until you do.
+    </p>
+
+    @forelse($separatedHouseholds as $frag)
+        @php
+            $families = $familyOptions[$frag->id] ?? collect();
+        @endphp
+        <div class="mt-4 rounded bg-info-bg p-3">
+            <p class="text-sm text-info">
+                <span class="font-mono">{{ $frag->household_code }}</span>
+                &mdash;
+                {{ $frag->members->pluck('full_name')->implode(', ') }}
+            </p>
+
+            @if($families->isEmpty())
+                <p class="empty-note">
+                    No other household at this shelter to reunite them with yet. When their
+                    family arrives, or is transferred here, they will be selectable.
+                </p>
+            @else
+                <form method="POST" action="{{ route('barangay.evacuees.reunite') }}" class="mt-2">
+                    @csrf
+                    <input type="hidden" name="fragment_id" value="{{ $frag->id }}">
+
+                    <div class="field">
+                        <label for="reunite-family-{{ $frag->id }}">Which family are they part of?</label>
+                        <select id="reunite-family-{{ $frag->id }}" name="family_id" required
+                                data-reunite-select="{{ $frag->id }}">
+                            <option value="">Select the family</option>
+                            @foreach($families as $fam)
+                                <option value="{{ $fam->id }}">
+                                    {{ $fam->household_code }} &mdash; {{ $fam->headMember()?->full_name ?? 'No head listed' }}
+                                    ({{ $fam->members->count() }} members)
+                                </option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    <fieldset class="mt-2">
+                        <legend class="text-sm font-semibold">
+                            Did that family already list any of these people?
+                        </legend>
+                        <p class="text-sm text-ink-soft">
+                            Tick an entry only if it is the SAME PERSON now standing here. Ticked
+                            entries are replaced by the newer record taken at registration.
+                            Leave everything unticked if the family never listed them.
+                        </p>
+                        {{-- Every family's members are rendered, then all but the
+                             selected family's are hidden. Server-rendered rather
+                             than fetched: nothing to load, nothing that can race,
+                             and the correct default state is in the markup --
+                             delegation cannot observe a row being cloned in. --}}
+                        <div class="checkbox-list" data-reunite-list="{{ $frag->id }}">
+                            @foreach($families as $fam)
+                                <div data-reunite-group="{{ $fam->id }}" hidden>
+                                    @foreach($fam->members as $fm)
+                                        <label class="flex items-start gap-2">
+                                            <input type="checkbox" name="stale[]" value="{{ $fm->id }}" class="mt-1">
+                                            <span>
+                                                {{ $fm->full_name }}
+                                                @if(! $fm->is_present)
+                                                    <span class="badge">Not present</span>
+                                                @endif
+                                            </span>
+                                        </label>
+                                    @endforeach
+                                </div>
+                            @endforeach
+                            <p class="empty-note" data-reunite-hint="{{ $frag->id }}">
+                                Select the family above to see who they already listed.
+                            </p>
+                        </div>
+                    </fieldset>
+
+                    <div class="modal-actions mt-2">
+                        <button type="submit" class="btn-primary">Reunite records</button>
+                    </div>
+                </form>
+            @endif
+        </div>
+    @empty
+        <p class="empty-note">
+            No separated households at this shelter. This is the normal result &mdash; a household
+            appears here only when staff ticked "Separated from their family" while registering it.
+        </p>
+    @endforelse
+</div>
+
 <div class="card panel table-panel">
     {{-- data-stack + a data-label on every <td>: one change, never one without
          the other. Seven columns is the widest table in the barangay screens and
@@ -97,6 +207,13 @@
                              is what it actually describes. --}}
                         @if($h->isSingleHeaded())
                             <span class="block"><span class="badge badge-warning">Single-headed</span></span>
+                        @endif
+                        {{-- DROP 1. Status is never colour-only, so the badge
+                             carries its own words. This household counts as its
+                             own affected family here -- the badge records that
+                             the family is split, not that the count is wrong. --}}
+                        @if($h->is_separated)
+                            <span class="block"><span class="badge">Separated from family</span></span>
                         @endif
                     </td>
                     <td data-label="Family Size" data-numeric class="whitespace-nowrap">{{ $h->number_of_members }}</td>

@@ -18,10 +18,14 @@ class DatabaseSeeder extends Seeder
             // Its only consumer was the department_id foreign key on
             // `inquiries`, and the whole portal cluster is gone -- the portal
             // is a separate system now.
+            // Shelters must exist before any staff assignment or evacuee.
+            EvacuationCenterSeeder::class,
             SuperAdminSeeder::class,
             BarangayPersonnelDemoSeeder::class, 
             CityAdminDemoSeeder::class, 
             PublicSiteSeeder::class,
+            // Last: needs shelters, classifications and relief goods in place.
+            DemoEvacueeSeeder::class,
         ]);
     }
 }

@@ -13,6 +13,7 @@
 */
 
 use App\Http\Controllers\SuperAdmin\AuditLogController;
+use App\Http\Controllers\SuperAdmin\BarangayManagementController;
 use App\Http\Controllers\SuperAdmin\DashboardController;
 use App\Http\Controllers\SuperAdmin\ReportController;
 use App\Http\Controllers\SuperAdmin\SystemSettingController;
@@ -53,6 +54,14 @@ Route::middleware(['auth', 'role:super_admin'])
         Route::post('/settings/backup', [SystemSettingController::class, 'backup'])->name('settings.backup');
         Route::post('/settings/maintenance', [SystemSettingController::class, 'toggleMaintenance'])->name('settings.maintenance');
         Route::post('/settings/alerts/{alert}/resolve', [SystemSettingController::class, 'resolveAlert'])->name('settings.alerts.resolve');
+
+        // PHASE 11 - Barangay Management
+        Route::get('/barangays', [BarangayManagementController::class, 'index'])->name('barangays.index');
+        Route::get('/barangays/create', [BarangayManagementController::class, 'create'])->name('barangays.create');
+        Route::post('/barangays', [BarangayManagementController::class, 'store'])->name('barangays.store');
+        Route::get('/barangays/{barangay}/edit', [BarangayManagementController::class, 'edit'])->name('barangays.edit');
+        Route::put('/barangays/{barangay}', [BarangayManagementController::class, 'update'])->name('barangays.update');
+        Route::delete('/barangays/{barangay}', [BarangayManagementController::class, 'destroy'])->name('barangays.destroy');
 
         // Report Generation
         Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');

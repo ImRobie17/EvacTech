@@ -72,6 +72,10 @@
             <a href="{{ route('super.users.index') }}" class="nav-item {{ request()->routeIs('super.users.*') ? 'active' : '' }}">
                 <span class="nav-icon" aria-hidden="true">&#9881;</span><span class="nav-label">User Management</span>
             </a>
+            {{-- PHASE 11 - Barangay Management --}}
+            <a href="{{ route('super.barangays.index') }}" class="nav-item {{ request()->routeIs('super.barangays.*') ? 'active' : '' }}">
+                <span class="nav-icon" aria-hidden="true">&#9878;</span><span class="nav-label">Barangay Management</span>
+            </a>
             <a href="{{ route('super.audit.index') }}" class="nav-item {{ request()->routeIs('super.audit.*') ? 'active' : '' }}">
                 <span class="nav-icon" aria-hidden="true">&#9782;</span><span class="nav-label">Audit Logs</span>
             </a>

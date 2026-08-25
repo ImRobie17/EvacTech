@@ -334,7 +334,7 @@ class ReportController extends BarangayController
                         $totalMembers = $members->count();
 
                         // Get all vulnerability classifications
-                        $classifications = \App\Models\VulnerableClassification::where('selectable', true)
+                        $classifications = \App\Models\VulnerableClassification::where('is_selectable', true)
                             ->orderBy('name')
                             ->get();
 

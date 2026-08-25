@@ -23,7 +23,7 @@
         </div>
     @endif
 
-    <div class="table-responsive">
+    <div class="overflow-x-auto">
         <table class="data-table">
             <thead>
                 <tr>
@@ -31,7 +31,7 @@
                     <th>Code</th>
                     <th>Risk Level</th>
                     <th>Users</th>
-                    <th>Centers</th>
+                    <th>Evacuation Centers</th>
                     <th>Households</th>
                     <th>Coordinates</th>
                     <th>Actions</th>
@@ -42,7 +42,7 @@
                     <tr>
                         <td>{{ $barangay->name }}</td>
                         <td>{{ $barangay->code }}</td>
-                        <td>{{ $barangay->risk_level ? ucfirst($barangay->risk_level) : '-' }}</td>
+                        <td>{{ $barangay->risk_level ?? '-' }}</td>
                         <td>{{ $barangay->users_count }}</td>
                         <td>{{ $barangay->evacuation_centers_count }}</td>
                         <td>{{ $barangay->households_count }}</td>
@@ -55,19 +55,17 @@
                         </td>
                         <td>
                             <div class="flex gap-2">
-                                <a href="{{ route('super.barangays.edit', $barangay) }}"
-                                   class="btn-icon btn-icon-secondary"
-                                   title="Edit Barangay">
-                                    &#9998;
+                                <a href="{{ route('super.barangays.edit', $barangay) }}" 
+                                   class="btn-sm btn-secondary">
+                                    Edit
                                 </a>
-                                <form method="POST" action="{{ route('super.barangays.destroy', $barangay) }}"
+                                <form method="POST" action="{{ route('super.barangays.destroy', $barangay) }}" 
                                       class="inline"
                                       onsubmit="return confirm('Are you sure you want to delete barangay {{ $barangay->name }}? This action cannot be undone.');">
                                     @csrf
                                     @method('DELETE')
-                                    <button type="submit" class="btn-icon btn-icon-danger"
-                                            title="Delete Barangay">
-                                        &times;
+                                    <button type="submit" class="btn-sm btn-danger">
+                                        Delete
                                     </button>
                                 </form>
                             </div>

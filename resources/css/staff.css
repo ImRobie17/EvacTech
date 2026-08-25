@@ -408,64 +408,6 @@
     font-weight: var(--weight-medium);
 }
 
-/* =========================================================================
-   Icon buttons (for table actions)
-   ========================================================================= */
-.btn-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    padding: 0;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    background: var(--color-bg);
-    color: var(--color-ink);
-    font-size: 16px;
-    font-weight: var(--weight-bold);
-    cursor: pointer;
-    transition: all 0.2s ease;
-    text-decoration: none;
-}
-
-.btn-icon:hover {
-    background: var(--color-bg-hover);
-    border-color: var(--color-primary-500);
-    color: var(--color-primary-600);
-}
-
-.btn-icon-secondary:hover {
-    background: var(--color-primary-50);
-    border-color: var(--color-primary-500);
-    color: var(--color-primary-700);
-}
-
-.btn-icon-danger:hover {
-    background: var(--color-danger-bg);
-    border-color: var(--color-danger);
-    color: var(--color-danger);
-}
-
-.btn-icon:active {
-    transform: scale(0.95);
-}
-
-/* =========================================================================
-   Responsive table
-   ========================================================================= */
-.table-responsive {
-    width: 100%;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-}
-
-@media (min-width: 1024px) {
-    .table-responsive {
-        overflow-x: visible;
-    }
-}
-
 .alert-success {
     background: var(--color-success-bg);
     color: var(--color-success);

@@ -220,3 +220,13 @@ td.matrix-cell.stock-none { color: var(--color-text-secondary); }
     text-overflow: ellipsis;
     max-width: 300px;
 }
+
+/* Prevent button text wrapping in Actions column */
+.actions-cell {
+    white-space: nowrap;
+    min-width: 150px;
+}
+
+.actions-cell .btn-sm {
+    white-space: nowrap;
+}

@@ -43,9 +43,12 @@
 
         <div class="field">
             <label for="risk_level">Risk Level</label>
-            <input type="text" id="risk_level" name="risk_level" 
-                   value="{{ old('risk_level', $barangay->risk_level) }}" 
-                   placeholder="e.g. High, Medium, Low">
+            <select id="risk_level" name="risk_level">
+                <option value="">-- Select Risk Level --</option>
+                <option value="low" {{ old('risk_level', $barangay->risk_level) === 'low' ? 'selected' : '' }}>Low</option>
+                <option value="moderate" {{ old('risk_level', $barangay->risk_level) === 'moderate' ? 'selected' : '' }}>Moderate</option>
+                <option value="high" {{ old('risk_level', $barangay->risk_level) === 'high' ? 'selected' : '' }}>High</option>
+            </select>
             <p class="mt-1 text-xs text-ink-muted">
                 Optional: Risk level classification for disaster response planning
             </p>

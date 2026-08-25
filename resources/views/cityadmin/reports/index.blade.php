@@ -101,6 +101,8 @@
                          tagged ones; Shelter Ranking is City Admin only. --}}
                     <option value="demographics">Evacuee Demographics</option>
                     <option value="shelter_ranking">Shelter Ranking (most to least full)</option>
+                    {{-- Phase 11 - Shelter Demographic Summary --}}
+                    <option value="shelter_demographic_summary">Shelter Demographic Summary</option>
                 </select>
             </div>
             <div class="field">

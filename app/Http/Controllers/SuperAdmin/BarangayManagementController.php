@@ -31,10 +31,15 @@ class BarangayManagementController extends Controller
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255', 'unique:barangays'],
             'code' => ['required', 'string', 'max:50', 'unique:barangays'],
-            'risk_level' => ['nullable', 'string', 'max:50'],
+            'risk_level' => ['nullable', 'string', 'in:low,moderate,high'],
             'latitude' => ['nullable', 'numeric', 'between:-90,90'],
             'longitude' => ['nullable', 'numeric', 'between:-180,180'],
         ]);
+
+        // Normalize risk_level to lowercase to match database ENUM
+        if (isset($data['risk_level'])) {
+            $data['risk_level'] = strtolower($data['risk_level']);
+        }
 
         $barangay = Barangay::create($data);
 
@@ -54,10 +59,15 @@ class BarangayManagementController extends Controller
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255', Rule::unique('barangays')->ignore($barangay->id)],
             'code' => ['required', 'string', 'max:50', Rule::unique('barangays')->ignore($barangay->id)],
-            'risk_level' => ['nullable', 'string', 'max:50'],
+            'risk_level' => ['nullable', 'string', 'in:low,moderate,high'],
             'latitude' => ['nullable', 'numeric', 'between:-90,90'],
             'longitude' => ['nullable', 'numeric', 'between:-180,180'],
         ]);
+
+        // Normalize risk_level to lowercase to match database ENUM
+        if (isset($data['risk_level'])) {
+            $data['risk_level'] = strtolower($data['risk_level']);
+        }
 
         $oldName = $barangay->name;
         $barangay->update($data);

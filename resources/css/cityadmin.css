@@ -198,3 +198,25 @@ td.matrix-cell.stock-none { color: var(--color-text-secondary); }
 .detail-list dd { margin: 0; font-size: var(--text-sm); }
 
 .search-empty { color: var(--color-text-muted); font-style: italic; }
+
+/* Text truncation for long content in table cells */
+.text-truncate {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
+}
+
+.text-truncate-sm {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 150px;
+}
+
+.text-truncate-lg {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 300px;
+}

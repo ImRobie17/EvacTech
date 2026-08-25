@@ -40,13 +40,13 @@
             <tbody>
                 @forelse($barangays as $barangay)
                     <tr>
-                        <td>{{ $barangay->name }}</td>
-                        <td>{{ $barangay->code }}</td>
+                        <td class="text-truncate">{{ $barangay->name }}</td>
+                        <td class="text-truncate-sm">{{ $barangay->code }}</td>
                         <td>{{ $barangay->risk_level ?? '-' }}</td>
                         <td>{{ $barangay->users_count }}</td>
                         <td>{{ $barangay->evacuation_centers_count }}</td>
                         <td>{{ $barangay->households_count }}</td>
-                        <td>
+                        <td class="text-truncate-sm">
                             @if($barangay->latitude && $barangay->longitude)
                                 {{ $barangay->latitude }}, {{ $barangay->longitude }}
                             @else
@@ -55,11 +55,11 @@
                         </td>
                         <td>
                             <div class="flex gap-2">
-                                <a href="{{ route('super.barangays.edit', $barangay) }}" 
+                                <a href="{{ route('super.barangays.edit', $barangay) }}"
                                    class="btn-sm btn-secondary">
                                     Edit
                                 </a>
-                                <form method="POST" action="{{ route('super.barangays.destroy', $barangay) }}" 
+                                <form method="POST" action="{{ route('super.barangays.destroy', $barangay) }}"
                                       class="inline"
                                       onsubmit="return confirm('Are you sure you want to delete barangay {{ $barangay->name }}? This action cannot be undone.');">
                                     @csrf

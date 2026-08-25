@@ -698,6 +698,28 @@
     overflow-wrap: anywhere;
 }
 
+/* Text truncation for long content in table cells */
+.text-truncate {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
+}
+
+.text-truncate-sm {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 150px;
+}
+
+.text-truncate-lg {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 300px;
+}
+
 /* PHASE 6 ITEM 2. Header cells stay on one line. "Check-in Date & Time" was
    wrapping to four lines and dragging the whole header band down with it; on
    one line it also asks the column for the width its dates actually need.

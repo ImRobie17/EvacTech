@@ -720,6 +720,16 @@
     max-width: 300px;
 }
 
+/* Prevent button text wrapping in Actions column */
+.actions-cell {
+    white-space: nowrap;
+    min-width: 150px;
+}
+
+.actions-cell .btn-sm {
+    white-space: nowrap;
+}
+
 /* PHASE 6 ITEM 2. Header cells stay on one line. "Check-in Date & Time" was
    wrapping to four lines and dragging the whole header band down with it; on
    one line it also asks the column for the width its dates actually need.

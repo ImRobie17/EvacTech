@@ -53,7 +53,7 @@
                                 -
                             @endif
                         </td>
-                        <td>
+                        <td class="actions-cell">
                             <div class="flex gap-2">
                                 <a href="{{ route('super.barangays.edit', $barangay) }}"
                                    class="btn-sm btn-secondary">

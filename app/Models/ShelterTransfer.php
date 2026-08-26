@@ -1,0 +1,506 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
+/**
+ * PHASE 2 ITEM 8 -- a single shelter-to-shelter move.
+ *
+ * State machine:
+ *
+ *   pending --(destination confirms)--> approved
+ *                                          |
+ *                              (origin records OUT)
+ *                                          v
+ *                                      in_transit
+ *                                          |
+ *                            (destination records IN)
+ *                                          v
+ *                                       completed
+ *
+ *   pending  --(destination refuses)--> refused    [alerts City Admin]
+ *   pending  --(origin or City cancels)--> cancelled
+ *   approved --(origin or City cancels)--> cancelled
+ *   in_transit --(CITY ADMIN ONLY cancels)--> cancelled
+ *
+ * There is no refuse-after-confirm path on purpose. A destination that has
+ * confirmed is committed; if it changes its mind after the family arrives it
+ * receives them and files a fresh transfer back out, so both movements appear
+ * in the audit trail.
+ *
+ * OCCUPANCY: the household stays checked_in AT THE ORIGIN with members_present
+ * intact for the whole of pending/approved/in_transit. Nothing here touches
+ * households.status, and the enum value 'transferred' is deliberately never
+ * used -- setting it would drop the family out of recalcOccupancy() at the
+ * origin while they are not yet counted anywhere else, which is exactly the
+ * vanishing-headcount bug this design avoids. Transit state lives on this row
+ * and nowhere else.
+ */
+class ShelterTransfer extends Model
+{
+    public const PENDING = 'pending';
+    public const APPROVED = 'approved';
+    public const IN_TRANSIT = 'in_transit';
+    public const COMPLETED = 'completed';
+    public const REFUSED = 'refused';
+    public const CANCELLED = 'cancelled';
+
+    /** Statuses where the family is committed to a move that has not finished. */
+    public const OPEN_STATUSES = [self::PENDING, self::APPROVED, self::IN_TRANSIT];
+
+    /**
+     * Minutes in transit before a transfer is flagged overdue. Computed on read,
+     * never by a scheduler: there is no cron in this project, and a UI that
+     * depended on one would silently show nothing on a machine where Windows
+     * Task Scheduler was never configured.
+     *
+     * The env override exists so the overdue state can be demonstrated at the
+     * defence without waiting an hour.
+     */
+    public const OVERDUE_MINUTES = 60;
+
+    // -----------------------------------------------------------------
+    // PHASE 5 ITEM 8b -- absence reasons.
+    //
+    // All logic keys on CODE, never on label -- the same rule the vulnerable
+    // classifications follow, and for the same reason: a label is a display
+    // string somebody will eventually reword.
+    //
+    // WHY REASONS AT ALL: three of these four answers mean nothing is wrong.
+    // Recording which one applies, at the moment the only person who might know
+    // is standing at the desk, is what stops every straggler looking equally
+    // alarming. An alert bar that fires on all of them is an alert bar staff
+    // learn to ignore.
+    // -----------------------------------------------------------------
+
+    public const REASON_SEPARATE = 'separate';
+    public const REASON_RETURNED_HOME = 'returned_home';
+    public const REASON_OTHER_SHELTER = 'other_shelter';
+    public const REASON_UNKNOWN = 'unknown';
+
+    /** @var array<string, string> code to label */
+    public const ABSENCE_REASONS = [
+        self::REASON_SEPARATE => 'Travelled separately, expected later',
+        self::REASON_RETURNED_HOME => 'Returned home',
+        self::REASON_OTHER_SHELTER => 'Went to another shelter',
+        self::REASON_UNKNOWN => 'Unknown',
+    ];
+
+    /**
+     * The only reason that means nobody at the desk could answer the question.
+     * Everything else has already been answered by a human and needs no chasing.
+     */
+    public const ALERTING_REASONS = [self::REASON_UNKNOWN];
+
+    /**
+     * Resolutions offered by the Resolve control on the Transfers pages.
+     *
+     * 'separate' is deliberately absent: "expected later" is a reason, not a
+     * resolution, and it never raised anything to resolve.
+     *
+     * RESOLUTION_ARRIVED is never written to the row. Arrival is carried by
+     * household_members.is_present alone, so that if presence is later corrected
+     * back to absent the person legitimately reappears as unaccounted for --
+     * they are absent again, and nobody has said why. Writing a resolution for
+     * it would silence that permanently.
+     *
+     * @var array<string, string>
+     */
+    public const RESOLUTION_ARRIVED = 'arrived';
+
+    /** @var array<string, string> resolutions that ARE stored on the row */
+    public const RECORDED_RESOLUTIONS = [
+        self::REASON_RETURNED_HOME => 'Returned home',
+        self::REASON_OTHER_SHELTER => 'Went to another shelter',
+    ];
+
+    public static function absenceReasonLabel(?string $code): string
+    {
+        return self::ABSENCE_REASONS[$code] ?? 'Not recorded';
+    }
+
+    public static function resolutionLabel(?string $code): string
+    {
+        if ($code === self::RESOLUTION_ARRIVED) {
+            return 'Arrived at the shelter';
+        }
+
+        return self::RECORDED_RESOLUTIONS[$code] ?? 'Not resolved';
+    }
+
+    protected $fillable = [
+        'household_id',
+        'from_center_id',
+        'to_center_id',
+        'status',
+        'reason',
+        'origin_checked_in_at',
+        'members_expected',
+        'members_received',
+        // PHASE 5 ITEM 8b. In $fillable AND cast below. A new column that is not
+        // in $fillable is dropped silently by Laravel -- that is what caused the
+        // headcount-stuck-at-0 bug.
+        'did_not_arrive',
+        'requested_by',
+        'requested_at',
+        'confirmed_by',
+        'confirmed_at',
+        'departed_by',
+        'departed_at',
+        'received_by',
+        'received_at',
+        'refused_by',
+        'refused_at',
+        'refusal_reason',
+        'cancelled_by',
+        'cancelled_at',
+        'cancellation_reason',
+    ];
+
+    // Gotcha 2: every timestamp needs a cast or it comes back as a plain string
+    // and the ->format() calls in the Blade tables fatal.
+    protected function casts(): array
+    {
+        return [
+            'origin_checked_in_at' => 'datetime',
+            'requested_at' => 'datetime',
+            'confirmed_at' => 'datetime',
+            'departed_at' => 'datetime',
+            'received_at' => 'datetime',
+            'refused_at' => 'datetime',
+            'cancelled_at' => 'datetime',
+            'did_not_arrive' => 'array',
+        ];
+    }
+
+    // -----------------------------------------------------------------
+    // Relations
+    // -----------------------------------------------------------------
+
+    public function household(): BelongsTo
+    {
+        return $this->belongsTo(Household::class);
+    }
+
+    public function fromCenter(): BelongsTo
+    {
+        return $this->belongsTo(EvacuationCenter::class, 'from_center_id');
+    }
+
+    public function toCenter(): BelongsTo
+    {
+        return $this->belongsTo(EvacuationCenter::class, 'to_center_id');
+    }
+
+    public function requestedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'requested_by');
+    }
+
+    public function confirmedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'confirmed_by');
+    }
+
+    public function departedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'departed_by');
+    }
+
+    public function receivedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'received_by');
+    }
+
+    public function refusedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'refused_by');
+    }
+
+    public function cancelledBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'cancelled_by');
+    }
+
+    // -----------------------------------------------------------------
+    // State
+    // -----------------------------------------------------------------
+
+    public static function overdueMinutes(): int
+    {
+        $configured = (int) env('EVACTECH_TRANSFER_OVERDUE_MINUTES', self::OVERDUE_MINUTES);
+
+        return $configured > 0 ? $configured : self::OVERDUE_MINUTES;
+    }
+
+    public function isOpen(): bool
+    {
+        return in_array($this->status, self::OPEN_STATUSES, true);
+    }
+
+    /** In transit for longer than the threshold: nobody has clicked Receive. */
+    public function isOverdue(): bool
+    {
+        return $this->status === self::IN_TRANSIT
+            && $this->departed_at !== null
+            && $this->departed_at->lte(now()->subMinutes(self::overdueMinutes()));
+    }
+
+    public function statusLabel(): string
+    {
+        return match ($this->status) {
+            self::PENDING => 'Awaiting confirmation',
+            self::APPROVED => 'Approved, not yet departed',
+            self::IN_TRANSIT => 'In transit',
+            self::COMPLETED => 'Completed',
+            self::REFUSED => 'Refused',
+            self::CANCELLED => 'Cancelled',
+            default => ucfirst(str_replace('_', ' ', (string) $this->status)),
+        };
+    }
+
+    /**
+     * Status is never colour-only (accessibility rule in the design system):
+     * every badge that uses this class also prints statusLabel() as text.
+     */
+    public function badgeClass(): string
+    {
+        if ($this->isOverdue()) {
+            return 'badge-danger';
+        }
+
+        return match ($this->status) {
+            self::PENDING => 'badge-warning',
+            self::APPROVED => 'badge-info',
+            self::IN_TRANSIT => 'badge-info',
+            self::COMPLETED => 'badge-success',
+            self::REFUSED => 'badge-danger',
+            self::CANCELLED => 'badge-warning',
+            default => 'badge-info',
+        };
+    }
+
+    /** Minutes elapsed since departure, for the "in transit for N" column. */
+    public function minutesInTransit(): ?int
+    {
+        return $this->departed_at ? $this->departed_at->diffInMinutes(now()) : null;
+    }
+
+    // -----------------------------------------------------------------
+    // PHASE 5 ITEM 8b -- the did-not-arrive set, DERIVED on read.
+    //
+    // "Unaccounted for" is never stored. It holds when all three of these are
+    // true at once:
+    //
+    //   1. the person is in a COMPLETED transfer's did-not-arrive set with an
+    //      alerting reason (i.e. unknown), and has no recorded resolution,
+    //   2. household_members.is_present is still false,
+    //   3. the household is still checked_in.
+    //
+    // Condition 2 is what makes it self-clearing: ticking the person present
+    // through PresenceService drops them out with no second action to remember.
+    // Condition 3 matters because check-out sets every member is_present = false
+    // -- without it, an entire checked-out family would read as unaccounted for
+    // forever.
+    //
+    // NEVER call any of this "missing". In Philippine DRRM reporting that is a
+    // formal category that travels upward beside dead and injured. What the
+    // system knows is only that a headcount did not reconcile.
+    // -----------------------------------------------------------------
+
+    /**
+     * The did-not-arrive set with names and labels folded in, ready for a view.
+     *
+     * Needs household.members loaded; listQuery() eager-loads them. A member who
+     * has since been deleted from the family is skipped rather than printed as a
+     * blank row.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function didNotArriveDetails(): array
+    {
+        $entries = $this->did_not_arrive;
+
+        if (! is_array($entries) || empty($entries)) {
+            return [];
+        }
+
+        $members = $this->household?->members;
+        $checkedIn = $this->household?->status === 'checked_in';
+        $out = [];
+
+        foreach ($entries as $entry) {
+            $memberId = (int) ($entry['member_id'] ?? 0);
+            if ($memberId === 0) {
+                continue;
+            }
+
+            $member = $members?->firstWhere('id', $memberId);
+            if (! $member) {
+                continue;
+            }
+
+            $reason = $entry['reason'] ?? null;
+            $resolved = $entry['resolved'] ?? null;
+            $present = (bool) $member->is_present;
+
+            $out[] = [
+                'member_id' => $memberId,
+                'name' => $member->full_name,
+                'reason' => $reason,
+                'reason_label' => self::absenceReasonLabel($reason),
+                'resolved' => $resolved,
+                'resolution_label' => $resolved ? self::resolutionLabel($resolved) : null,
+                'is_present' => $present,
+                'unaccounted' => $this->status === self::COMPLETED
+                    && in_array($reason, self::ALERTING_REASONS, true)
+                    && empty($resolved)
+                    && ! $present
+                    && $checkedIn,
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Member ids currently unaccounted for on this transfer.
+     *
+     * @return array<int, int>
+     */
+    public function unaccountedMemberIds(): array
+    {
+        return array_values(array_map(
+            fn ($d) => $d['member_id'],
+            array_filter($this->didNotArriveDetails(), fn ($d) => $d['unaccounted'])
+        ));
+    }
+
+    public function hasUnaccounted(): bool
+    {
+        return ! empty($this->unaccountedMemberIds());
+    }
+
+    /**
+     * May this user record what happened to someone who did not arrive?
+     *
+     * BOTH ENDS, deliberately. The origin put those people on the truck and is
+     * likeliest to know where they went. canAccessCenter() returns true for
+     * every non-barangay role, so City Admin is covered by either clause.
+     *
+     * Marking someone ARRIVED is not authorised here -- that goes through
+     * PresenceService, which checks access to the shelter the family is actually
+     * in now, which may no longer be either end of this transfer.
+     */
+    public function canResolveAbsenceBy(User $user): bool
+    {
+        return $this->status === self::COMPLETED
+            && ($user->canAccessCenter($this->to_center_id)
+                || $user->canAccessCenter($this->from_center_id));
+    }
+
+    // -----------------------------------------------------------------
+    // Scopes
+    // -----------------------------------------------------------------
+
+    public function scopeOpen(Builder $query): Builder
+    {
+        return $query->whereIn('status', self::OPEN_STATUSES);
+    }
+
+    public function scopeOverdue(Builder $query): Builder
+    {
+        return $query->where('status', self::IN_TRANSIT)
+            ->whereNotNull('departed_at')
+            ->where('departed_at', '<=', now()->subMinutes(self::overdueMinutes()));
+    }
+
+    /**
+     * Transfers a user may see. Barangay personnel see anything touching a
+     * shelter on their roster, at either end -- an outbound family is their
+     * business until it is received, and an inbound one is their business from
+     * the moment it is proposed.
+     *
+     * Scoped through evacuation_center_user via assignedCenterIds(), never by
+     * comparing barangay ids. Comparing barangay ids is what produced the old
+     * City Admin check-out 403.
+     */
+    public function scopeVisibleTo(Builder $query, User $user): Builder
+    {
+        if (! $user->isBarangayPersonnel()) {
+            return $query; // City Admin and Super Admin see every transfer.
+        }
+
+        $ids = $user->assignedCenterIds()->all();
+
+        return $query->where(fn ($q) => $q
+            ->whereIn('from_center_id', $ids)
+            ->orWhereIn('to_center_id', $ids));
+    }
+
+    // -----------------------------------------------------------------
+    // Permissions
+    //
+    // canAccessCenter() returns true for every non-barangay role, so each of
+    // these reads as "the destination (or origin) side, or City Admin".
+    // -----------------------------------------------------------------
+
+    /** The destination decides whether to accept, so only it may confirm. */
+    public function canBeConfirmedBy(User $user): bool
+    {
+        return $this->status === self::PENDING && $user->canAccessCenter($this->to_center_id);
+    }
+
+    /** Refusal is possible only BEFORE the family travels. */
+    public function canBeRefusedBy(User $user): bool
+    {
+        return $this->status === self::PENDING && $user->canAccessCenter($this->to_center_id);
+    }
+
+    /** The origin records the OUT time, because that is where the family leaves. */
+    public function canBeDepartedBy(User $user): bool
+    {
+        return $this->status === self::APPROVED && $user->canAccessCenter($this->from_center_id);
+    }
+
+    public function canBeReceivedBy(User $user): bool
+    {
+        return $this->status === self::IN_TRANSIT && $user->canAccessCenter($this->to_center_id);
+    }
+
+    /**
+     * Before departure either side of the origin may call it off. Once the
+     * family is on the road it is CITY ADMIN ONLY.
+     *
+     * That last rule is what stops a family who never arrived from sitting in
+     * transit forever: the destination cannot refuse post-confirmation and the
+     * origin should not be able to close a record for people who are physically
+     * in motion, so the city closes it. Because the household never moved in the
+     * database, cancelling an in-transit transfer leaves it checked in at the
+     * origin with members_present untouched -- there is nothing to recalculate
+     * and nothing to reconcile.
+     */
+    public function canBeCancelledBy(User $user): bool
+    {
+        if ($this->status === self::IN_TRANSIT) {
+            return $user->isCityAdmin() || $user->isSuperAdmin();
+        }
+
+        if (! in_array($this->status, [self::PENDING, self::APPROVED], true)) {
+            return false;
+        }
+
+        return $user->isCityAdmin() || $user->canAccessCenter($this->from_center_id);
+    }
+
+    /** Does this row want something from this user right now? Drives the glow. */
+    public function needsActionFrom(User $user): bool
+    {
+        return $this->canBeConfirmedBy($user)
+            || $this->canBeDepartedBy($user)
+            || $this->canBeReceivedBy($user);
+    }
+}

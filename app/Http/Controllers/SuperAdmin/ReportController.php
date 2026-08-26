@@ -66,8 +66,8 @@ class ReportController extends Controller
             'user_accounts' => [
                 ['Name', 'Email', 'Role', 'Barangay', 'Status', 'Last Login', 'Created'],
                 User::with(['role', 'barangay'])->get()->map(fn ($u) => [
-                    $u->name, $u->email, $u->role?->display_name ?? '—',
-                    $u->barangay?->name ?? '—', ucfirst($u->status),
+                    $u->name, $u->email, $u->role?->display_name ?? '-',
+                    $u->barangay?->name ?? '-', ucfirst($u->status),
                     $u->last_login_at?->format('M d, Y h:i A') ?? 'Never',
                     $u->created_at->format('M d, Y'),
                 ])->all(),
@@ -98,7 +98,7 @@ class ReportController extends Controller
                 ['Name', 'Email', 'Role', 'Last Login', 'Status'],
                 User::with('role')->whereNotNull('last_login_at')
                     ->orderByDesc('last_login_at')->get()->map(fn ($u) => [
-                        $u->name, $u->email, $u->role?->display_name ?? '—',
+                        $u->name, $u->email, $u->role?->display_name ?? '-',
                         $u->last_login_at?->format('M d, Y h:i A'), ucfirst($u->status),
                     ])->all(),
                 'Login Activity',

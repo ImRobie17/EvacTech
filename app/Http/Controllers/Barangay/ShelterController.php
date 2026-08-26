@@ -2,34 +2,66 @@
 
 namespace App\Http\Controllers\Barangay;
 
+use App\Http\Controllers\Concerns\FiltersReports;
+use App\Models\Barangay;
 use App\Models\EvacuationCenter;
 use App\Models\Household;
 use App\Models\HouseholdMember;
 use App\Models\HouseholdTransfer;
+use App\Models\ShelterTransfer;
+use App\Models\VulnerableClassification;
 use App\Services\AuditLogger;
+use App\Services\PresenceService;
+use App\Services\TransferService;
+use App\Support\AgeTier;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class ShelterController extends BarangayController
 {
+    /* PHASE 8 ITEM 1 -- Vulnerable Group and Age Group on the shelter list.
+       The trait is named for the reports it was written for, but the thing it
+       owns is the DEFINITION of these filters, not the report layer. Reusing it
+       here is what stops a shelter screen filtered by "Pregnant Woman" and a
+       report filtered by "Pregnant Woman" from quietly selecting different
+       people -- the failure mode four copies of syncMembers() produced in
+       Phase 2, which is why the trait exists at all. */
+    use FiltersReports;
+
     public function index(Request $request, ?EvacuationCenter $center = null)
     {
         $center = $this->center($center);
 
+        /* Built from raw input rather than validate(): a bad ?category= in a
+           pasted URL should quietly show an unfiltered list, not throw a 422 at
+           someone mid-operation. reportFilters() drops anything empty, and
+           validFilters() below discards any value that is not a real key, so an
+           unrecognised code reaches no query. */
+        $filters = $this->shelterFilters($request);
+
         $households = collect();
         if ($center) {
-            $query = Household::with(['headMember', 'originBarangay'])
+            /* PHASE 9 ITEM 2. actingHeadMember joins the eager load rather than
+               being resolved per row: the roster is the screen staff scan all
+               day, and a lazy relation here would be an N+1 across every
+               household at the shelter. */
+            $query = Household::with(['headMember', 'actingHeadMember', 'originBarangay'])
                 ->where('evacuation_center_id', $center->id);
 
             if ($search = trim((string) $request->input('q'))) {
-                $query->whereHas('members', fn ($q) => $q
-                    ->where('is_household_head', true)
-                    ->where('full_name', 'like', "%{$search}%"));
+                // PHASE 9 ITEM 1. Any member, not only the head. The sort
+                // subquery below deliberately still selects the head.
+                $query->whereHas('members', fn ($q) => $q->nameMatches($search));
             }
 
             if ($status = $request->input('status')) {
                 $query->where('status', $status);
             }
+
+            /* Households containing at least one matching member. Applied
+               BEFORE the sort so the ordering runs over the filtered set, and
+               before paginate() so page 2 means page 2 of the matches. */
+            $query = $this->filterHouseholds($query, $filters);
 
             $sort = $request->input('sort', 'recent');
             if ($sort === 'name') {
@@ -48,7 +80,44 @@ class ShelterController extends BarangayController
 
         $recent = $this->recentActivity($center);
 
-        return view('barangay.shelter.index', compact('center', 'households', 'recent'));
+        // PHASE 2 ITEM 8: destinations for the "Move to Shelter" modal. The full
+        // active list goes to the browser and transfers.js filters out whichever
+        // shelter the family is currently in.
+        $transferCenters = app(TransferService::class)->centerOptions();
+
+        // ONE query for the whole page rather than an openTransfer() call per
+        // row, so the table can show "Transfer in progress" instead of offering
+        // a button the service would only reject.
+        $openTransferHouseholdIds = ShelterTransfer::whereIn('household_id', $households->pluck('id'))
+            ->open()
+            ->pluck('household_id')
+            ->all();
+
+        // PHASE 5 ITEM 8b: people this shelter has not accounted for after a
+        // transfer. Derived on read, like everything else here.
+        $unaccounted = $center
+            ? app(TransferService::class)->unaccountedCountFor($center)
+            : 0;
+
+        /* PHASE 6 ITEM 11. The Add / Edit Evacuee modal is included on this page
+           now, so the three things it renders from have to reach it. Same
+           sources and same filters EvacueeProfilingController::index() uses --
+           only SELECTABLE classifications, because the retired ones (Senior
+           Citizen, Infant) are age tiers and must never render as vulnerability
+           checkboxes.
+
+           $defaultBarangayId pre-selects the active shelter's barangay, which
+           covers the common case in one click while staying editable: one
+           shelter routinely holds families from several barangays. */
+        $classifications = VulnerableClassification::selectable()->orderBy('name')->get();
+        $ageGroups = AgeTier::options();
+        $barangays = Barangay::orderBy('name')->get();
+        $defaultBarangayId = $center?->barangay_id;
+
+        return view('barangay.shelter.index', compact(
+            'center', 'households', 'recent', 'transferCenters', 'openTransferHouseholdIds', 'unaccounted',
+            'classifications', 'ageGroups', 'barangays', 'defaultBarangayId'
+        ));
     }
 
     /**
@@ -67,6 +136,10 @@ class ShelterController extends BarangayController
         $data = $request->validate([
             'present' => ['required', 'array', 'min:1'],
             'present.*' => ['integer'],
+            // PHASE 9 ITEM 2. Nullable at the validator, then required
+            // conditionally below -- the rule is "required when the head is not
+            // among the ticked members", which no single built-in rule states.
+            'acting_head_member_id' => ['nullable', 'integer'],
         ]);
 
         if ($household->status === 'checked_in') {
@@ -75,9 +148,44 @@ class ShelterController extends BarangayController
             ]);
         }
 
+        $present = array_map('intval', $data['present']);
+
+        /* PHASE 9 ITEM 2 -- the substantive head is not here.
+           Resolved BEFORE the transaction so a refusal costs no writes. */
+        $actingHeadId = null;
+        $headAbsent = $household->head_member_id
+            && ! in_array((int) $household->head_member_id, $present, true);
+
+        if ($headAbsent) {
+            $actingHeadId = $data['acting_head_member_id'] ?? null;
+
+            if (! $actingHeadId) {
+                return back()->withErrors([
+                    'acting_head_member_id' => 'The household head is not among the people you ticked. '
+                        . 'Choose someone present to stand in as head for this stay.',
+                ])->withInput();
+            }
+
+            /* Two separate guards, and they fail for different reasons worth
+               distinguishing: a stand-in from another family is a tampered form,
+               a stand-in who is not ticked is an operator mistake. */
+            $belongs = $household->members()->whereKey($actingHeadId)->exists();
+            if (! $belongs) {
+                return back()->withErrors([
+                    'acting_head_member_id' => 'That person is not a member of this household.',
+                ])->withInput();
+            }
+
+            if (! in_array((int) $actingHeadId, $present, true)) {
+                return back()->withErrors([
+                    'acting_head_member_id' => 'The stand-in head must be someone who is present at the shelter.',
+                ])->withInput();
+            }
+        }
+
         $previousCenter = $household->evacuationCenter;
 
-        DB::transaction(function () use ($household, $center, $previousCenter, $data) {
+        DB::transaction(function () use ($household, $center, $previousCenter, $data, $actingHeadId) {
             $household->members()->update(['is_present' => false]);
             $household->members()->whereIn('id', $data['present'])->update(['is_present' => true]);
             $present = $household->members()->where('is_present', true)->count();
@@ -88,6 +196,9 @@ class ShelterController extends BarangayController
                 'checked_in_at' => now(),
                 'checked_out_at' => null,
                 'members_present' => $present,
+                // Null when the head IS present, which also clears any stand-in
+                // left over from a previous stay.
+                'acting_head_member_id' => $actingHeadId,
             ]);
 
             // Derived, not incremented. If the household came from another
@@ -100,10 +211,84 @@ class ShelterController extends BarangayController
 
         $household->refresh();
 
-        AuditLogger::log('updated', $household,
-            "Checked in household {$household->household_code} at {$center->name} ({$household->members_present} present)");
+        $note = "Checked in household {$household->household_code} at {$center->name} ({$household->members_present} present)";
 
-        return $this->backToShelter($center, "Household {$household->household_code} checked in.");
+        if ($household->acting_head_member_id) {
+            $acting = $household->actingHeadMember?->full_name ?? 'a member';
+            $substantive = $household->headMember?->full_name ?? 'the household head';
+            $note .= ". {$acting} is standing in as head for this stay; {$substantive} remains the household head and is not present";
+        }
+
+        AuditLogger::log('updated', $household, $note);
+
+        $message = "Household {$household->household_code} checked in.";
+        if ($household->acting_head_member_id) {
+            $message .= ' ' . ($household->actingHeadMember?->full_name ?? 'A member')
+                . ' is standing in as head until the household head arrives.';
+        }
+
+        return $this->backToShelter($center, $message);
+    }
+
+    /**
+     * PHASE 5 ITEM 8b -- the tick list for the Update Presence modal.
+     *
+     * Returns the reason the household cannot be corrected rather than aborting,
+     * so the modal can explain itself instead of showing a form the server would
+     * only reject. PresenceService::update() re-checks the same conditions under
+     * a lock, so this is presentation, never the guard.
+     */
+    public function presence(Household $household)
+    {
+        $this->authorizeHousehold($household);
+
+        $service = app(PresenceService::class);
+
+        return response()->json([
+            'id' => $household->id,
+            'code' => $household->household_code,
+            'head' => $household->headMember?->full_name,
+            'center' => $household->evacuationCenter?->name,
+            'present' => (int) $household->members_present,
+            'total' => $household->members()->count(),
+            'blocked' => $service->blockedReason($household, auth()->user()),
+            'members' => $service->checklist($household),
+            // PHASE 9 ITEM 2. The modal offers "revert or keep" only once the
+            // substantive head is actually ticked present, so it needs both the
+            // stand-in's identity and the head's id to watch for.
+            'acting_head_member_id' => $household->acting_head_member_id,
+            'acting_head' => $household->actingHeadMember?->full_name,
+            'head_is_present' => $household->substantiveHeadIsPresent(),
+            'head_member_id' => $household->head_member_id,
+        ]);
+    }
+
+    /** PHASE 5 ITEM 8b -- write the corrected presence. */
+    public function updatePresence(Request $request, Household $household)
+    {
+        $this->authorizeHousehold($household);
+
+        $data = $request->validate([
+            'present' => ['required', 'array', 'min:1'],
+            'present.*' => ['integer'],
+            // PHASE 9 ITEM 2. Only submitted when the modal actually offered the
+            // choice; PresenceService treats null as "keep".
+            'acting_head_action' => ['nullable', 'in:revert,keep'],
+        ], [
+            'present.required' => 'Tick at least one person who is present at the shelter.',
+        ]);
+
+        app(PresenceService::class)->update(
+            $household,
+            $data['present'],
+            $request->user(),
+            $data['acting_head_action'] ?? null
+        );
+
+        $household->refresh();
+
+        return back()->with('success',
+            "Presence updated. {$household->household_code} now has {$household->members_present} present.");
     }
 
     public function checkOut(Household $household)
@@ -117,6 +302,17 @@ class ShelterController extends BarangayController
             return back()->withErrors(['household' => 'This household is not currently checked in.']);
         }
 
+        // PHASE 2 ITEM 8: a family committed to a shelter transfer must not be
+        // checked out from underneath it. The transfer counts on finding them
+        // still checked in at the origin -- that is the whole basis of the
+        // occupancy design -- so receiving one that had been checked out would
+        // resurrect a household nobody had counted.
+        if ($open = $household->openTransfer()) {
+            return back()->withErrors([
+                'household' => "This household has a shelter transfer in progress ({$open->statusLabel()}). Cancel or complete the transfer first.",
+            ]);
+        }
+
         $center = $household->evacuationCenter;
 
         DB::transaction(function () use ($household, $center) {
@@ -125,6 +321,10 @@ class ShelterController extends BarangayController
                 'status' => 'checked_out',
                 'checked_out_at' => now(),
                 'members_present' => 0,
+                // PHASE 9 ITEM 2. A stand-in head is scoped to one stay. Leaving
+                // it set would mean a family checking in somewhere next week
+                // arrived with a stand-in nobody had designated.
+                'acting_head_member_id' => null,
             ]);
             $center?->recalcOccupancy();
         });
@@ -174,7 +374,27 @@ class ShelterController extends BarangayController
         AuditLogger::log('updated', $household,
             "Transferred head of {$household->household_code} to {$newHead->full_name}");
 
-        return back()->with('success', "Family head transferred to {$newHead->full_name}.");
+        $message = "Family head transferred to {$newHead->full_name}.";
+
+        /* PHASE 6. Confirming a head transfer used to navigate, which closed the
+           Edit Family modal it was launched from and dropped the operator back
+           on the list. Answering JSON to an XHR lets the browser stay where it
+           is, so the transfer completes and editing continues in the same modal.
+
+           The redirect below is kept for a non-XHR post -- a submit with
+           JavaScript unavailable still works exactly as it did. This is an
+           ADDITIONAL response shape, not a replacement. */
+        if ($request->expectsJson()) {
+            return response()->json([
+                'ok' => true,
+                'message' => $message,
+                'household_id' => $household->id,
+                'new_head_member_id' => $newHead->id,
+                'new_head_name' => $newHead->full_name,
+            ]);
+        }
+
+        return back()->with('success', $message);
     }
 
     /**

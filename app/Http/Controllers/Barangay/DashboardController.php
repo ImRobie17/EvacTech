@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Barangay;
 use App\Models\Household;
 use App\Models\HouseholdMember;
 use App\Models\ReliefInventory;
+use App\Support\AgeTier;
+use App\Support\IdpForm;
 use Illuminate\Support\Carbon;
 
 class DashboardController extends BarangayController
@@ -24,7 +26,11 @@ class DashboardController extends BarangayController
             'relief_packs' => 0,
             'low_stock' => false,
             'vulnerable' => 0,
+            'single_headed' => 0,
         ];
+        $ageMatrix = AgeTier::emptySexMatrix(includeUnknown: true);
+        $ageRows = [];
+        $categoryRows = [];
         $chart = ['labels' => [], 'data' => []];
         $recent = collect();
 
@@ -49,12 +55,44 @@ class DashboardController extends BarangayController
                 ->where('reorder_level', '>', 0)
                 ->exists();
 
+            // Phase 2 item 7. This tile used to read high for the wrong reason:
+            // manual tags never saved (the members[0][tags[]] name bug), so the
+            // only rows in the pivot were the Senior / Infant tags the server
+            // stamped on automatically. Those are age tiers now, so the count is
+            // restricted to SELECTABLE classifications and will drop sharply on
+            // existing data. That is the bug being fixed, not a regression --
+            // seniors and infants are reported in the age-tier breakdown below.
             $kpis['vulnerable'] = HouseholdMember::where('is_present', true)
                 ->whereHas('household', fn ($q) => $q
                     ->where('evacuation_center_id', $center->id)
                     ->where('status', 'checked_in'))
-                ->whereHas('vulnerabilities')
+                ->whereHas('vulnerableClassifications', fn ($q) => $q
+                    ->where('vulnerable_classifications.is_selectable', true))
                 ->count();
+
+            // Single-headed households: derived from members_present == 1 on a
+            // checked-in family. Never a stored tag.
+            $kpis['single_headed'] = (clone $checkedIn)->where('members_present', 1)->count();
+
+            // Age-tier breakdown, bucketed in SQL and grouped by sex so the same
+            // query shape feeds the Phase 3 IDP Monitoring Form.
+            // Grouped inside AgeTier via a derived table -- grouping directly by
+            // the CASE expression trips MySQL's ONLY_FULL_GROUP_BY (error 1055).
+            $ageMatrix = AgeTier::sexMatrixFor(
+                HouseholdMember::query()
+                    ->where('household_members.is_present', true)
+                    ->whereHas('household', fn ($q) => $q
+                        ->where('evacuation_center_id', $center->id)
+                        ->where('status', 'checked_in')),
+                includeUnknown: true
+            );
+
+            // Phase 3 item 9. Vulnerable-category chart. Built by IdpForm, not
+            // by a query written here, so the chart and the signed CSWDO form
+            // are the same figures by construction. Chronic Illness is off this
+            // chart because it is off that form.
+            $ageRows = AgeTier::chartRows($ageMatrix);
+            $categoryRows = IdpForm::categoriesFor($center);
 
             // Daily registrations, past 7 days.
             // RESCOPED: was origin_barangay_id = auth()->user()->barangay_id. Staff
@@ -93,6 +131,6 @@ class DashboardController extends BarangayController
                 ->take(5);
         }
 
-        return view('barangay.dashboard', compact('center', 'kpis', 'chart', 'recent'));
+        return view('barangay.dashboard', compact('center', 'kpis', 'chart', 'recent', 'ageMatrix', 'ageRows', 'categoryRows'));
     }
 }

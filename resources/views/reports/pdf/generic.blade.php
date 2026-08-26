@@ -12,20 +12,46 @@
         td { padding: 6px 8px; font-size: 11px; border-bottom: 1px solid #E2E8F0; }
         tr:nth-child(even) td { background: #F8FAFC; }
         .footer { margin-top: 20px; font-size: 9px; color: #94A3B8; text-align: right; }
+        .filters { margin-top: 8px; padding: 6px 8px; background: #F1F5F9; border-left: 3px solid #0E7490; font-size: 10px; color: #334155; }
+        .filters .note { display: block; margin-top: 3px; color: #64748B; font-style: italic; }
     </style>
 </head>
 <body>
     <div class="header">
-        <h1>EvacTech — {{ $title }}</h1>
+        <h1>EvacTech - {{ $title }}</h1>
         <div class="meta">
             @if(isset($scopeLabel) && ! $center)
                 {{ $scopeLabel }}
             @else
-                {{ $center->name ?? '' }}@if($center && $center->barangay) · Barangay {{ $center->barangay->name }}@endif
+                {{ $center->name ?? '' }}@if($center && $center->barangay) &middot; Barangay {{ $center->barangay->name }}@endif
             @endif
-            @if($from || $to) &nbsp;·&nbsp; {{ $from ?? 'Start' }} to {{ $to ?? 'Present' }} @endif
+            @if($from || $to) &nbsp;&middot;&nbsp; {{ $from ?? 'Start' }} to {{ $to ?? 'Present' }} @endif
         </div>
     </div>
+
+    {{--
+        PHASE 3 ITEM 11b -- what this report was filtered by, printed on the
+        document itself.
+
+        Both variables are optional. SuperAdmin\ReportController shares this
+        view and passes neither, so they are read defensively rather than
+        required -- an undefined variable here would fatal every Super Admin
+        report.
+
+        The note matters more than the filter list. On a household- or
+        shelter-level report the filter chooses WHICH ROWS APPEAR and does not
+        recompute the numbers inside them, so "Occupancy 120" beside "Category:
+        Pregnant" would otherwise read as 120 pregnant people. The Matching
+        Members column carries the same message inside the table.
+    --}}
+    @if(! empty($filters ?? []))
+        <div class="filters">
+            <strong>Filtered by:</strong> {{ implode('  |  ', $filters) }}
+            @if(! empty($filterNote ?? ''))
+                <span class="note">{{ $filterNote }}</span>
+            @endif
+        </div>
+    @endif
 
     <table>
         <thead>

@@ -2,70 +2,132 @@
 
 @section('title', 'Evacuation Map')
 
-@push('head')
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-@endpush
+@php
+    // Opts this page into the bundled Leaflet entry (roadmap item 3). The
+    // cdnjs <link> and <script> tags are gone: the app must work with no
+    // internet connection. Set here, read by the single @vite() call in
+    // layouts/public.blade.php.
+    $viteEntries = ['resources/js/map.js'];
+
+    // Capacity tier -> presentation, defined ONCE and used by both the cards
+    // below and the JSON island the map reads. It used to be declared inline in
+    // the card loop and again as a colour table inside the page's <script>,
+    // which is how a legend drifts out of step with its markers.
+    $tierBadge = [
+        'ok' => 'badge-success',
+        'warn' => 'badge-warning',
+        'full' => 'badge-danger',
+        'over' => 'badge-over',
+        'unknown' => 'badge-info',
+    ];
+    $tierLabels = [
+        'ok' => 'Space available',
+        'warn' => 'Nearing capacity',
+        'full' => 'Full',
+        'over' => 'Overcapacity',
+        'unknown' => 'Capacity not set',
+    ];
+
+    // The map's payload. tier_label is added so the marker popups and the
+    // nearest-shelter list can state capacity in words -- colour alone never
+    // carries status in this system.
+    $shelterData = collect($shelters)->map(function ($s) use ($tierLabels) {
+        $s['tier_label'] = $tierLabels[$s['tier']] ?? $tierLabels['unknown'];
+        return $s;
+    })->values();
+
+    // JSON_HEX_* is what makes the {!! !!} below safe: `<` and `>` become \u003C
+    // and \u003E, so a shelter name or address cannot close the script element
+    // early. These are the same flags Blade's @json uses. Plain {{ }} would
+    // HTML-escape the quotes and produce unparseable JSON.
+    $shelterJson = json_encode($shelterData, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
+@endphp
 
 @section('content')
-<section class="public-hero">
-    <h1>Evacuation Centers</h1>
-    <p>Find active evacuation shelters across the City of Cabuyao. Allow location access to see the shelters nearest to you.</p>
+<section class="mb-6">
+    <h1 class="mb-2 text-xl md:text-2xl">Evacuation Centers</h1>
+    <p class="m-0 max-w-[640px] text-ink-soft">
+        Find active evacuation shelters across the City of Cabuyao. Allow location access to see the shelters nearest to you.
+    </p>
 </section>
 
-<section class="map-section">
-    <div class="map-toolbar">
-        <button type="button" class="btn-primary" id="locateBtn">Find shelters near me</button>
-        <span class="map-hint" id="locateHint"></span>
-        <span class="legend">
-            <span><i class="dot cap-ok-bg"></i> Space available</span>
-            <span><i class="dot cap-warn-bg"></i> Nearing capacity</span>
-            <span><i class="dot cap-full-bg"></i> Full</span>
-        </span>
+<section>
+    <div class="mb-3 flex flex-wrap items-center gap-3">
+        <button type="button" class="btn-primary w-full sm:w-auto" id="locateBtn">Find shelters near me</button>
+        <span class="text-sm text-ink-soft" id="locateHint" role="status"></span>
     </div>
 
-    <div class="map-layout">
-        <div id="shelterMap" class="shelter-map" role="application" aria-label="Map of evacuation shelters"></div>
+    {{-- Legend. Each swatch is paired with its wording, so the map is readable
+         without relying on colour discrimination. --}}
+    <ul class="mb-3 flex list-none flex-wrap gap-x-4 gap-y-2 p-0 text-sm text-ink-soft">
+        <li class="flex items-center gap-2"><span class="inline-block h-3 w-3 rounded-full bg-success" aria-hidden="true"></span>Space available</li>
+        <li class="flex items-center gap-2"><span class="inline-block h-3 w-3 rounded-full bg-warning" aria-hidden="true"></span>Nearing capacity</li>
+        <li class="flex items-center gap-2"><span class="inline-block h-3 w-3 rounded-full bg-danger" aria-hidden="true"></span>Full</li>
+        <li class="flex items-center gap-2"><span class="inline-block h-3 w-3 rounded-full bg-over" aria-hidden="true"></span>Overcapacity</li>
+    </ul>
 
-        <aside class="nearest-panel card" id="nearestPanel" hidden>
+    <div class="grid grid-cols-1 items-start gap-4 lg:grid-cols-[1fr_300px]">
+        <div>
+            {{-- Leaflet needs a definite height on its container or it renders
+                 nothing at all. z-[1] keeps tile panes under the sticky header. --}}
+            <div id="shelterMap" class="h-[320px] rounded-lg border border-border shadow-sm z-[1] lg:h-[480px]"
+                 role="application" aria-label="Map of evacuation shelters"></div>
+
+            {{-- Map tiles are still fetched from openstreetmap.org at runtime;
+                 caching them is roadmap item 4. Until then the map fails out
+                 loud, because a citizen staring at a grey rectangle needs to know
+                 the MAP is unavailable, not that there are no shelters. The
+                 shelter list below this point works with no connection at all. --}}
+            <p class="map-offline-note" id="mapOfflineNote" role="status" hidden>
+                <span aria-hidden="true">&#9888;</span>
+                Map tiles could not be loaded, so the map may appear blank. This needs an internet connection. The full list of shelters below still works, including phone numbers.
+            </p>
+        </div>
+
+        <aside class="card p-4 lg:max-h-[480px] lg:overflow-y-auto" id="nearestPanel" hidden>
             <h2 class="panel-title">Nearest Shelters</h2>
-            <ol class="nearest-list" id="nearestList"></ol>
+            <ol class="m-0 list-none p-0" id="nearestList"></ol>
         </aside>
     </div>
 </section>
 
-<section class="shelters-section">
-    <h2>All Evacuation Shelters</h2>
-    <div class="shelter-cards">
-        @forelse($shelters as $s)
-            <article class="card shelter-card">
-                <div class="shelter-card-head">
-                    <h3>{{ $s['name'] }}</h3>
-                    @php
-                        $tierClass = ['ok' => 'badge-success', 'warn' => 'badge-warning', 'full' => 'badge-danger', 'over' => 'badge-danger', 'unknown' => 'badge-info'][$s['tier']];
-                        $tierLabel = ['ok' => 'Space available', 'warn' => 'Nearing capacity', 'full' => 'Full', 'over' => 'Overcapacity', 'unknown' => 'Capacity not set'][$s['tier']];
-                    @endphp
-                    <span class="badge {{ $tierClass }}">{{ $tierLabel }}</span>
+<section class="mt-8">
+    <h2 class="mb-4 text-lg sm:text-xl">All Evacuation Shelters</h2>
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        @forelse($shelterData as $s)
+            <article class="card p-4 sm:p-5">
+                <div class="flex items-start justify-between gap-2">
+                    <h3 class="m-0 text-lg">{{ $s['name'] }}</h3>
+                    <span class="badge {{ $tierBadge[$s['tier']] }}">{{ $s['tier_label'] }}</span>
                 </div>
-                <p class="shelter-card-brgy">Barangay {{ $s['barangay'] }}</p>
-                <p class="shelter-card-addr">{{ $s['address'] }}</p>
+                <p class="mt-1 mb-0 text-sm font-semibold text-primary">Barangay {{ $s['barangay'] }}</p>
+                <p class="mt-1 mb-3 text-sm text-ink-soft">{{ $s['address'] }}</p>
+
                 @if($s['pct'] !== null)
                     <div class="capacity-bar" role="progressbar" aria-valuenow="{{ min($s['pct'], 100) }}" aria-valuemin="0" aria-valuemax="100" aria-label="Occupancy">
                         <div class="capacity-bar-fill {{ $s['tier'] === 'ok' ? '' : ($s['tier'] === 'warn' ? 'cap-warn' : 'cap-full') }}" style="width: {{ min($s['pct'], 100) }}%"></div>
                     </div>
                     <p class="kpi-note" data-numeric>{{ $s['occupancy'] }} / {{ $s['capacity'] }} ({{ $s['pct'] }}%)</p>
                 @endif
-                <div class="shelter-card-contact">
+
+                <div class="mt-3 border-t border-border pt-3 text-sm">
                     @if($s['contact_number'])
-                        <p><span class="contact-label">Phone:</span> <a href="tel:{{ preg_replace('/[^0-9+]/', '', $s['contact_number']) }}" data-numeric>{{ $s['contact_number'] }}</a></p>
+                        <p class="my-1"><span class="text-ink-muted">Phone:</span>
+                            <a class="inline-flex min-h-tap items-center text-primary no-underline hover:underline"
+                               href="tel:{{ preg_replace('/[^0-9+]/', '', $s['contact_number']) }}" data-numeric>{{ $s['contact_number'] }}</a>
+                        </p>
                     @endif
                     @if($s['contact_email'])
-                        <p><span class="contact-label">Email:</span> <a href="mailto:{{ $s['contact_email'] }}">{{ $s['contact_email'] }}</a></p>
+                        <p class="my-1"><span class="text-ink-muted">Email:</span>
+                            <a class="inline-flex min-h-tap items-center text-primary no-underline hover:underline"
+                               href="mailto:{{ $s['contact_email'] }}">{{ $s['contact_email'] }}</a>
+                        </p>
                     @endif
                     @if(! $s['contact_number'] && ! $s['contact_email'])
-                        <p class="text-muted">Contact the CDRRMO hotline (see Emergency Hotlines).</p>
+                        <p class="my-1 text-ink-muted">Contact the CDRRMO hotline (see Emergency Hotlines).</p>
                     @endif
                     @if($s['lat'] === null)
-                        <p class="text-muted">Map location not yet available for this shelter.</p>
+                        <p class="my-1 text-ink-muted">Map location not yet available for this shelter.</p>
                     @endif
                 </div>
             </article>
@@ -77,88 +139,8 @@
 @endsection
 
 @push('scripts')
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script>
-(function () {
-    const shelters = @json($shelters);
-    const CABUYAO = [14.2726, 121.1262]; // city center fallback
-
-    const map = L.map('shelterMap').setView(CABUYAO, 13);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '&copy; OpenStreetMap contributors'
-    }).addTo(map);
-
-    const tierColors = { ok: '#15803D', warn: '#B45309', full: '#B91C1C', over: '#7f1d1d', unknown: '#64748B' };
-
-    const pinned = shelters.filter(s => s.lat !== null && s.lng !== null);
-    pinned.forEach(s => {
-        const marker = L.circleMarker([s.lat, s.lng], {
-            radius: 10,
-            color: '#fff',
-            weight: 2,
-            fillColor: tierColors[s.tier] || tierColors.unknown,
-            fillOpacity: 0.95
-        }).addTo(map);
-
-        const occ = s.pct !== null ? `${s.occupancy} / ${s.capacity} (${s.pct}%)` : 'Capacity not set';
-        const phone = s.contact_number ? `<br>Phone: ${s.contact_number}` : '';
-        marker.bindPopup(`<strong>${s.name}</strong><br>Barangay ${s.barangay}<br>${s.address}<br>Occupancy: ${occ}${phone}`);
-    });
-
-    if (pinned.length > 0) {
-        map.fitBounds(pinned.map(s => [s.lat, s.lng]), { padding: [40, 40], maxZoom: 14 });
-    }
-
-    // ---- Geolocation: nearest shelters ----
-    const locateBtn = document.getElementById('locateBtn');
-    const hint = document.getElementById('locateHint');
-    const panel = document.getElementById('nearestPanel');
-    const list = document.getElementById('nearestList');
-    let userMarker = null;
-
-    function haversineKm(lat1, lng1, lat2, lng2) {
-        const R = 6371, rad = Math.PI / 180;
-        const dLat = (lat2 - lat1) * rad, dLng = (lng2 - lng1) * rad;
-        const a = Math.sin(dLat / 2) ** 2 +
-                  Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLng / 2) ** 2;
-        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    }
-
-    locateBtn.addEventListener('click', () => {
-        if (!navigator.geolocation) {
-            hint.textContent = 'Location is not supported by this browser.';
-            return;
-        }
-        hint.textContent = 'Locating...';
-        navigator.geolocation.getCurrentPosition(pos => {
-            const { latitude: lat, longitude: lng } = pos.coords;
-            hint.textContent = '';
-
-            if (userMarker) map.removeLayer(userMarker);
-            userMarker = L.marker([lat, lng], { title: 'Your location' }).addTo(map)
-                .bindPopup('You are here').openPopup();
-            map.setView([lat, lng], 14);
-
-            const nearest = pinned
-                .map(s => ({ ...s, km: haversineKm(lat, lng, s.lat, s.lng) }))
-                .sort((a, b) => a.km - b.km)
-                .slice(0, 5);
-
-            list.innerHTML = '';
-            nearest.forEach(s => {
-                const li = document.createElement('li');
-                li.innerHTML = `<strong>${s.name}</strong><br><span class="text-muted">${s.address}</span><br><span data-numeric>${s.km.toFixed(1)} km away</span>`;
-                li.addEventListener('click', () => { map.setView([s.lat, s.lng], 16); });
-                list.appendChild(li);
-            });
-            panel.hidden = nearest.length === 0;
-        }, err => {
-            hint.textContent = err.code === err.PERMISSION_DENIED
-                ? 'Location permission was denied. Showing the city-wide map instead.'
-                : 'Could not determine your location. Showing the city-wide map instead.';
-        }, { enableHighAccuracy: true, timeout: 10000 });
-    });
-})();
-</script>
+{{-- Data island, not a JS expression. The browser never parses this as code, so
+     a shelter name containing a quote or a bracket is inert here. resources/js/map.js
+     reads it by id. --}}
+<script type="application/json" id="shelterMapData">{!! $shelterJson !!}</script>
 @endpush

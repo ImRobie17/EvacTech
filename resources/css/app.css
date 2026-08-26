@@ -1,16 +1,155 @@
-@import 'tailwindcss';
-@import './design-system.css';
-@import './staff.css';
-@import './cityadmin.css';
-@import './public.css';
-@import './superadmin.css';
+/* =========================================================================
+   EvacTech -- Tailwind v4 entry point.
 
-@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
+   This file is the SINGLE SOURCE OF TRUTH for design tokens. Everything in
+   @theme below becomes both a CSS custom property AND a Tailwind utility, so
+   `--color-surface` gives you `bg-surface`, `text-surface`, `border-surface`
+   and so on. Do not redefine these values anywhere else.
+
+   Layer order enforced by Tailwind v4 is: theme, base, components, utilities.
+   That is why design-system.css is imported into `base` (so its dark-mode
+   overrides beat the @theme defaults) and the component sheets are imported
+   into `components` (so a utility written in markup always wins over them).
+
+   ALL @import statements must come first -- CSS requires it.
+   ========================================================================= */
+
+@import 'tailwindcss';
+
+/* ---- Self-hosted fonts (roadmap item 3: no CDNs, works offline) ----
+   Installed from npm, bundled by Vite into public/build. The <link> tags that
+   used to sit in seven Blade files are gone.
+
+   `latin-` prefixed entry points, not the plain ones: the unprefixed files pull
+   in Cyrillic, Greek and Vietnamese subsets as well, roughly tripling what has
+   to be shipped and cached for an offline install that will only ever render
+   Filipino and English. */
+@import '@fontsource/public-sans/latin-400.css';
+@import '@fontsource/public-sans/latin-500.css';
+@import '@fontsource/public-sans/latin-600.css';
+@import '@fontsource/public-sans/latin-700.css';
+@import '@fontsource/public-sans/latin-800.css';
+@import '@fontsource/public-sans/latin-400-italic.css';
+@import '@fontsource/ibm-plex-mono/latin-500.css';
+@import '@fontsource/ibm-plex-mono/latin-600.css';
+
+@import './design-system.css' layer(base);
+@import './staff.css' layer(components);
+@import './cityadmin.css' layer(components);
+@import './public.css' layer(components);
+
+/* ---- Dark mode ----
+   The existing mechanism is a `data-theme` attribute on <html>, persisted in a
+   `theme` cookie and toggled by staff.js. Tailwind's default `dark:` variant
+   uses prefers-color-scheme, which would ignore the toggle entirely, so the
+   variant is redefined to match. Write `dark:` only where dark mode needs a
+   STRUCTURAL difference -- plain colour differences are handled automatically
+   by the token overrides in design-system.css. */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
 @source '../../storage/framework/views/*.php';
 @source '../**/*.blade.php';
 @source '../**/*.js';
 
 @theme {
-    --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
-        'Segoe UI Symbol', 'Noto Color Emoji';
+    /* ---- Colour palette ----
+       `--color-*: initial` clears Tailwind's stock 250-colour palette. This is
+       deliberate: EvacTech is a government system with a fixed accessible
+       palette, and an available `bg-blue-500` is an invitation to drift off it.
+       If a utility below does not exist, the colour is not in the design
+       system -- add it here rather than reaching for an arbitrary value. */
+    --color-*: initial;
+
+    --color-white: #ffffff;
+    --color-black: #000000;
+
+    /* Neutrals */
+    --color-bg: #ffffff;
+    --color-surface: #f1f5f9;
+    --color-surface-alt: #e2e8f0;
+    --color-border: #cbd5e1;
+
+    /* Text. Named `ink` rather than `text` so the utilities read as
+       `text-ink` / `text-ink-soft` instead of `text-text-primary`.
+       design-system.css keeps `--color-text-primary` etc. as aliases so the
+       older component CSS keeps working. */
+    --color-ink: #0f172a;
+    --color-ink-soft: #475569;
+    --color-ink-muted: #64748b;
+
+    /* Brand ramp (cyan). 600/700 are the only ones safe for text on white:
+       400/100/50 are decorative (badges, chart fills, icon backgrounds). */
+    --color-primary-50: #ecfeff;
+    --color-primary-100: #cffafe;
+    --color-primary-400: #22d3ee;
+    --color-primary-600: #0891b2;
+    --color-primary-700: #0e7490;
+    --color-primary-800: #155e75;
+    --color-primary-900: #164e63;
+    --color-primary: #0e7490;
+    --color-primary-hover: #155e75;
+    --color-primary-contrast: #ffffff;
+
+    /* Semantic status */
+    --color-success: #15803d;
+    --color-success-bg: #f0fdf4;
+    --color-warning: #b45309;
+    --color-warning-bg: #fffbeb;
+    --color-danger: #b91c1c;
+    --color-danger-bg: #fef2f2;
+    --color-info: #0e7490;
+    --color-info-bg: #ecfeff;
+
+    /* Overcapacity is its OWN state, not a louder "full". Black, never red. */
+    --color-over: #111827;
+    --color-over-contrast: #f9fafb;
+
+    /* ---- Typography ----
+       Base is 17px via `html { font-size: 106.25% }` in design-system.css,
+       because many users are older barangay staff and city officials. Every
+       rem-based Tailwind utility therefore scales up 6.25%: p-4 is 17px, not
+       16px. That is intended -- do not "fix" it by resetting the root to 16px.
+
+       NOTE: breakpoints are unaffected. Font-relative units inside a media
+       query resolve against the browser's initial font size (16px), not the
+       root element's, so `md:` is still 768px. */
+    --font-sans: 'Public Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
+
+    --text-xs: 0.8125rem;
+    --text-xs--line-height: 1.45;
+    --text-sm: 0.9375rem;
+    --text-sm--line-height: 1.5;
+    --text-base: 1rem;
+    --text-base--line-height: 1.65;
+    --text-lg: 1.1875rem;
+    --text-lg--line-height: 1.5;
+    --text-xl: 1.5rem;
+    --text-xl--line-height: 1.35;
+    --text-2xl: 1.875rem;
+    --text-2xl--line-height: 1.25;
+    --text-3xl: 2.375rem;
+    --text-3xl--line-height: 1.2;
+
+    --leading-tight: 1.25;
+    --leading-normal: 1.5;
+    --leading-relaxed: 1.65;
+
+    /* ---- Shape ---- */
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 16px;
+
+    /* ---- Named spacing ----
+       44px minimum interactive target, non-negotiable. Gives min-h-tap,
+       min-w-tap, h-tap, w-tap. The base layer also enforces it on bare
+       buttons and inputs so a forgotten utility cannot break accessibility. */
+    --spacing-tap: 44px;
+    --spacing-sidebar: 300px;
+    --spacing-sidebar-rail: 84px;
+
+    /* ---- Shadows ---- */
+    --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+    --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.1);
+    --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.14);
 }

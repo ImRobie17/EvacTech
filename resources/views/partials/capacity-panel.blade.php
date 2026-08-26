@@ -25,4 +25,26 @@
         <div class="capacity-bar-fill cap-{{ $band }}" style="width: {{ min($pct ?? 0, 100) }}%"></div>
     </div>
     <p class="kpi-note">{{ $note }}</p>
+
+    {{-- PHASE 5 ITEM 8b. NOT part of occupancy, and deliberately so: these people
+         have is_present = false, so they are already excluded from
+         members_present and therefore from current_occupancy above. This is a
+         separate figure for a separate question.
+
+         Rendered only when it is above zero. A permanent "0 not yet accounted
+         for" on thirty shelters is noise that teaches staff to stop reading the
+         panel.
+
+         Counts only the UNKNOWN reason. Someone recorded as having returned home
+         or gone to another shelter is not a discrepancy -- a human already
+         answered the question.
+
+         NEVER "missing": that is a formal NDRRMC category. --}}
+    @if (($unaccounted ?? 0) > 0)
+        <p class="kpi-note">
+            <span class="badge badge-warning">Not yet accounted for</span>
+            {{ $unaccounted }} {{ $unaccounted === 1 ? 'person' : 'people' }} after a transfer.
+            Use Update Presence when they arrive, or Resolve on the Transfers page.
+        </p>
+    @endif
 </article>

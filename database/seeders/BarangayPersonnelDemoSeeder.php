@@ -2,125 +2,78 @@
 
 namespace Database\Seeders;
 
-use App\Models\Barangay;
 use App\Models\EvacuationCenter;
-use App\Models\ReliefGood;
-use App\Models\ReliefInventory;
 use App\Models\Role;
 use App\Models\User;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 
 /**
- * Demo data for the Barangay Personnel role.
+ * Barangay Personnel demo logins, one per shelter.
  *
- * PHASE 1 ITEM 1: a barangay now has MANY shelters and staff are assigned to
- * specific shelters via the evacuation_center_user pivot. This seeder therefore
- * creates THREE shelters and three logins that exercise the new cases:
+ * REWRITTEN. The previous version created three shelters of its own and gave one
+ * account three of them, to demo a shelter switcher. **That switcher was removed
+ * in Phase 6**: a staff account belongs to exactly ONE shelter, and moving
+ * somebody is a reassignment performed by City Admin. The old seeder was
+ * planting data the application no longer permits, and an account holding three
+ * shelters would resolve to whichever one ResolvesCenter happened to pick first.
  *
- *   - staff.multi   -> 3 shelters (switcher visible, can move between them)
- *   - staff.single  -> 1 shelter  (switcher collapses to a static label)
- *   - staff.roving  -> 2 shelters in DIFFERENT barangays (cross-barangay surge)
+ * Shelters now come from EvacuationCenterSeeder -- the real 49 -- so this file
+ * creates no shelters at all. It attaches a login to each of the first twenty,
+ * which are the ones DemoEvacueeSeeder populates, so every demo account opens
+ * onto a shelter that actually has evacuees in it.
  *
- * CHANGE THE PASSWORDS AFTER FIRST LOGIN.
+ * The pivot is the ONLY thing granting access. barangay_id on the user is
+ * nominal and must never be used for authorisation.
+ *
+ * CHANGE THESE PASSWORDS BEFORE ANY REAL DEPLOYMENT.
  */
 class BarangayPersonnelDemoSeeder extends Seeder
 {
+    private const PASSWORD = 'ChangeMe!12345';
+
     public function run(): void
     {
-        $mamatid = Barangay::where('name', 'Mamatid')->first();
-        if (! $mamatid) {
-            return; // BarangaySeeder wasn't run yet
+        $role = Role::where('name', Role::BARANGAY_PERSONNEL)->first();
+        if (! $role) {
+            return; // RoleSeeder has not run
         }
-        // Second barangay for the cross-barangay case; falls back to Mamatid.
-        $other = Barangay::where('name', '!=', 'Mamatid')->orderBy('name')->first() ?? $mamatid;
 
-        $role = Role::where('name', Role::BARANGAY_PERSONNEL)->firstOrFail();
+        // The same twenty shelters DemoEvacueeSeeder populates, so every demo
+        // login opens onto a roster that already has households in it.
+        $centers = EvacuationCenter::orderBy('id')->take(20)->get();
 
-        // ---- Shelters: two in Mamatid, one elsewhere ----
-        $court = $this->shelter('Mamatid Covered Court', $mamatid, 500, [
-            'has_water_supply' => true,
-            'has_medical_desk' => true,
-            'has_power' => true,
-            'has_communal_kitchen' => true,
-        ]);
+        foreach ($centers as $center) {
+            $slug = $this->slug($center->name);
 
-        $school = $this->shelter('Mamatid Elementary School', $mamatid, 320, [
-            'has_water_supply' => true,
-            'has_medical_desk' => false,
-            'has_power' => true,
-            'has_communal_kitchen' => false,
-        ]);
+            $user = User::firstOrCreate(
+                ['email' => "brgy.{$slug}@evactech.cabuyao.gov.ph"],
+                [
+                    'role_id' => $role->id,
+                    // Nominal only. Access comes from the pivot, never from this.
+                    'barangay_id' => $center->barangay_id,
+                    'name' => $center->name . ' Staff',
+                    'password' => Hash::make(self::PASSWORD),
+                    'status' => 'active',
+                ]
+            );
 
-        $barangayHall = $this->shelter($other->name . ' Barangay Hall', $other, 180, [
-            'has_water_supply' => true,
-            'has_medical_desk' => false,
-            'has_power' => true,
-            'has_communal_kitchen' => false,
-        ]);
-
-        // ---- Staff logins ----
-        $multi = $this->staff($role, 'barangay.mamatid@evactech.cabuyao.gov.ph', 'Mamatid Shelter Staff', $mamatid);
-        $single = $this->staff($role, 'staff.single@evactech.cabuyao.gov.ph', 'Single Shelter Staff', $mamatid);
-        $roving = $this->staff($role, 'staff.roving@evactech.cabuyao.gov.ph', 'Roving Shelter Staff', $mamatid);
-
-        // ---- Assignments (the pivot is the ONLY thing granting access) ----
-        $this->assign($multi, [$court, $school, $barangayHall]);
-        $this->assign($single, [$court]);
-        $this->assign($roving, [$court, $barangayHall]);
-
-        // Starter inventory so Relief Distribution has data at every shelter.
-        $starter = ['Rice' => 200, 'Canned Goods' => 150, 'Bottled Water' => 300, 'Hygiene Kit' => 80, 'Blanket' => 60];
-        foreach ([$court, $school, $barangayHall] as $center) {
-            foreach ($starter as $name => $qty) {
-                $good = ReliefGood::where('name', $name)->first();
-                if (! $good) {
-                    continue;
-                }
-                ReliefInventory::firstOrCreate(
-                    ['evacuation_center_id' => $center->id, 'relief_good_id' => $good->id],
-                    ['quantity_on_hand' => $qty, 'reorder_level' => (int) ($qty * 0.2), 'last_updated_at' => now()]
-                );
-            }
+            /* sync(), not syncWithoutDetaching(). One staff account, one
+               shelter -- if this seeder is re-run after somebody was reassigned
+               through the UI, the account must end up with exactly one shelter,
+               not two. */
+            $user->assignedCenters()->sync([
+                $center->id => ['assigned_by' => null, 'assigned_at' => now()],
+            ]);
         }
     }
 
-    private function shelter(string $name, Barangay $barangay, int $capacity, array $facilities): EvacuationCenter
+    /** "Banay-Banay Elementary School" -> "banay-banay-elementary-school" */
+    private function slug(string $name): string
     {
-        return EvacuationCenter::firstOrCreate(
-            ['name' => $name, 'barangay_id' => $barangay->id],
-            array_merge([
-                'address' => "Brgy. {$barangay->name}, City of Cabuyao, Laguna",
-                'capacity' => $capacity,
-                'current_occupancy' => 0,
-                'status' => 'active',
-            ], $facilities)
-        );
-    }
+        $slug = strtolower($name);
+        $slug = preg_replace('/[^a-z0-9]+/', '-', $slug);
 
-    private function staff(Role $role, string $email, string $name, Barangay $nominal): User
-    {
-        return User::firstOrCreate(
-            ['email' => $email],
-            [
-                'role_id' => $role->id,
-                // Nominal only. Access comes from the pivot, never from this.
-                'barangay_id' => $nominal->id,
-                'name' => $name,
-                'password' => Hash::make('ChangeMe!12345'),
-                'status' => 'active',
-            ]
-        );
-    }
-
-    /** @param  EvacuationCenter[]  $centers */
-    private function assign(User $user, array $centers): void
-    {
-        $user->assignedCenters()->syncWithoutDetaching(
-            collect($centers)->mapWithKeys(fn ($c) => [$c->id => [
-                'assigned_by' => null,
-                'assigned_at' => now(),
-            ]])->all()
-        );
+        return trim($slug, '-');
     }
 }

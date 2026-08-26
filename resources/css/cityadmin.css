@@ -95,7 +95,12 @@ td.matrix-cell.stock-none { color: var(--color-text-secondary); }
 .roster-row:last-child { border-bottom: 0; }
 .roster-row:hover { background: var(--color-surface); }
 
-.roster-row input[type="checkbox"] {
+/* PHASE 6 -- the user modal's shelter picker became a radio group (one shelter
+   per staff account), while the shelter modal's staff picker is still a
+   checkbox list (many staff per shelter). Both live in .roster-row, so the
+   selector covers either input type rather than sizing only one of them. */
+.roster-row input[type="checkbox"],
+.roster-row input[type="radio"] {
   width: 1.25rem;
   height: 1.25rem;
   flex: 0 0 auto;

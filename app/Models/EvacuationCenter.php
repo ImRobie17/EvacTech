@@ -6,26 +6,32 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 
 class EvacuationCenter extends Model
 {
     // NOTE: `managed_by` was removed in 2025_06_01_000002. Shelter staffing lives
     // in the evacuation_center_user pivot -- see assignedStaff().
+    /*
+     * PHASE 9 ITEM 7 -- the Facilities feature is removed.
+     *
+     * The four booleans (has_water_supply, has_medical_desk, has_power,
+     * has_communal_kitchen) are gone from $fillable and from casts(), and with
+     * them the form, the validation, the badges on both shelter screens and the
+     * seeder values. Nothing in the application reads or writes them any more.
+     *
+     * THE COLUMNS THEMSELVES ARE DELIBERATELY LEFT IN PLACE, and no migration
+     * ships with this. All four were declared ->default(false) in
+     * 2025_01_01_000004, so an insert that never mentions them succeeds and takes
+     * the default -- removing them from $fillable is sufficient to remove the
+     * feature. Dropping the columns would be cosmetic, is irreversible for the
+     * data already in them, and buys nothing observable. It is recorded as future
+     * work rather than shipped days before a defence.
+     */
     protected $fillable = [
         'barangay_id', 'name', 'address', 'latitude', 'longitude',
-        'capacity', 'current_occupancy', 'has_water_supply', 'has_medical_desk',
-        'has_power', 'has_communal_kitchen', 'status', 'created_by',
+        'capacity', 'current_occupancy', 'status', 'created_by',
     ];
-
-    protected function casts(): array
-    {
-        return [
-            'has_water_supply' => 'boolean',
-            'has_medical_desk' => 'boolean',
-            'has_power' => 'boolean',
-            'has_communal_kitchen' => 'boolean',
-        ];
-    }
 
     public function barangay(): BelongsTo
     {
@@ -46,6 +52,19 @@ class EvacuationCenter extends Model
     public function households(): HasMany
     {
         return $this->hasMany(Household::class);
+    }
+
+    /**
+     * PHASE 3 ITEM 11b -- every member registered at this shelter.
+     *
+     * Exists so a filtered report can count MATCHING MEMBERS per shelter in one
+     * query. withCount('households') counts FAMILIES, which is the wrong unit
+     * for "how many people here matched your filter", and counting per row in
+     * PHP would be a query per shelter.
+     */
+    public function householdMembers(): HasManyThrough
+    {
+        return $this->hasManyThrough(HouseholdMember::class, Household::class);
     }
 
     public function inventories(): HasMany

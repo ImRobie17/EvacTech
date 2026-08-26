@@ -4,6 +4,7 @@ namespace App\Http\Controllers\CityAdmin;
 
 use App\Http\Controllers\Controller;
 use App\Models\EvacuationCenter;
+use App\Models\PasswordResetRequest;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\AuditLogger;
@@ -44,7 +45,22 @@ class UserManagementController extends Controller
         $users = $query->orderBy('name')->paginate(15)->withQueryString();
         $shelters = EvacuationCenter::with('barangay')->orderBy('name')->get();
 
-        return view('cityadmin.users.index', compact('users', 'shelters'));
+        // PHASE 7 ITEM 5. Barangay requests are City Admin's to handle.
+        //
+        // In the UI, not by email. SystemAlerter reaches Super Admins only, and
+        // only when EVACTECH_ALERT_EMAILS is configured -- anything City Admin
+        // must see belongs on the page they are already looking at.
+        //
+        // Not paginated: a pending queue that needs a second page is a queue
+        // nobody is working, and a second paginator would fight $users for the
+        // ?page parameter.
+        $resetRequests = PasswordResetRequest::with('user')
+            ->pending()
+            ->forRoles([Role::BARANGAY_PERSONNEL])
+            ->orderBy('created_at')
+            ->get();
+
+        return view('cityadmin.users.index', compact('users', 'shelters', 'resetRequests'));
     }
 
     public function store(Request $request)
@@ -110,12 +126,23 @@ class UserManagementController extends Controller
                 'barangay_id' => EvacuationCenter::find($data['shelters'][0])?->barangay_id,
                 'status' => $data['status'],
             ]);
-            if (! empty($data['password'])) {
+            $passwordChanged = ! empty($data['password']);
+            if ($passwordChanged) {
                 $user->password = Hash::make($data['password']);
             }
             $user->save();
 
             $this->syncShelters($user, $data['shelters']);
+
+            // PHASE 7 ITEMS 4 AND 5. Setting a new password IS the resolution,
+            // so it closes the queue entry and clears any lock in the same
+            // transaction. There is deliberately no separate "mark completed"
+            // button: an administrator who helps someone and then forgets to
+            // tidy the queue would leave a request pending forever, and the next
+            // administrator would telephone the same person again.
+            if ($passwordChanged) {
+                $this->resolveResetRequests($user);
+            }
         });
 
         AuditLogger::log('updated', $user,
@@ -154,6 +181,72 @@ class UserManagementController extends Controller
     }
 
     /** Guard: City Admin may only ever act on barangay personnel rows. */
+    /**
+     * PHASE 7 ITEM 4 -- release a lock early.
+     *
+     * Kept apart from toggleStatus(). A locked account is still ACTIVE; it is a
+     * person who mistyped a password three times, not an account somebody
+     * disabled. Folding the two together would let one button quietly do the
+     * other's job.
+     */
+    public function unlock(User $user)
+    {
+        $this->authorizeTarget($user);
+
+        if (! $user->isLocked() && (int) $user->failed_login_attempts === 0) {
+            return back()->with('success', "{$user->name}'s account is not locked.");
+        }
+
+        $user->clearLoginLock();
+        AuditLogger::log('unlocked', $user, "Unlocked sign-in for {$user->name}");
+
+        return back()->with('success', "{$user->name} can sign in again.");
+    }
+
+    /**
+     * PHASE 7 ITEM 5 -- close a request WITHOUT resetting anything.
+     *
+     * For the case where the telephone call goes badly: the person did not raise
+     * it, or no longer needs it. Dismissing changes no credential and no lock,
+     * which is the whole point -- the destructive half of this flow stays behind
+     * the account editor.
+     */
+    public function dismissResetRequest(PasswordResetRequest $resetRequest)
+    {
+        // Users are SOFT deleted, so the table's cascadeOnDelete never fires and
+        // a request can outlive its account. The index queries filter these out
+        // through whereHas, but a direct POST would reach authorizeTarget with a
+        // null user and 500. Treat an orphan as gone.
+        abort_if($resetRequest->user === null, 404);
+
+        $this->authorizeTarget($resetRequest->user);
+
+        abort_if($resetRequest->status !== PasswordResetRequest::STATUS_PENDING, 404);
+
+        $resetRequest->update([
+            'status' => PasswordResetRequest::STATUS_DISMISSED,
+            'handled_by' => auth()->id(),
+            'handled_at' => now(),
+        ]);
+
+        AuditLogger::log('dismissed', $resetRequest->user,
+            "Dismissed password reset request from {$resetRequest->user->name}");
+
+        return back()->with('success', 'Request dismissed. No password was changed.');
+    }
+
+    /** Close every pending request for this account and clear any lock. */
+    private function resolveResetRequests(User $user): void
+    {
+        $user->clearLoginLock();
+
+        $user->passwordResetRequests()->pending()->update([
+            'status' => PasswordResetRequest::STATUS_COMPLETED,
+            'handled_by' => auth()->id(),
+            'handled_at' => now(),
+        ]);
+    }
+
     private function authorizeTarget(User $user): void
     {
         abort_if($user->role?->name !== Role::BARANGAY_PERSONNEL, 403,

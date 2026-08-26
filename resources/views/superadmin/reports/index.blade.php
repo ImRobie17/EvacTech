@@ -5,7 +5,11 @@
 @section('page-subtitle', 'System-level reports across all users and activity.')
 
 @section('content')
-<div class="card panel" style="max-width: 640px;">
+{{-- max-w-2xl replaces style="max-width: 640px". Same intent -- a five-control
+     form should not stretch across a 27-inch monitor -- but as a utility it
+     participates in the cascade and can be overridden by a later utility, which
+     an inline style cannot. --}}
+<div class="card panel max-w-2xl">
     <h2 class="panel-title">Generate a System Report</h2>
     <form method="POST" action="{{ route('super.reports.generate') }}">
         @csrf

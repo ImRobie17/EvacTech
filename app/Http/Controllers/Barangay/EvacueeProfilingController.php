@@ -7,12 +7,22 @@ use App\Models\EvacuationCenter;
 use App\Models\Household;
 use App\Models\VulnerableClassification;
 use App\Services\AuditLogger;
+use App\Services\HouseholdMemberSync;
+use App\Services\ReunificationService;
+use App\Support\AgeTier;
+use App\Support\HouseholdCode;
+use App\Support\MemberRules;
 use Illuminate\Http\Request;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class EvacueeProfilingController extends BarangayController
 {
+    public function __construct(
+        private HouseholdMemberSync $sync,
+        private ReunificationService $reunification
+    ) {
+    }
+
     public function index(Request $request, ?EvacuationCenter $routeCenter = null)
     {
         $center = $this->center($routeCenter);
@@ -31,9 +41,11 @@ class EvacueeProfilingController extends BarangayController
         }
 
         if ($search = trim((string) $request->input('q'))) {
-            $query->whereHas('members', fn ($q) => $q
-                ->where('is_household_head', true)
-                ->where('full_name', 'like', "%{$search}%"));
+            /* PHASE 9 ITEM 1. The head constraint is gone: a family is found by
+               ANY of its members. HouseholdMember::scopeNameMatches() is the
+               single definition -- see the note on that scope for why the two
+               ORDER BY subqueries keep the head. */
+            $query->whereHas('members', fn ($q) => $q->nameMatches($search));
         }
 
         if ($status = $request->input('status')) {
@@ -44,21 +56,103 @@ class EvacueeProfilingController extends BarangayController
             $query->where('origin_barangay_id', $barangayId);
         }
 
-        if ($vuln = $request->input('vulnerable')) {
+        // Phase 2 item 6: age group and category are now SEPARATE filters.
+        // They used to be one dropdown, because Senior Citizen and Infant were
+        // classifications. Filtering by both at once means "households with at
+        // least one member in this tier AND at least one member with this tag",
+        // which is what an operator looking for, say, pregnant women in a
+        // family with infants actually wants.
+        if ($tier = $request->input('age_group')) {
+            if (AgeTier::isValid($tier)) {
+                $query->whereHas('members', fn ($q) => $q
+                    ->whereRaw(AgeTier::sqlCase() . ' = ?', [$tier]));
+            }
+        }
+
+        if ($vuln = $request->input('category')) {
             $query->whereHas('members.vulnerableClassifications', fn ($q) => $q
                 ->where('vulnerable_classifications.id', $vuln));
         }
 
-        $households = $query->latest()->paginate(15)->withQueryString();
-        $classifications = VulnerableClassification::orderBy('name')->get();
+        // Derived from members_present == 1 on a checked-in family, never a tag.
+        if ($request->boolean('single_headed')) {
+            $query->singleHeaded();
+        }
 
-        // Origin barangay is now an explicit field on the Add Evacuee form:
-        // staff are no longer tied to a barangay, so it can no longer be
-        // inferred from the account.
+        $households = $query->latest()->paginate(15)->withQueryString();
+
+        // Only SELECTABLE classifications reach the UI. The retired Senior
+        // Citizen / Infant rows still exist for history but must never be
+        // offered as something to tag or filter by.
+        $classifications = VulnerableClassification::selectable()->orderBy('name')->get();
+        $ageGroups = AgeTier::options();
+
         $barangays = Barangay::orderBy('name')->get();
         $defaultBarangayId = $center?->barangay_id;
 
-        return view('barangay.evacuees.index', compact('households', 'classifications', 'center', 'barangays', 'defaultBarangayId'));
+        /* DROP 2. Households declared separated at registration, still at this
+           shelter. ALWAYS passed and always rendered -- empty is the normal
+           answer, and a panel that only appears when it has rows makes
+           "nobody is separated here" and "this feature does not exist" look
+           identical.
+
+           familyOptions is keyed by fragment id so the modal can offer only
+           households at this shelter, and never has to guess which family. */
+        $separatedHouseholds = $center ? $this->reunification->pendingAt($center) : collect();
+
+        $familyOptions = [];
+        if ($center) {
+            foreach ($separatedHouseholds as $frag) {
+                $familyOptions[$frag->id] = $this->reunification->familyOptionsAt($center, $frag);
+            }
+        }
+
+        return view('barangay.evacuees.index', compact(
+            'households', 'classifications', 'ageGroups', 'center', 'barangays', 'defaultBarangayId',
+            'separatedHouseholds', 'familyOptions'
+        ));
+    }
+
+    /**
+     * DROP 2 -- reunite a separated household with its family.
+     *
+     * Both households must be at THIS shelter and the operator must be able to
+     * act on both, so authorisation is checked at both ends rather than
+     * inferred from one.
+     *
+     * The whole transition lives in ReunificationService. It throws rather than
+     * returning false, so a refusal cannot be mistaken for success by a caller
+     * that ignores a return value.
+     */
+    public function reunite(Request $request)
+    {
+        $data = $request->validate([
+            'fragment_id' => ['required', 'integer', 'exists:households,id'],
+            'family_id' => ['required', 'integer', 'exists:households,id'],
+            // Rows inside the FAMILY that the operator says are the same people
+            // now arriving. May legitimately be empty: the family may never have
+            // listed them.
+            'stale' => ['nullable', 'array'],
+            'stale.*' => ['integer'],
+        ]);
+
+        $fragment = Household::findOrFail($data['fragment_id']);
+        $family = Household::findOrFail($data['family_id']);
+
+        if (! $this->canManageHousehold($fragment) || ! $this->canManageHousehold($family)) {
+            abort(403);
+        }
+
+        try {
+            $this->reunification->reunite($fragment, $family, $data['stale'] ?? [], $request->user());
+        } catch (\RuntimeException $e) {
+            return redirect()->back()->with('error', $e->getMessage());
+        }
+
+        return redirect()->back()->with(
+            'success',
+            'Reunited. Their records are now one household, ' . $family->household_code . '.'
+        );
     }
 
     /** Register a new household (Add Evacuee modal). checkin=1 also checks them in. */
@@ -68,17 +162,23 @@ class EvacueeProfilingController extends BarangayController
         $checkin = $request->boolean('checkin');
         $center = $checkin ? $this->centerOrFail() : $this->center();
 
-        $household = DB::transaction(function () use ($data, $checkin, $center) {
+        // The retry wraps the transaction, never the other way round: a duplicate
+        // key rolls the transaction back, so a retry needs a clean one.
+        $household = HouseholdCode::attempt(fn ($code) => DB::transaction(function () use ($code, $data, $checkin, $center) {
             $household = Household::create([
-                'household_code' => $this->nextCode(),
+                'household_code' => $code,
                 'origin_barangay_id' => $data['origin_barangay_id'],
                 'origin_address' => $data['address'],
+                // DROP 1. Unticked boxes are absent from the post entirely, so
+                // coalesce rather than index -- and cast, because an HTML
+                // checkbox posts the string "1", not a boolean.
+                'is_separated' => (bool) ($data['is_separated'] ?? false),
                 'number_of_members' => count($data['members']),
                 'status' => 'registered',
                 'registered_by' => auth()->id(),
             ]);
 
-            $this->syncMembers($household, $data['members'], $checkin);
+            $this->sync->sync($household, $data['members'], checkin: $checkin);
 
             if ($checkin) {
                 $present = $household->members()->where('is_present', true)->count();
@@ -93,12 +193,21 @@ class EvacueeProfilingController extends BarangayController
             }
 
             return $household;
-        });
+        }));
 
         AuditLogger::log('created', $household,
             "Registered household {$household->household_code}" . ($checkin ? " and checked in at {$center->name}" : ''));
 
-        return redirect()->route('barangay.evacuees.index')
+        /* PHASE 6 ITEM 11. Was a hard redirect to barangay.evacuees.index.
+           Registration can now start from the Shelter page, and sending someone
+           to Evacuee Profiling after they registered a family at their shelter
+           is the same complaint as the edit redirection: the operator ends up
+           somewhere they did not ask to be, mid-surge.
+
+           back() returns whichever page the form was posted from. Posting from
+           Evacuee Profiling still lands on Evacuee Profiling, so nothing about
+           that screen changes. */
+        return redirect()->back()
             ->with('success', "Household {$household->household_code} registered" . ($checkin ? ' and checked in.' : '.'));
     }
 
@@ -114,11 +223,34 @@ class EvacueeProfilingController extends BarangayController
             'code' => $household->household_code,
             'address' => $household->origin_address,
             'origin_barangay_id' => $household->origin_barangay_id,
+            // DROP 1. The edit form must be able to re-tick this. Without it
+            // form.reset() leaves the box clear and the next save silently
+            // writes is_separated = false, quietly losing a declared fact.
+            'is_separated' => (bool) $household->is_separated,
             'origin_barangay' => $household->originBarangay?->name,
             'status' => $household->status,
+            /* PHASE 6 ITEM 10. The read-only view modal shows check-in and
+               check-out times, which nothing else on this payload carried.
+               ISO 8601 rather than a display string: formatting is the view's
+               job, and a pre-formatted date here would have to be duplicated
+               the moment a second consumer wanted it differently. */
+            'checked_in_at' => $household->checked_in_at?->toIso8601String(),
+            'checked_out_at' => $household->checked_out_at?->toIso8601String(),
+            'members_present' => $household->members_present,
+            'number_of_members' => $household->number_of_members,
             'center' => $household->evacuationCenter?->name,
             'center_id' => $household->evacuation_center_id,
+            // PHASE 9 ITEM 2. The view modal is reachable from every household
+            // list, so carrying the stand-in here is what makes it visible from
+            // the two rosters that do NOT print it in their own table.
+            'acting_head_member_id' => $household->acting_head_member_id,
+            'acting_head' => $household->actingHeadMember?->full_name,
+            // Derived once on the model rather than dug out of the members array:
+            // two of these three payloads do not carry per-member is_present, and
+            // a field the viewer silently never finds is worse than no field.
+            'head_is_present' => $household->substantiveHeadIsPresent(),
             'head_member_id' => $household->head_member_id,
+            'single_headed' => $household->isSingleHeaded(),
             'members' => $household->members->map(fn ($m) => [
                 'id' => $m->id,
                 'full_name' => $m->full_name,
@@ -126,7 +258,17 @@ class EvacueeProfilingController extends BarangayController
                 'sex' => $m->sex,
                 'is_head' => $m->is_household_head,
                 'is_present' => $m->is_present,
-                'tags' => $m->vulnerableClassifications->map(fn ($c) => ['id' => $c->id, 'name' => $c->name]),
+                // The derived tier, plus the raw fallback so the edit form can
+                // tell "chosen by hand" from "computed from a birthdate".
+                'age_tier' => $m->ageTier(),
+                'age_tier_label' => $m->ageTierShortLabel(),
+                'age_tier_fallback' => $m->age_tier_fallback,
+                // Retired tags are filtered out: the edit form must not present
+                // Senior Citizen as a live checkbox.
+                'tags' => $m->vulnerableClassifications
+                    ->where('is_selectable', true)
+                    ->values()
+                    ->map(fn ($c) => ['id' => $c->id, 'code' => $c->code, 'name' => $c->name]),
             ]),
         ]);
     }
@@ -140,9 +282,13 @@ class EvacueeProfilingController extends BarangayController
         DB::transaction(function () use ($household, $data) {
             $household->update([
                 'origin_address' => $data['address'],
+                // DROP 1. Unticked boxes are absent from the post entirely, so
+                // coalesce rather than index -- and cast, because an HTML
+                // checkbox posts the string "1", not a boolean.
+                'is_separated' => (bool) ($data['is_separated'] ?? false),
                 'origin_barangay_id' => $data['origin_barangay_id'],
             ]);
-            $this->syncMembers($household, $data['members'], keepPresence: true);
+            $this->sync->sync($household, $data['members'], keepPresence: true);
             $household->update([
                 'number_of_members' => $household->members()->count(),
                 'members_present' => $household->status === 'checked_in'
@@ -184,15 +330,31 @@ class EvacueeProfilingController extends BarangayController
         $term = trim((string) $request->input('q'));
         $user = auth()->user();
 
-        // Households at any shelter on this staff member's roster, plus any not yet
-        // placed in a shelter (so they can be checked in for the first time).
+        /* PHASE 9 ITEMS 3 + 5. The picker this backs is the CHECK-IN picker, so
+           the shelter it is deciding against is the one this member of staff is
+           working in. Resolved once here rather than per row. */
+        $activeCenterId = $this->center()?->id;
+
         $results = Household::with(['headMember', 'evacuationCenter', 'originBarangay'])
+            ->withCount(['members as absent_count' => fn ($m) => $m->where('is_present', false)])
+            /* PHASE 9 ITEM 1. members is eager-loaded ONLY when there is a term,
+               because it exists solely to let matchedMemberName() name the person
+               who matched. A blank-term prefill -- what every picker sends on open
+               -- therefore costs exactly what it did before. */
+            ->when($term, fn ($q) => $q->with('members'))
             ->where(fn ($q) => $q
                 ->whereIn('evacuation_center_id', $user->assignedCenterIds())
                 ->orWhereNull('evacuation_center_id'))
-            ->when($term, fn ($q) => $q->whereHas('members', fn ($m) => $m
-                ->where('is_household_head', true)
-                ->where('full_name', 'like', "%{$term}%")))
+            ->when($term, fn ($q) => $q->whereHas('members', fn ($m) => $m->nameMatches($term)))
+            /* Drop only the rows there is nothing to do with: checked in at this
+               shelter with everybody already present. A family with somebody
+               still absent STAYS in the list and is routed to presence
+               correction -- staff reach for Check-in when a late member arrives,
+               and this list used to answer them with silence. */
+            ->when($activeCenterId, fn ($q) => $q->whereNot(fn ($inner) => $inner
+                ->where('evacuation_center_id', $activeCenterId)
+                ->where('status', 'checked_in')
+                ->whereDoesntHave('members', fn ($m) => $m->where('is_present', false))))
             ->limit(10)
             ->get()
             ->map(fn ($h) => [
@@ -202,7 +364,22 @@ class EvacueeProfilingController extends BarangayController
                 'size' => $h->number_of_members,
                 'status' => $h->status,
                 'center' => $h->evacuationCenter?->name,
+                'current_center_id' => $h->evacuation_center_id,
                 'origin_barangay' => $h->originBarangay?->name,
+                'single_headed' => $h->isSingleHeaded(),
+                'absent' => (int) $h->absent_count,
+                'members_present' => (int) $h->members_present,
+                // PHASE 9 ITEM 1. Null unless the match was somebody other than
+                // the head, so the picker only speaks up when it needs to.
+                'matched' => $h->matchedMemberName($term),
+                // Derived on the model so both check-in pickers cannot disagree.
+                'action' => $h->checkinAction($activeCenterId, $term),
+                /* The name to seed the register form with for a 'separated'
+                   row. Deliberately NOT 'matched' above, which is null when the
+                   term hit the head -- right for a label that would otherwise
+                   repeat the row, wrong for a prefill that would be blank in
+                   exactly that case. */
+                'separated_name' => $h->matchedMember($term)?->full_name,
             ]);
 
         return response()->json($results);
@@ -215,101 +392,62 @@ class EvacueeProfilingController extends BarangayController
         return $request->validate([
             'origin_barangay_id' => ['required', 'exists:barangays,id'],
             'address' => ['required', 'string', 'max:255'],
+            /* DROP 1. Declared by the operator, never inferred. Absent from the
+               post when the box is unticked, so it must be nullable rather than
+               boolean-required. */
+            'is_separated' => ['nullable', 'boolean'],
             'members' => ['required', 'array', 'min:1'],
             'members.*.id' => ['nullable', 'integer'],
-            'members.*.last_name' => ['required', 'string', 'max:100'],
+            // PHASE 3 ITEM 9. Blank on a non-head row is allowed:
+            // HouseholdMemberSync fills it from the head's surname, which is
+            // the common case and saves retyping it for every child during a
+            // surge. The HEAD's surname stays required -- inheritance has to
+            // come from somewhere, and an empty one would build every
+            // full_name in the family as ", Juan".
+            //
+            // members.0 is the head on every form that posts here: the head row
+            // is rendered at index 0 and carries the is_head hidden input.
+            // HouseholdMemberSync resolves the head the same way and treats a
+            // blank head surname as "do not inherit", so a future form that
+            // flagged is_head elsewhere would degrade to a validation error
+            // rather than to silently wrong names.
+            'members.*.last_name' => ['nullable', 'string', 'max:100'],
+            'members.0.last_name' => ['required', 'string', 'max:100'],
             'members.*.first_name' => ['required', 'string', 'max:100'],
             'members.*.middle_name' => ['nullable', 'string', 'max:100'],
-            'members.*.birthdate' => ['required', 'date', 'before_or_equal:today'],
+
+            // Phase 2: birthdate is OPTIONAL so staff can tag a family fast
+            // during a surge and complete the record later. The age group is
+            // then required in its place -- one tap, and it keeps "Unknown" off
+            // a form a City Social Welfare officer signs.
+            // PHASE 7 ITEM 3. Both bounds now live in MemberRules so the rule
+            // and the input's min/max attributes cannot drift apart.
+            'members.*.birthdate' => MemberRules::birthdate(),
+            'members.*.age_group' => [
+                'required_without:members.*.birthdate',
+                'nullable',
+                'in:' . implode(',', array_keys(AgeTier::options())),
+            ],
+
+            // Sex stays REQUIRED: every row of the IDP Monitoring Form splits
+            // Male/Female with a reconciling TOTAL, and an unknown sex makes the
+            // age table, the category table and the headcount disagree.
             'members.*.sex' => ['required', 'in:male,female'],
+
             'members.*.is_head' => ['nullable'],
             'members.*.is_present' => ['nullable'],
-            'members.*.tags' => ['nullable', 'array'],
+            // PHASE 7 ITEM 2 -- rejects Pregnant Woman / Lactating Mother on a
+            // member whose sex is not female. Needs the request because the
+            // rule reads the sibling sex field on the same member row.
+            'members.*.tags' => MemberRules::tags($request),
             'members.*.tags.*' => ['integer', 'exists:vulnerable_classifications,id'],
         ], [
             'origin_barangay_id.required' => 'Select the barangay this family came from.',
+            'members.*.age_group.required_without' => 'Choose an age group for any member without a date of birth.',
+            'members.*.sex.required' => 'Sex is required for every member.',
+            'members.*.birthdate.before_or_equal' => 'A date of birth cannot be in the future.',
+            'members.*.birthdate.after_or_equal' => 'Check the date of birth -- nobody in the system can be older than '
+                . MemberRules::MAX_AGE_YEARS . ' years.',
         ]);
-    }
-
-    /**
-     * Create/update members, mark exactly one head, apply manual tags,
-     * and AUTO-TAG Senior (60+) / Infant-Young Child (0-5) from birthdate.
-     *
-     * NOTE: the age-tag rules here are replaced in Phase 2 (#5/#6) by the seven
-     * age tiers and the revised category list. Left as-is deliberately so this
-     * item changes shelter architecture only.
-     */
-    private function syncMembers(Household $household, array $members, bool $checkin = false, bool $keepPresence = false): void
-    {
-        $senior = VulnerableClassification::where('name', 'like', 'Senior%')->first();
-        $infant = VulnerableClassification::where('name', 'like', 'Infant%')->first();
-
-        $headSet = false;
-        $keptIds = [];
-
-        foreach ($members as $i => $m) {
-            $isHead = ! $headSet && ! empty($m['is_head']);
-            if ($i === 0 && ! collect($members)->contains(fn ($x) => ! empty($x['is_head']))) {
-                $isHead = true; // default: first row is the head if none flagged
-            }
-            if ($isHead) {
-                $headSet = true;
-            }
-
-            $fullName = trim($m['last_name'] . ', ' . $m['first_name'] . ' ' . ($m['middle_name'] ?? ''));
-            $birthdate = Carbon::parse($m['birthdate']);
-            $age = (int) $birthdate->age;
-
-            $attrs = [
-                'full_name' => $fullName,
-                'birthdate' => $birthdate,
-                'age' => $age,
-                'sex' => $m['sex'],
-                'is_household_head' => $isHead,
-                'family_role' => $isHead ? 'head' : 'member',
-            ];
-
-            if ($checkin) {
-                $attrs['is_present'] = array_key_exists('is_present', $m)
-                    ? ! empty($m['is_present'])
-                    : true;
-            } elseif (! $keepPresence) {
-                $attrs['is_present'] = false;
-            }
-
-            if (! empty($m['id'])) {
-                $member = $household->members()->whereKey($m['id'])->first();
-                $member?->update($attrs);
-                $member ??= $household->members()->create($attrs);
-            } else {
-                $member = $household->members()->create($attrs);
-            }
-            $keptIds[] = $member->id;
-
-            $tagIds = collect($m['tags'] ?? [])->map(fn ($t) => (int) $t);
-            if ($age >= 60 && $senior) {
-                $tagIds->push($senior->id);
-            }
-            if ($age <= 5 && $infant) {
-                $tagIds->push($infant->id);
-            }
-            $member->vulnerableClassifications()->sync(
-                $tagIds->unique()->mapWithKeys(fn ($id) => [$id => ['tagged_by' => auth()->id(), 'tagged_at' => now()]])->all()
-            );
-
-            if ($isHead) {
-                $household->update(['head_member_id' => $member->id]);
-            }
-        }
-
-        $household->members()->whereNotIn('id', $keptIds)->delete();
-    }
-
-    private function nextCode(): string
-    {
-        $year = now()->year;
-        $count = Household::whereYear('created_at', $year)->count();
-
-        return sprintf('HH-%d-%05d', $year, $count + 1);
     }
 }

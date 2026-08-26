@@ -13,6 +13,16 @@ use Illuminate\Support\Facades\DB;
 
 class ShelterController extends Controller
 {
+    /*
+     * PHASE 9 ITEM 7 -- Facilities removed.
+     *
+     * store() and update() no longer validate or write has_water_supply,
+     * has_medical_desk, has_power or has_communal_kitchen, and the checkboxes are
+     * gone from both shelter views. The columns remain in the table with their
+     * ->default(false), so inserts that never mention them still succeed -- see
+     * the note on EvacuationCenter::$fillable for why no migration ships here.
+     */
+
     public function index(Request $request)
     {
         $query = EvacuationCenter::with(['barangay', 'assignedStaff'])
@@ -40,7 +50,21 @@ class ShelterController extends Controller
         // pool is offered, grouped by their nominal barangay for orientation.
         $staffPool = $this->staffPool();
 
-        return view('cityadmin.shelters.index', compact('centers', 'barangays', 'staffPool'));
+        // PHASE 3 ITEM 10. Reference markers for the location picker: every
+        // shelter that has coordinates, city-wide.
+        //
+        // Deliberately NOT $centers. That collection is filtered by the search
+        // bar and paginated at 15, and a picker that showed only the current page
+        // would present gaps that are not gaps -- inviting a duplicate shelter to
+        // be placed on top of one that was simply on page 2. Four columns, no
+        // eager loads, no pagination: the query is small even with every shelter
+        // in the city in it.
+        $mapShelters = EvacuationCenter::whereNotNull('latitude')
+            ->whereNotNull('longitude')
+            ->orderBy('name')
+            ->get(['id', 'name', 'barangay_id', 'latitude', 'longitude']);
+
+        return view('cityadmin.shelters.index', compact('centers', 'barangays', 'staffPool', 'mapShelters'));
     }
 
     public function store(Request $request)
@@ -54,10 +78,6 @@ class ShelterController extends Controller
             'longitude' => ['nullable', 'numeric', 'between:-180,180'],
             'staff' => ['nullable', 'array'],
             'staff.*' => ['integer', 'exists:users,id'],
-            'has_water_supply' => ['nullable', 'boolean'],
-            'has_medical_desk' => ['nullable', 'boolean'],
-            'has_power' => ['nullable', 'boolean'],
-            'has_communal_kitchen' => ['nullable', 'boolean'],
         ]);
 
         $center = DB::transaction(function () use ($request, $data) {
@@ -70,10 +90,6 @@ class ShelterController extends Controller
                 'longitude' => $data['longitude'] ?? null,
                 'current_occupancy' => 0,
                 'status' => 'active',
-                'has_water_supply' => $request->boolean('has_water_supply'),
-                'has_medical_desk' => $request->boolean('has_medical_desk'),
-                'has_power' => $request->boolean('has_power'),
-                'has_communal_kitchen' => $request->boolean('has_communal_kitchen'),
                 'created_by' => auth()->id(),
             ]);
 
@@ -103,10 +119,6 @@ class ShelterController extends Controller
             'longitude' => ['nullable', 'numeric', 'between:-180,180'],
             'staff' => ['nullable', 'array'],
             'staff.*' => ['integer', 'exists:users,id'],
-            'has_water_supply' => ['nullable', 'boolean'],
-            'has_medical_desk' => ['nullable', 'boolean'],
-            'has_power' => ['nullable', 'boolean'],
-            'has_communal_kitchen' => ['nullable', 'boolean'],
         ]);
 
         DB::transaction(function () use ($request, $data, $center) {
@@ -118,10 +130,6 @@ class ShelterController extends Controller
                 'status' => $data['status'],
                 'latitude' => $data['latitude'] ?? null,
                 'longitude' => $data['longitude'] ?? null,
-                'has_water_supply' => $request->boolean('has_water_supply'),
-                'has_medical_desk' => $request->boolean('has_medical_desk'),
-                'has_power' => $request->boolean('has_power'),
-                'has_communal_kitchen' => $request->boolean('has_communal_kitchen'),
             ]);
 
             $this->syncStaff($center, $data['staff'] ?? []);
@@ -133,21 +141,11 @@ class ShelterController extends Controller
         return back()->with('success', 'Evacuation center updated.');
     }
 
-    /**
-     * Barangay personnel available to staff a shelter (JSON).
-     * Replaces managersForBarangay(): assignment is a roster, and staff are no
-     * longer filtered to a single barangay.
-     */
-    public function assignableStaff(Request $request)
-    {
-        return response()->json(
-            $this->staffPool()->map(fn ($u) => [
-                'id' => $u->id,
-                'name' => $u->name,
-                'barangay' => $u->barangay?->name,
-            ])->values()
-        );
-    }
+    // PHASE 4 item 15: assignableStaff() deleted, along with the
+    // city.personnel.assignable route that was its only way in. It returned the
+    // staff roster as JSON for a picker that no longer exists -- shelters/index
+    // renders the roster server side from $staffPool, so nothing ever called
+    // the endpoint. staffPool() below stays; index() uses it.
 
     // -----------------------------------------------------------------
 
@@ -163,12 +161,34 @@ class ShelterController extends Controller
     /**
      * Replace the shelter's roster. Only barangay personnel may be assigned;
      * anything else in the request is silently dropped rather than trusted.
+     *
+     * PHASE 6 -- assignment is EXCLUSIVE per staff account. A staff member is
+     * physically inside one shelter for one shift, so putting them on this
+     * roster takes them off every other one. The user modal enforces the same
+     * rule from the other direction with a radio group; enforcing it on only
+     * one side would let City Admin produce a two-shelter account through the
+     * back door, and with the header switcher removed in item 7 that account
+     * would have no way to reach its second shelter.
+     *
+     * The detach runs BEFORE the sync so that a staff member already on THIS
+     * roster is removed and immediately re-added with fresh pivot values,
+     * rather than being detached after the sync has just put them back.
+     *
+     * The pivot itself stays many-to-many. The rule is policy, not schema, and
+     * a future surge-staffing feature can relax it here without a migration.
      */
     private function syncStaff(EvacuationCenter $center, array $userIds): void
     {
         $valid = User::whereIn('id', $userIds)
             ->whereHas('role', fn ($q) => $q->where('name', Role::BARANGAY_PERSONNEL))
             ->pluck('id');
+
+        if ($valid->isNotEmpty()) {
+            DB::table('evacuation_center_user')
+                ->whereIn('user_id', $valid)
+                ->where('evacuation_center_id', '!=', $center->id)
+                ->delete();
+        }
 
         $center->assignedStaff()->sync(
             $valid->mapWithKeys(fn ($id) => [$id => [

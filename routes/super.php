@@ -2,8 +2,14 @@
 
 /*
 |--------------------------------------------------------------------------
-| Super Admin routes (register in bootstrap/app.php's then: closure)
+| Super Admin routes
 |--------------------------------------------------------------------------
+| Loaded by the `then:` closure in bootstrap/app.php, inside the `web`
+| middleware group.
+|
+| `role:super_admin` only. NEVER add `verified` here -- seeded accounts have no
+| verified email and the redirect loop that causes is one of the project's
+| recorded gotchas.
 */
 
 use App\Http\Controllers\SuperAdmin\AuditLogController;
@@ -24,6 +30,20 @@ Route::middleware(['auth', 'role:super_admin'])
         Route::post('/users', [UserManagementController::class, 'store'])->name('users.store');
         Route::put('/users/{user}', [UserManagementController::class, 'update'])->name('users.update');
         Route::post('/users/{user}/toggle', [UserManagementController::class, 'toggleStatus'])->name('users.toggle');
+
+        // PHASE 7 ITEM 4 -- see routes/city.php for why this is not toggle().
+        Route::post('/users/{user}/unlock', [UserManagementController::class, 'unlock'])->name('users.unlock');
+
+        // PHASE 7 ITEM 5 -- City Admin requests are Super Admin's to handle.
+        Route::post('/users/reset-requests/{resetRequest}/dismiss', [UserManagementController::class, 'dismissResetRequest'])
+            ->name('users.reset-requests.dismiss');
+
+        // PHASE 7 ITEM 6 (deferred half). The ONLY password a Super Admin can
+        // change from inside the application is their own, and it requires the
+        // current one. Without this there is no in-app recovery for a top-level
+        // account at all -- the alternative is a seeder or tinker.
+        Route::post('/account/password', [UserManagementController::class, 'updateOwnPassword'])
+            ->name('account.password');
 
         // Audit Logs
         Route::get('/audit', [AuditLogController::class, 'index'])->name('audit.index');

@@ -22,6 +22,7 @@ use App\Http\Controllers\CityAdmin\ReliefController as CityRelief;
 use App\Http\Controllers\CityAdmin\ReportController as CityReport;
 use App\Http\Controllers\CityAdmin\ShelterController as CityShelter;
 use App\Http\Controllers\CityAdmin\ShelterDetailController as CityShelterDetail;
+use App\Http\Controllers\CityAdmin\TransferController as CityTransfer;
 use App\Http\Controllers\CityAdmin\UserManagementController;
 use Illuminate\Support\Facades\Route;
 
@@ -36,9 +37,6 @@ Route::middleware(['auth', 'role:city_admin'])
         Route::post('/shelters', [CityShelter::class, 'store'])->name('shelters.store');
         Route::put('/shelters/{center}', [CityShelter::class, 'update'])->name('shelters.update');
 
-        // Barangay personnel available to staff a shelter.
-        Route::get('/personnel', [CityShelter::class, 'assignableStaff'])->name('personnel.assignable');
-
         // ---- Single shelter detail (City Admin's own page) ----
         // Tabs are ?tab=households|relief on the show route.
         Route::get('/shelters/{center}/detail', [CityShelterDetail::class, 'show'])->name('shelters.show');
@@ -52,6 +50,12 @@ Route::middleware(['auth', 'role:city_admin'])
             Route::post('/households/{household}/check-in', [CityShelterDetail::class, 'checkIn'])->name('households.checkin');
             Route::post('/households/{household}/check-out', [CityShelterDetail::class, 'checkOut'])->name('households.checkout');
 
+            // PHASE 5 ITEM 8b -- presence correction. The /presence suffix keeps
+            // these clear of the /households/search literal above; the model
+            // binding cannot swallow a segment that follows {household}.
+            Route::get('/households/{household}/presence', [CityShelterDetail::class, 'presence'])->name('households.presence');
+            Route::post('/households/{household}/presence', [CityShelterDetail::class, 'updatePresence'])->name('households.presence.update');
+
             Route::get('/relief/recipients', [CityShelterDetail::class, 'searchReliefRecipients'])->name('relief.recipients');
             Route::post('/relief/receive', [CityShelterDetail::class, 'receiveRelief'])->name('relief.receive');
             Route::post('/relief/distribute', [CityShelterDetail::class, 'distributeRelief'])->name('relief.distribute');
@@ -60,6 +64,9 @@ Route::middleware(['auth', 'role:city_admin'])
         // ---- Evacuee Profiling (city-wide, all shelters) ----
         Route::get('/evacuees', [CityEvacuees::class, 'index'])->name('evacuees.index');
         Route::post('/evacuees', [CityEvacuees::class, 'store'])->name('evacuees.store');
+        // PHASE 6 ITEM 10. JSON for the read-only view modal. Declared AFTER the
+        // two literal /evacuees routes so the model binding cannot swallow them.
+        Route::get('/evacuees/{household}', [CityEvacuees::class, 'show'])->name('evacuees.show');
 
         // ---- Relief Distribution (city-wide overview + approvals) ----
         Route::get('/relief', [CityRelief::class, 'index'])->name('relief.index');
@@ -70,9 +77,46 @@ Route::middleware(['auth', 'role:city_admin'])
         Route::get('/reports', [CityReport::class, 'index'])->name('reports.index');
         Route::post('/reports/generate', [CityReport::class, 'generate'])->name('reports.generate');
 
+        // CSWDO IDP Monitoring Form (Phase 3 item 11a). PDF only, fixed layout,
+        // its own Blade view. A blank `center` prints every shelter accumulated.
+        Route::post('/reports/idp-form', [CityReport::class, 'idp'])->name('reports.idp');
+
+        // ---- Shelter Transfers (Phase 2 item 8) ----
+        // City Admin sees every transfer between every shelter and may act at
+        // either end. Cancelling a transfer that is already IN TRANSIT is a
+        // City-Admin-only power -- see ShelterTransfer::canBeCancelledBy().
+        Route::get('/transfers', [CityTransfer::class, 'index'])->name('transfers.index');
+        Route::get('/transfers/households', [CityTransfer::class, 'searchHouseholds'])->name('transfers.households');
+        Route::post('/transfers', [CityTransfer::class, 'store'])->name('transfers.store');
+
+        Route::get('/transfers/{transfer}/members', [CityTransfer::class, 'members'])->name('transfers.members');
+        Route::post('/transfers/{transfer}/confirm', [CityTransfer::class, 'confirm'])->name('transfers.confirm');
+        Route::post('/transfers/{transfer}/refuse', [CityTransfer::class, 'refuse'])->name('transfers.refuse');
+        Route::post('/transfers/{transfer}/depart', [CityTransfer::class, 'depart'])->name('transfers.depart');
+        Route::post('/transfers/{transfer}/receive', [CityTransfer::class, 'receive'])->name('transfers.receive');
+
+        // PHASE 5 ITEM 8b -- record what happened to someone who did not
+        // arrive. Reachable from BOTH ends of the transfer: the origin put
+        // those people on the truck and is likeliest to know where they went.
+        Route::post('/transfers/{transfer}/resolve-absence', [CityTransfer::class, 'resolveAbsence'])->name('transfers.resolve');
+        Route::post('/transfers/{transfer}/cancel', [CityTransfer::class, 'cancel'])->name('transfers.cancel');
+
         // ---- User Management (barangay personnel only) ----
         Route::get('/users', [UserManagementController::class, 'index'])->name('users.index');
         Route::post('/users', [UserManagementController::class, 'store'])->name('users.store');
         Route::put('/users/{user}', [UserManagementController::class, 'update'])->name('users.update');
         Route::post('/users/{user}/toggle', [UserManagementController::class, 'toggleStatus'])->name('users.toggle');
+
+        // PHASE 7 ITEM 4. Clears a lock before its 15 minutes are up. Separate
+        // from toggle(), which is about active/inactive -- a locked account is
+        // still an active one and must not be confused with a disabled one.
+        Route::post('/users/{user}/unlock', [UserManagementController::class, 'unlock'])->name('users.unlock');
+
+        // PHASE 7 ITEM 5. There is no "mark completed" route on purpose: setting
+        // a new password through users.update closes the request in the same
+        // transaction, so an administrator cannot resolve someone's problem and
+        // forget to clear the queue. Dismiss is for requests that turn out to be
+        // unfounded once the administrator telephones the person.
+        Route::post('/users/reset-requests/{resetRequest}/dismiss', [UserManagementController::class, 'dismissResetRequest'])
+            ->name('users.reset-requests.dismiss');
     });

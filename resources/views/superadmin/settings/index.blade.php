@@ -5,8 +5,11 @@
 @section('page-subtitle', 'Backups, maintenance mode, and system health.')
 
 @section('content')
-<section class="dash-columns">
-    <div>
+{{-- Controls take two thirds, the log panels one third, from 1024px. Below that
+     everything stacks in source order, so the destructive maintenance-mode form
+     is reached last rather than sitting beside it on a phone. --}}
+<section class="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
+    <div class="flex flex-col gap-4 lg:col-span-2">
         {{-- Health --}}
         <article class="card panel">
             <h2 class="panel-title">System Health</h2>
@@ -55,16 +58,16 @@
         </article>
     </div>
 
-    <div class="dash-side">
+    <div class="flex flex-col gap-4">
         {{-- System alerts --}}
         <article class="card panel">
             <h2 class="panel-title">System Alerts</h2>
             <div class="activity-panel">
                 @forelse($alerts as $a)
-                    <div class="activity-row">
+                    <div class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border p-3 text-sm last:border-b-0">
                         <span class="badge {{ $a->level === 'critical' || $a->level === 'error' ? 'badge-danger' : ($a->level === 'warning' ? 'badge-warning' : 'badge-info') }}">{{ ucfirst($a->level) }}</span>
-                        <span class="activity-name">{{ $a->title }}
-                            @if($a->message)<br><small class="text-muted">{{ Str::limit($a->message, 80) }}</small>@endif
+                        <span class="min-w-0 flex-1 font-medium">{{ $a->title }}
+                            @if($a->message)<br><small class="text-ink-muted">{{ Str::limit($a->message, 80) }}</small>@endif
                         </span>
                         @if(! $a->is_resolved)
                             <form method="POST" action="{{ route('super.settings.alerts.resolve', $a) }}" class="inline-form">
@@ -86,12 +89,12 @@
             <h2 class="panel-title">Recent System Actions</h2>
             <div class="activity-panel">
                 @forelse($events as $e)
-                    <div class="activity-row">
+                    <div class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border p-3 text-sm last:border-b-0">
                         <span class="badge badge-info">{{ ucfirst(str_replace('_', ' ', $e->type)) }}</span>
-                        <span class="activity-name">{{ $e->description }}
-                            @if($e->meta)<br><small class="text-muted">{{ $e->meta }}</small>@endif
+                        <span class="min-w-0 flex-1 font-medium">{{ $e->description }}
+                            @if($e->meta)<br><small class="text-ink-muted">{{ $e->meta }}</small>@endif
                         </span>
-                        <time class="activity-time">{{ $e->created_at?->diffForHumans() }}</time>
+                        <time class="text-ink-muted">{{ $e->created_at?->diffForHumans() }}</time>
                     </div>
                 @empty
                     <p class="empty-note">No system actions logged yet.</p>

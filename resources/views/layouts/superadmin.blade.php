@@ -1,20 +1,62 @@
 <!DOCTYPE html>
+{{--
+    Super Admin layout.
+
+    Structurally parallel to layouts/staff and layouts/cityadmin, kept separate
+    on purpose. A super admin is most likely at a desktop, but the mobile drawer
+    is included anyway so all three staff layouts behave identically -- one
+    navigation mechanism to reason about, not three.
+--}}
+@php
+    $sidebarCollapsed = request()->cookie('sidebar') === 'collapsed';
+
+    // CHAT C: Super Admin behaviour moved out of an inline <script> at the
+    // bottom of superadmin/users/index.blade.php and into its own bundle.
+    //
+    // It is loaded from the LAYOUT rather than opted into per view, because the
+    // point of the move was to stop City Admin's bundle and Super Admin's
+    // behaviour meeting on the same page. Loading it here means every Super
+    // Admin screen has its own module available and none of them depend on a
+    // view remembering to ask for it.
+    //
+    // Merged with, not overwriting, anything a view sets: a Super Admin screen
+    // that later wants charts.js appends to this list rather than replacing it.
+    $viteEntries = array_merge(['resources/js/superadmin.js'], (array) ($viteEntries ?? []));
+@endphp
 <html lang="en" data-theme="{{ request()->cookie('theme', 'light') }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>@yield('title', 'Super Admin') - EvacTech</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
-    @vite(['resources/css/app.css', 'resources/js/app.js'])
+    <title>@yield('title', 'Super Admin') &mdash; EvacTech</title>
+    {{-- ONE @vite() call, deliberately -- a second call in a head stack
+         re-injects the HMR client under `npm run dev`.
+
+         NOTE: do not write the PHP-block directive by name in a Blade comment.
+         storeUncompiledBlocks() runs BEFORE compileComments(), so naming it here
+         opens a real block that swallows markup down to the next closer. --}}
+    @vite(array_merge(['resources/css/app.css', 'resources/js/app.js'], (array) ($viteEntries ?? [])))
 </head>
 <body class="staff-body">
-<div class="staff-shell">
+<div class="staff-shell {{ $sidebarCollapsed ? 'sidebar-collapsed' : '' }}">
+
+    <header class="mobile-bar">
+        <button type="button" class="mobile-menu-btn" id="mobileNavToggle"
+                aria-controls="sidebar" aria-expanded="false">
+            <span aria-hidden="true">&#9776;</span>
+            <span>Menu</span>
+        </button>
+        <span class="mobile-bar-brand">
+            <span class="brand-mark" aria-hidden="true">&#10010;</span>
+            <span class="brand-name"><span class="brand-evac">Evac</span><span class="brand-tech">Tech</span></span>
+        </span>
+    </header>
+
+    <div class="sidebar-backdrop" id="sidebarBackdrop" hidden></div>
+
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-brand">
-            <span class="brand-mark" aria-hidden="true">+</span>
+            <span class="brand-mark" aria-hidden="true">&#10010;</span>
             <span class="brand-name"><span class="brand-evac">Evac</span><span class="brand-tech">Tech</span></span>
         </div>
 
@@ -45,6 +87,7 @@
             <div class="sidebar-controls">
                 <button type="button" class="icon-btn" id="themeToggle" aria-label="Toggle dark mode">&#9680;</button>
                 <button type="button" class="icon-btn" id="collapseToggle" aria-label="Collapse sidebar">&#10216;</button>
+                <button type="button" class="icon-btn" id="mobileNavClose" aria-label="Close menu">&times;</button>
             </div>
             <form method="POST" action="{{ route('logout') }}">
                 @csrf

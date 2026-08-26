@@ -24,6 +24,11 @@ class ReliefController extends BarangayController
         $inventory = collect();
         $goods = ReliefGood::orderBy('name')->get();
 
+        // Initialised outside the $center branch, like the collections above,
+        // because compact() at the end of this method runs either way.
+        $restockRequests = collect();
+        $specialRequests = collect();
+
         if ($center) {
             $stats['received'] = ReliefTransaction::where('evacuation_center_id', $center->id)
                 ->whereIn('type', ['received', 'allocated_in'])->sum('quantity');
@@ -44,9 +49,9 @@ class ReliefController extends BarangayController
                 ->where('type', 'distributed');
 
             if ($search = trim((string) $request->input('q'))) {
-                $logQuery->whereHas('household.members', fn ($q) => $q
-                    ->where('is_household_head', true)
-                    ->where('full_name', 'like', "%{$search}%"));
+                // PHASE 9 ITEM 1. Any member, not only the head. Rooted on
+                // ReliefTransaction, hence the household.members path.
+                $logQuery->whereHas('household.members', fn ($q) => $q->nameMatches($search));
             }
 
             $log = $logQuery->latest('created_at')->paginate(15)->withQueryString();
@@ -74,9 +79,35 @@ class ReliefController extends BarangayController
             $inventory = ReliefInventory::with('reliefGood')
                 ->where('evacuation_center_id', $center->id)
                 ->get();
+
+            // ---- Request queues, this shelter only ----
+            // Pending PLUS anything resolved in the last week, deliberately. A
+            // request that disappears the moment it is answered is the same
+            // silent channel the missing Request button already produced: staff
+            // submit, see nothing, and assume it failed. Keeping resolved
+            // requests visible for a few days is what makes an approval or a
+            // rejection land with the person who asked.
+            $restockRequests = \App\Models\ReliefAllocationRequest::with(['reliefGood', 'requestedBy'])
+                ->where('evacuation_center_id', $center->id)
+                ->where(fn ($q) => $q
+                    ->where('status', 'pending')
+                    ->orWhere('resolved_at', '>=', Carbon::now()->subDays(7)))
+                ->latest('requested_at')
+                ->get();
+
+            $specialRequests = \App\Models\SpecialReliefRequest::with(['household.headMember', 'requestedBy'])
+                ->where('evacuation_center_id', $center->id)
+                ->where(fn ($q) => $q
+                    ->where('status', 'pending')
+                    ->orWhere('reviewed_at', '>=', Carbon::now()->subDays(7)))
+                ->latest()
+                ->get();
         }
 
-        return view('barangay.relief.index', compact('center', 'stats', 'log', 'priority', 'inventory', 'goods'));
+        return view('barangay.relief.index', compact(
+            'center', 'stats', 'log', 'priority', 'inventory', 'goods',
+            'restockRequests', 'specialRequests'
+        ));
     }
 
     /** Distribute relief to a household. Auto-decrements inventory (PB-09). */
@@ -161,29 +192,13 @@ class ReliefController extends BarangayController
         return back()->with('success', 'Stock received and inventory updated.');
     }
 
-    /** Relief history for one household (search function in the spec). */
-    public function history(Household $household)
-    {
-        $this->authorizeHousehold($household);
+    // PHASE 4 item 15: history() deleted, along with the barangay.relief.history
+    // route that was its only way in. It returned one household's distribution
+    // history as JSON for a lookup that index() now answers directly -- the
+    // relief page has a server-rendered, searchable history panel, so nothing
+    // ever called the endpoint.
 
-        $rows = ReliefTransaction::with('reliefGood', 'recordedBy')
-            ->where('household_id', $household->id)
-            ->where('type', 'distributed')
-            ->latest('transaction_date')
-            ->get()
-            ->map(fn ($t) => [
-                'date' => $t->transaction_date->format('M d, Y'),
-                'good' => $t->reliefGood->name,
-                'quantity' => $t->quantity,
-                'unit' => $t->reliefGood->unit,
-                'by' => $t->recordedBy?->name,
-                'remarks' => $t->remarks,
-            ]);
-
-        return response()->json($rows);
-    }
-
-        public function requestRestock(Request $request)
+    public function requestRestock(Request $request)
     {
         $center = $this->centerOrFail();
 
@@ -233,5 +248,68 @@ class ReliefController extends BarangayController
         \App\Services\AuditLogger::log('created', $special, "Requested special item: {$special->item_description}");
 
         return back()->with('success', 'Special item request submitted for City Admin approval.');
+    }
+
+    /**
+     * PHASE 8 ITEM 2 -- households this shelter may hand relief to.
+     *
+     * WHY THIS EXISTS RATHER THAN REUSING evacuees.search.
+     *
+     * Both relief pickers on this screen -- Distribute Relief and the special
+     * item request -- used to point at Barangay\EvacueeProfilingController::
+     * search(), which returns every household on the staff member's roster PLUS
+     * every unassigned one, regardless of status. That was tolerable while the
+     * list only appeared after someone typed a name they already had in mind.
+     * It stops being tolerable the moment the list is PREFILLED, because then
+     * the default state of the screen becomes a roster of families the operator
+     * cannot actually give anything to: checked out, never checked in, or
+     * sitting in a different shelter entirely.
+     *
+     * So this mirrors CityAdmin\ShelterDetailController::searchReliefRecipients()
+     * exactly -- checked in, at THIS shelter -- and the two roles now answer the
+     * question the same way. The scoping applies to the typed search as well as
+     * the prefill, which is the point: a family who is not here should not be
+     * offerable at all, not merely absent from the default list.
+     *
+     * `members_present`, not `number_of_members`: relief is issued against who
+     * is actually at the shelter, which is the same figure occupancy is derived
+     * from.
+     *
+     * NOTE ON THE SERVER RULE. distribute() and requestSpecial() still validate
+     * `exists:households,id` plus authorizeHousehold(), and neither requires the
+     * household to be checked in here. This narrows what the interface OFFERS;
+     * it does not add a new server-side constraint. Tightening those two is
+     * deliberately left alone -- check-in flexibility is Phase 9, and a rule
+     * added here would be a rule added in the middle of a screen that is about
+     * to change. Recorded in the phase notes rather than fixed in passing.
+     */
+    public function searchRecipients(Request $request)
+    {
+        $center = $this->centerOrFail();
+        $term = trim((string) $request->input('q'));
+
+        $results = Household::with('headMember')
+            // PHASE 9 ITEM 1. Loaded only when a term exists -- see the note in
+            // Barangay\EvacueeProfilingController::search().
+            ->when($term, fn ($q) => $q->with('members'))
+            ->where('evacuation_center_id', $center->id)
+            ->where('status', 'checked_in')
+            // when(), not a required filter: a blank term is a legitimate query
+            // meaning "everyone here", and it is what the prefill sends.
+            ->when($term, fn ($q) => $q->whereHas('members', fn ($m) => $m->nameMatches($term)))
+            ->orderByDesc('checked_in_at')
+            ->limit(10)
+            ->get()
+            ->map(fn ($h) => [
+                'id' => $h->id,
+                'code' => $h->household_code,
+                'head' => $h->headMember?->full_name ?? '-',
+                'size' => $h->members_present,
+                // PHASE 9 ITEM 1. Null unless the match was somebody other than
+                // the head, so the picker only speaks up when it needs to.
+                'matched' => $h->matchedMemberName($term),
+            ]);
+
+        return response()->json($results);
     }
 }

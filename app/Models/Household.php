@@ -15,7 +15,18 @@ class Household extends Model
     // bypasses mass-assignment protection) updated correctly.
     protected $fillable = [
         'household_code', 'origin_barangay_id', 'evacuation_center_id', 'head_member_id',
-        'origin_address', 'number_of_members', 'members_present', 'status',
+        // PHASE 9 ITEM 2. Listed here for the same reason the note above gives:
+        // a column absent from $fillable is silently discarded by update(), and
+        // an acting head that never saved would look exactly like a UI bug.
+        'acting_head_member_id',
+        'origin_address',
+        /* DROP 1. A DECLARED fact: the person at the desk said their family is
+           sheltering elsewhere. Not inferred, not a link -- see the migration.
+           In $fillable and cast, because a column that is neither is silently
+           dropped by create()/update(), which is the bug that held the
+           headcount at 0 for a whole phase. */
+        'is_separated',
+        'number_of_members', 'members_present', 'status',
         'checked_in_at', 'checked_out_at', 'registered_by',
     ];
 
@@ -24,9 +35,35 @@ class Household extends Model
     protected function casts(): array
     {
         return [
+            'is_separated' => 'boolean',
             'checked_in_at' => 'datetime',
             'checked_out_at' => 'datetime',
         ];
+    }
+
+    /**
+     * Phase 2 item 6 -- "Single Headed Household".
+     *
+     * DERIVED, never stored, and deliberately NOT a vulnerable classification.
+     * member_vulnerabilities is a per-MEMBER pivot; putting a household-level
+     * fact there would force a choice about which member carries it and would
+     * corrupt every count grouped by classification.
+     *
+     * Definition confirmed with Cabuyao's shelter operations manager: a
+     * one-person family who is currently checked in at the shelter. Because it
+     * is tied to check-in state, the flag correctly does not exist before
+     * check-in, and clears itself if the family checks out or the rest of them
+     * arrive.
+     */
+    public function isSingleHeaded(): bool
+    {
+        return $this->status === 'checked_in' && (int) $this->members_present === 1;
+    }
+
+    /** Query-side twin of isSingleHeaded(), for counts and report cross-tabs. */
+    public function scopeSingleHeaded($query)
+    {
+        return $query->where('status', 'checked_in')->where('members_present', 1);
     }
 
     public function originBarangay(): BelongsTo
@@ -44,6 +81,169 @@ class Household extends Model
         return $this->belongsTo(HouseholdMember::class, 'head_member_id');
     }
 
+    /**
+     * PHASE 9 ITEM 2 -- the stand-in, when the substantive head is not present.
+     *
+     * DELIBERATELY NOT a replacement for headMember(). Every existing caller of
+     * headMember() -- reports, the CSWDO IDP Monitoring Form, transfers, relief,
+     * every search and both ORDER BY subqueries -- keeps reading the substantive
+     * head, because that is the family's actual head and it is what a City
+     * Social Welfare officer signs for. This relation answers a different and
+     * purely operational question: who is answerable for this family at the
+     * shelter right now.
+     */
+    public function actingHeadMember(): BelongsTo
+    {
+        return $this->belongsTo(HouseholdMember::class, 'acting_head_member_id');
+    }
+
+    /**
+     * Whoever is answerable for the family at the shelter: the acting head when
+     * one has been designated, otherwise the substantive head.
+     *
+     * Use this ONLY on shelter-operations screens. Reporting reads headMember().
+     */
+    public function responsibleHead(): ?HouseholdMember
+    {
+        return $this->actingHeadMember ?? $this->headMember;
+    }
+
+    /**
+     * PHASE 9 ITEMS 3 + 5 -- which control a check-in picker row actually needs.
+     *
+     * Both check-in pickers ask this, and it lives here rather than in either
+     * controller for the reason gotcha 19 records: the check-in guard was
+     * written twice and the two copies drifted, which is the bug Phase 9 item 3
+     * exists to close. One derivation, both callers.
+     *
+     * 'checkin'  -- not checked in anywhere. The ordinary path.
+     * 'arrival'  -- already checked in AT THIS SHELTER with somebody still
+     *               absent. Check-in cannot help; presence correction can, and
+     *               it is the only path that can set is_present back to true.
+     * 'transfer' -- checked in at a DIFFERENT shelter. Moving them is a
+     *               transfer, which keeps a lifecycle and a record; a second
+     *               check-in would move them with neither.
+     *
+     * Requires members_present and the absent count to be meaningful, so callers
+     * should have loaded them. A household checked in here with nobody absent
+     * returns 'arrival' too, but those rows are excluded from the query -- there
+     * is nothing for staff to do with them.
+     */
+    public function checkinAction(?int $targetCenterId, ?string $term = null): string
+    {
+        if ($this->status !== 'checked_in') {
+            return 'checkin';
+        }
+
+        if ((int) $this->evacuation_center_id === (int) $targetCenterId) {
+            return 'arrival';
+        }
+
+        /* A FOURTH outcome, from a real wrong-action prompt found in testing.
+
+           Phase 9 widened household search to every member, so typing a name
+           finds the household somebody is LISTED in, not the one they are
+           standing in. Returning 'transfer' unconditionally told the operator
+           to move that whole family here -- catastrophic for a person who was
+           separated from a family that is not going anywhere.
+
+           The distinguishing fact is whether the MATCHED MEMBER is present at
+           that other shelter. Absent there and standing here is one person with
+           two places to be, which is a registration, not a transfer. */
+        $matched = $this->matchedMember($term);
+
+        if ($matched && ! $matched->is_present) {
+            return 'separated';
+        }
+
+        return 'transfer';
+    }
+
+    /**
+     * The member a search term actually hit, head or not.
+     *
+     * Split out so the picker's "matched: NAME" label and the routing decision
+     * above share one matching rule. Note the deliberate difference:
+     * matchedMemberName() stays silent when the head matched, because the row
+     * already shows the head's name; this returns them anyway, because
+     * checkinAction() cares whether that person is present regardless of their
+     * standing in the family.
+     */
+    public function matchedMember(?string $term): ?HouseholdMember
+    {
+        $term = trim((string) $term);
+        if ($term === '') {
+            return null;
+        }
+
+        return $this->members->first(
+            fn ($m) => stripos((string) $m->full_name, $term) !== false
+        );
+    }
+
+    /**
+     * PHASE 9 ITEM 1 -- which member the search term actually matched, when it
+     * was not the head.
+     *
+     * Answers the question a widened search creates: item 1 lets a search for
+     * "Maria" return a row headed "Dela Cruz, Juan", and without this the
+     * operator has no way to tell why that family appeared.
+     *
+     * Returns null when there is nothing worth saying -- no term, no member
+     * matched (the term hit the household CODE, which is how the two transfer
+     * searches can also match), or the match WAS the head and the row already
+     * shows that name.
+     *
+     * Expects `members` to be loaded. Every caller eager-loads it and only when a
+     * term is present, so a blank-term prefill costs nothing extra.
+     *
+     * Case-insensitive via stripos, to agree with the SQL LIKE in
+     * HouseholdMember::scopeNameMatches(): MySQL's default collation is
+     * case-insensitive, and a label that disagreed with the query that produced
+     * it would be worse than no label at all.
+     */
+    public function matchedMemberName(?string $term): ?string
+    {
+        $term = trim((string) $term);
+        if ($term === '') {
+            return null;
+        }
+
+        $match = $this->members->first(
+            fn ($m) => stripos((string) $m->full_name, $term) !== false
+        );
+
+        if (! $match) {
+            return null;
+        }
+
+        return (int) $match->id === (int) $this->head_member_id ? null : $match->full_name;
+    }
+
+    /** True when a stand-in is currently designated. */
+    public function hasActingHead(): bool
+    {
+        return $this->acting_head_member_id !== null;
+    }
+
+    /**
+     * True when the substantive head is recorded as physically present.
+     *
+     * Drives the revert prompt on the Update Presence screen: an acting head
+     * only needs a decision once the real head has actually turned up.
+     */
+    public function substantiveHeadIsPresent(): bool
+    {
+        if (! $this->head_member_id) {
+            return false;
+        }
+
+        return (bool) $this->members()
+            ->whereKey($this->head_member_id)
+            ->where('is_present', true)
+            ->exists();
+    }
+
     public function members(): HasMany
     {
         return $this->hasMany(HouseholdMember::class);
@@ -57,6 +257,34 @@ class Household extends Model
     public function transfers(): HasMany
     {
         return $this->hasMany(HouseholdTransfer::class);
+    }
+
+    /**
+     * PHASE 2 ITEM 8 -- shelter-to-shelter moves.
+     *
+     * Separate from transfers() above, which is family-HEAD-role changes and
+     * always has from_center_id == to_center_id. The two answer different
+     * questions and share no lifecycle.
+     */
+    public function shelterTransfers(): HasMany
+    {
+        return $this->hasMany(ShelterTransfer::class);
+    }
+
+    /**
+     * The transfer currently in flight for this family, if any.
+     *
+     * Guard used before starting a second transfer and before allowing a
+     * check-out: a family who is committed to a move must not be checked out
+     * from underneath it, or the transfer would try to receive a household that
+     * is no longer anywhere.
+     */
+    public function openTransfer(): ?ShelterTransfer
+    {
+        return $this->shelterTransfers()
+            ->whereIn('status', ShelterTransfer::OPEN_STATUSES)
+            ->latest('id')
+            ->first();
     }
 
     public function reliefTransactions(): HasMany

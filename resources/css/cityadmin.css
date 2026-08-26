@@ -198,3 +198,71 @@ td.matrix-cell.stock-none { color: var(--color-text-secondary); }
 .detail-list dd { margin: 0; font-size: var(--text-sm); }
 
 .search-empty { color: var(--color-text-muted); font-style: italic; }
+
+/* Text truncation for long content in table cells */
+.text-truncate {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
+}
+
+.text-truncate-sm {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 150px;
+}
+
+.text-truncate-lg {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 300px;
+}
+
+/* Prevent button text wrapping in Actions column */
+.actions-cell {
+    white-space: nowrap;
+    min-width: 150px;
+}
+
+.actions-cell .btn-sm {
+    white-space: nowrap;
+}
+
+/* Select dropdown styling for dark mode support */
+select {
+    background-color: var(--color-bg);
+    color: var(--color-text-primary);
+    border: 1px solid var(--color-border);
+}
+
+select:focus {
+    outline: 2px solid var(--color-primary);
+    outline-offset: -1px;
+}
+
+/* Dark mode specific for select options */
+@media (prefers-color-scheme: dark) {
+    select {
+        background-color: var(--color-bg);
+        color: var(--color-text-primary);
+    }
+
+    select option {
+        background-color: var(--color-bg);
+        color: var(--color-text-primary);
+    }
+}
+
+/* When data-theme is set to dark */
+[data-theme="dark"] select {
+    background-color: var(--color-bg);
+    color: var(--color-text-primary);
+}
+
+[data-theme="dark"] select option {
+    background-color: var(--color-bg);
+    color: var(--color-text-primary);
+}

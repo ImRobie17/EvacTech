@@ -29,10 +29,13 @@ class ReportController extends BarangayController
      * 'shelter_ranking' is deliberately NOT here. Barangay staff operate one
      * shelter at a time, and a ranking of one row is not a report. It is City
      * Admin only.
+     *
+     * PHASE 11 added 'shelter_demographic_summary' -- aggregated counts by
+     * vulnerability category for a specific shelter, as requested by professor.
      */
     public const TYPES = [
         'household_registry', 'attendance', 'relief', 'vulnerable',
-        'occupancy', 'demographics',
+        'occupancy', 'demographics', 'shelter_demographic_summary',
     ];
 
     public function index()
@@ -314,6 +317,77 @@ class ReportController extends BarangayController
                         $c->statusLabel(),
                     ], $filters, $c))->all(),
                 'Shelter Occupancy Summary',
+            ],
+
+            // PHASE 11 - Shelter Demographic Summary Report
+            // Aggregated counts by vulnerability category for a specific shelter
+            // as requested by professor to see demographic breakdown per shelter
+            'shelter_demographic_summary' => [
+                ['Vulnerability Category', 'Count', 'Percentage', 'Currently Present'],
+                $this->filterShelters(EvacuationCenter::whereKey($center->id), $filters)
+                    ->get()
+                    ->map(function ($c) use ($filters) {
+                        $members = HouseholdMember::with(['activeClassifications'])
+                            ->whereHas('household', fn ($q) => $q->where('evacuation_center_id', $c->id))
+                            ->get();
+
+                        $totalMembers = $members->count();
+
+                        // Get all vulnerability classifications
+                        $classifications = \App\Models\VulnerableClassification::where('is_selectable', true)
+                            ->orderBy('name')
+                            ->get();
+
+                        $summaryRows = [];
+                        foreach ($classifications as $classification) {
+                            $count = $members->filter(function ($member) use ($classification) {
+                                return $member->activeClassifications->contains('id', $classification->id);
+                            })->count();
+
+                            $presentCount = $members->filter(function ($member) use ($classification) {
+                                return $member->activeClassifications->contains('id', $classification->id) && $member->is_present;
+                            })->count();
+
+                            $percentage = $totalMembers > 0 ? round(($count / $totalMembers) * 100, 1) : 0;
+
+                            $summaryRows[] = [
+                                $classification->name,
+                                $count,
+                                $percentage . '%',
+                                $presentCount,
+                            ];
+                        }
+
+                        // Add row for members with no vulnerabilities
+                        $noVulnerabilityCount = $members->filter(function ($member) {
+                            return $member->activeClassifications->isEmpty();
+                        })->count();
+
+                        $noVulnerabilityPresent = $members->filter(function ($member) {
+                            return $member->activeClassifications->isEmpty() && $member->is_present;
+                        })->count();
+
+                        $noVulnerabilityPercentage = $totalMembers > 0 ? round(($noVulnerabilityCount / $totalMembers) * 100, 1) : 0;
+
+                        $summaryRows[] = [
+                            'No Vulnerability',
+                            $noVulnerabilityCount,
+                            $noVulnerabilityPercentage . '%',
+                            $noVulnerabilityPresent,
+                        ];
+
+                        // Add total row
+                        $totalPresent = $members->where('is_present', true)->count();
+                        $summaryRows[] = [
+                            'TOTAL',
+                            $totalMembers,
+                            '100%',
+                            $totalPresent,
+                        ];
+
+                        return $summaryRows;
+                    })->flatten(1)->all(),
+                'Shelter Demographic Summary',
             ],
         };
     }

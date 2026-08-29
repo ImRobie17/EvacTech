@@ -228,7 +228,7 @@
                         @endphp
                         {{-- Wraps: a household with four tags must not force the
                              stacked card wider than the screen. --}}
-                        <span class="flex flex-wrap justify-end gap-1">
+                       <span class="flex flex-wrap gap-1">
                             @forelse($tags as $tag)
                                 <span class="badge badge-info">{{ $tag->name }}</span>
                             @empty

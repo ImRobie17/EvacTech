@@ -229,10 +229,7 @@
                         @endif
                         </td>
                             <td data-label="Family Size" data-numeric class="whitespace-nowrap">{{ $h->members_present }} / {{ $h->number_of_members }}</td>
-                            {{-- PHASE 6 ITEM 2. nowrap. "Aug 02, 2026 - 08:48 AM" has five break
-                                 opportunities in it, and in a squeezed column the browser
-                                 took every one of them. A timestamp is one value. --}}
-                            <td data-label="Check-in" data-numeric class="whitespace-nowrap">{{ $h->checked_in_at?->format('M d, Y - h:i A') ?? '-' }}</td>
+                            <td data-label="Check-in" data-numeric>{{ $h->checked_in_at?->format('M d, Y - h:i A') ?? '-' }}</td>
                             <td data-label="Status">
                                 <span class="badge {{ $h->status === 'checked_in' ? 'badge-success' : ($h->status === 'checked_out' ? 'badge-warning' : 'badge-info') }}">
                                     {{ ucfirst(str_replace('_', ' ', $h->status)) }}

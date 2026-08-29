@@ -327,54 +327,92 @@ class ReportController extends BarangayController
                 $this->filterShelters(EvacuationCenter::whereKey($center->id), $filters)
                     ->get()
                     ->map(function ($c) use ($filters) {
-                        $members = HouseholdMember::with(['activeClassifications'])
-                            ->whereHas('household', fn ($q) => $q->where('evacuation_center_id', $c->id))
-                            ->get();
+                        // Build member query with sex and age filters
+                        $memberQuery = HouseholdMember::with(['activeClassifications'])
+                            ->whereHas('household', fn ($q) => $q->where('evacuation_center_id', $c->id));
 
-                        $totalMembers = $members->count();
-
-                        // Get all vulnerability classifications
-                        $classifications = \App\Models\VulnerableClassification::where('is_selectable', true)
-                            ->orderBy('name')
-                            ->get();
-
-                        $summaryRows = [];
-                        foreach ($classifications as $classification) {
-                            $count = $members->filter(function ($member) use ($classification) {
-                                return $member->activeClassifications->contains('id', $classification->id);
-                            })->count();
-
-                            $presentCount = $members->filter(function ($member) use ($classification) {
-                                return $member->activeClassifications->contains('id', $classification->id) && $member->is_present;
-                            })->count();
-
-                            $percentage = $totalMembers > 0 ? round(($count / $totalMembers) * 100, 1) : 0;
-
-                            $summaryRows[] = [
-                                $classification->name,
-                                $count,
-                                $percentage . '%',
-                                $presentCount,
-                            ];
+                        // Apply sex filter if set
+                        if (! empty($filters['sex'])) {
+                            $memberQuery->where('sex', $filters['sex']);
                         }
 
-                        // Add row for members with no vulnerabilities
-                        $noVulnerabilityCount = $members->filter(function ($member) {
-                            return $member->activeClassifications->isEmpty();
-                        })->count();
+                        // Apply age tier filter if set
+                        if (! empty($filters['age_tier'])) {
+                            $memberQuery->whereRaw(\App\Support\AgeTier::sqlCase('household_members') . ' = ?', [$filters['age_tier']]);
+                        }
 
-                        $noVulnerabilityPresent = $members->filter(function ($member) {
-                            return $member->activeClassifications->isEmpty() && $member->is_present;
-                        })->count();
+                        $members = $memberQuery->get();
+                        $totalMembers = $members->count();
 
-                        $noVulnerabilityPercentage = $totalMembers > 0 ? round(($noVulnerabilityCount / $totalMembers) * 100, 1) : 0;
+                        $summaryRows = [];
 
-                        $summaryRows[] = [
-                            'No Vulnerability',
-                            $noVulnerabilityCount,
-                            $noVulnerabilityPercentage . '%',
-                            $noVulnerabilityPresent,
-                        ];
+                        // If category filter is set, only show that specific category
+                        if (! empty($filters['category'])) {
+                            $classification = \App\Models\VulnerableClassification::where('code', $filters['category'])
+                                ->where('is_selectable', true)
+                                ->first();
+
+                            if ($classification) {
+                                $count = $members->filter(function ($member) use ($classification) {
+                                    return $member->activeClassifications->contains('id', $classification->id);
+                                })->count();
+
+                                $presentCount = $members->filter(function ($member) use ($classification) {
+                                    return $member->activeClassifications->contains('id', $classification->id) && $member->is_present;
+                                })->count();
+
+                                $percentage = $totalMembers > 0 ? round(($count / $totalMembers) * 100, 1) : 0;
+
+                                $summaryRows[] = [
+                                    $classification->name,
+                                    $count,
+                                    $percentage . '%',
+                                    $presentCount,
+                                ];
+                            }
+                        } else {
+                            // No category filter: show all classifications
+                            $classifications = \App\Models\VulnerableClassification::where('is_selectable', true)
+                                ->orderBy('name')
+                                ->get();
+
+                            foreach ($classifications as $classification) {
+                                $count = $members->filter(function ($member) use ($classification) {
+                                    return $member->activeClassifications->contains('id', $classification->id);
+                                })->count();
+
+                                $presentCount = $members->filter(function ($member) use ($classification) {
+                                    return $member->activeClassifications->contains('id', $classification->id) && $member->is_present;
+                                })->count();
+
+                                $percentage = $totalMembers > 0 ? round(($count / $totalMembers) * 100, 1) : 0;
+
+                                $summaryRows[] = [
+                                    $classification->name,
+                                    $count,
+                                    $percentage . '%',
+                                    $presentCount,
+                                ];
+                            }
+
+                            // Add row for members with no vulnerabilities (only when no category filter)
+                            $noVulnerabilityCount = $members->filter(function ($member) {
+                                return $member->activeClassifications->isEmpty();
+                            })->count();
+
+                            $noVulnerabilityPresent = $members->filter(function ($member) {
+                                return $member->activeClassifications->isEmpty() && $member->is_present;
+                            })->count();
+
+                            $noVulnerabilityPercentage = $totalMembers > 0 ? round(($noVulnerabilityCount / $totalMembers) * 100, 1) : 0;
+
+                            $summaryRows[] = [
+                                'No Vulnerability',
+                                $noVulnerabilityCount,
+                                $noVulnerabilityPercentage . '%',
+                                $noVulnerabilityPresent,
+                            ];
+                        }
 
                         // Add total row
                         $totalPresent = $members->where('is_present', true)->count();

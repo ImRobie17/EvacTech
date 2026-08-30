@@ -341,8 +341,10 @@ class ReportController extends BarangayController
                             $memberQuery->whereRaw(\App\Support\AgeTier::sqlCase('household_members') . ' = ?', [$filters['age_tier']]);
                         }
 
-                        $members = $memberQuery->get();
-                        $totalMembers = $members->count();
+                        // Get all vulnerability classifications
+                        $classifications = \App\Models\VulnerableClassification::where('is_selectable', true)
+                            ->orderBy('name')
+                            ->get();
 
                         $summaryRows = [];
 

@@ -361,13 +361,10 @@ class ReportController extends \App\Http\Controllers\Controller
                             $memberQuery->where('sex', $filters['sex']);
                         }
 
-                        // Apply age tier filter if set
-                        if (! empty($filters['age_tier'])) {
-                            $memberQuery->whereRaw(\App\Support\AgeTier::sqlCase('household_members') . ' = ?', [$filters['age_tier']]);
-                        }
-
-                        $members = $memberQuery->get();
-                        $totalMembers = $members->count();
+                        // Get all vulnerability classifications
+                        $classifications = \App\Models\VulnerableClassification::where('is_selectable', true)
+                            ->orderBy('name')
+                            ->get();
 
                         $summaryRows = [];
 

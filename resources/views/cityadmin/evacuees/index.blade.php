@@ -80,7 +80,7 @@
                             $tags = $h->members->flatMap->vulnerableClassifications
                                 ->where('is_selectable', true)->unique('id');
                         @endphp
-                        <span class="flex flex-wrap justify-end gap-1 md:justify-start">
+                        <span class="flex flex-wrap gap-1 md:justify-start">
                             @forelse($tags as $tag)<span class="badge badge-info">{{ $tag->name }}</span>@empty<span class="text-muted">None</span>@endforelse
                         </span>
                     </td>

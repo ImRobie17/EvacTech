@@ -2,9 +2,9 @@
 
 @section('title', 'User Management')
 @section('page-title', 'User Management')
-@section('page-subtitle', 'Manage barangay personnel accounts and their shelter assignments.')
+@section('page-subtitle', 'Manage camp manager accounts and their shelter assignments.')
 @section('page-actions')
-    <button type="button" class="btn-primary" data-open-modal="userModal" data-mode="create">+ Add Personnel</button>
+    <button type="button" class="btn-primary" data-open-modal="userModal" data-mode="create">+ Add Camp Manager</button>
 @endsection
 
 @section('content')
@@ -49,7 +49,7 @@
 <div class="card panel table-panel">
     <h2 class="panel-title">Password Reset Requests ({{ $resetRequests->count() }})</h2>
     <p class="text-sm text-ink-muted">
-        Requests raised from the sign-in page by barangay personnel appear here.
+        Requests raised from the sign-in page by camp managers appear here.
         Super Admin can see and handle these too, so check before you call.
         Call the person to confirm the request is really theirs before you reset anything.
         Setting a new password closes the request and clears any sign-in lock.
@@ -96,7 +96,7 @@
             @empty
                 <tr>
                     <td colspan="5" class="empty-note">
-                        No pending password reset requests from barangay personnel.
+                        No pending password reset requests from camp managers.
                     </td>
                 </tr>
             @endforelse
@@ -179,7 +179,7 @@
                     </td>
                 </tr>
             @empty
-                <tr><td colspan="6" class="empty-note">No barangay personnel accounts yet.</td></tr>
+                <tr><td colspan="6" class="empty-note">No camp manager accounts yet.</td></tr>
             @endforelse
         </tbody>
     </table>
@@ -202,7 +202,7 @@
 <div class="modal-backdrop" id="userModal" data-user-form="city" hidden>
     <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="userModalTitle">
         <div class="modal-head">
-            <h2 id="userModalTitle">Add Barangay Personnel</h2>
+            <h2 id="userModalTitle">Add Camp Manager</h2>
             <button type="button" class="icon-btn" data-close-modal aria-label="Close">&times;</button>
         </div>
         <form method="POST" action="{{ route('city.users.store') }}" id="userForm">
@@ -235,7 +235,7 @@
             <fieldset class="member-fieldset">
                 <legend>Assigned shelter</legend>
                 <p class="field-hint">
-                    The one shelter this staff member operates. Choosing a different
+                    The one shelter this camp manager operates. Choosing a different
                     shelter here reassigns them and revokes the previous one.
                 </p>
                 {{-- PHASE 8 ITEM 3. This search box already worked; it did not

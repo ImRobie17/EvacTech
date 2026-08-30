@@ -218,7 +218,7 @@ class ReliefController extends BarangayController
 
         \App\Services\AuditLogger::log('created', $reliefRequest, 'Requested relief restock from city');
 
-        return back()->with('success', 'Restock request submitted for City Admin approval.');
+        return back()->with('success', 'Restock request submitted for CSWD Office approval.');
     }
     
     public function requestSpecial(Request $request)
@@ -247,7 +247,7 @@ class ReliefController extends BarangayController
 
         \App\Services\AuditLogger::log('created', $special, "Requested special item: {$special->item_description}");
 
-        return back()->with('success', 'Special item request submitted for City Admin approval.');
+        return back()->with('success', 'Special item request submitted for CSWD Office approval.');
     }
 
     /**

@@ -327,21 +327,37 @@ class ReportController extends BarangayController
                 $this->filterShelters(EvacuationCenter::whereKey($center->id), $filters)
                     ->get()
                     ->map(function ($c) use ($filters) {
-                        // Build member query with sex and age filters
-                        $memberQuery = HouseholdMember::with(['activeClassifications'])
-                            ->whereHas('household', fn ($q) => $q->where('evacuation_center_id', $c->id));
+                        // FIX. As shipped, this closure built $memberQuery,
+                        // applied the filters to it, and then never executed it.
+                        // Every branch below reads $members and $totalMembers,
+                        // neither of which was ever assigned, so the report
+                        // fataled with "Call to a member function filter() on
+                        // null" on every single run. The query is now run.
+                        //
+                        // THE FILTER SUBSET IS DELIBERATE. sex and age_tier
+                        // decide WHO IS COUNTED. category decides WHICH ROW IS
+                        // PRINTED, further down. Passing category in here as
+                        // well would narrow the population to that one category
+                        // and every percentage would come out as 100%.
+                        //
+                        // Routed through filterMembers() rather than a
+                        // hand-written where(): applyMemberFilters() is the one
+                        // definition of these two filters, it qualifies
+                        // household_members.sex so the clause survives inside a
+                        // sub-query, and it already encodes that sqlCase() is
+                        // safe in a WHERE. A fourth hand-written copy of a rule
+                        // that already exists in the trait is exactly how these
+                        // things drift.
+                        $members = $this->filterMembers(
+                            HouseholdMember::with(['activeClassifications'])
+                                ->whereHas('household', fn ($q) => $q->where('evacuation_center_id', $c->id)),
+                            array_intersect_key($filters, array_flip(['sex', 'age_tier']))
+                        )->get();
 
-                        // Apply sex filter if set
-                        if (! empty($filters['sex'])) {
-                            $memberQuery->where('sex', $filters['sex']);
-                        }
+                        $totalMembers = $members->count();
 
-                        // Apply age tier filter if set
-                        if (! empty($filters['age_tier'])) {
-                            $memberQuery->whereRaw(\App\Support\AgeTier::sqlCase('household_members') . ' = ?', [$filters['age_tier']]);
-                        }
-
-                        // Get all vulnerability classifications
+                        // Fetched once. The else branch below re-fetched an
+                        // identical collection into this same variable.
                         $classifications = \App\Models\VulnerableClassification::where('is_selectable', true)
                             ->orderBy('name')
                             ->get();
@@ -373,11 +389,7 @@ class ReportController extends BarangayController
                                 ];
                             }
                         } else {
-                            // No category filter: show all classifications
-                            $classifications = \App\Models\VulnerableClassification::where('is_selectable', true)
-                                ->orderBy('name')
-                                ->get();
-
+                            // No category filter: every classification gets a row.
                             foreach ($classifications as $classification) {
                                 $count = $members->filter(function ($member) use ($classification) {
                                     return $member->activeClassifications->contains('id', $classification->id);

@@ -174,7 +174,7 @@
                         @if($r->status === 'approved')
                             <span class="text-success">&check; Approved &mdash; stock was added to this shelter's inventory automatically.</span>
                         @elseif($r->status === 'rejected')
-                            <span class="text-danger">Not approved. Contact the CDRRMO if this is still needed.</span>
+                            <span class="text-danger">Not approved. Contact the CSWD Office if this is still needed.</span>
                         @endif
                     </div>
                 @empty
@@ -195,7 +195,7 @@
                             <span class="text-ink-soft">Note: {{ $s->remarks }}</span>
                         @endif
                         @if($s->status === 'approved')
-                            <span class="text-success">&check; Approved by the CDRRMO. The item is sourced outside the system, so it will not appear in inventory.</span>
+                            <span class="text-success">&check; Approved by the CSWD Office. The item is sourced outside the system, so it will not appear in inventory.</span>
                         @endif
                     </div>
                 @endforeach
@@ -285,7 +285,7 @@
                 <small class="field-hint">
                     Need an item that is not in stock, like diapers or maintenance medicine?
                     <button type="button" class="btn-link" id="dist-special-link">Request a special item for this family</button>
-                    &mdash; a note here is not a request and does not reach the CDRRMO.
+                    &mdash; a note here is not a request and does not reach the CSWD Office.
                 </small>
             </div>
 
@@ -358,7 +358,7 @@
         {{-- Says plainly what approval does, because unlike the special-item
              request this one moves real stock on approval. --}}
         <p class="kpi-note">
-            Asks the CDRRMO to send more of a standard relief item to this shelter.
+            Asks the CSWD Office to send more of a standard relief item to this shelter.
             If it is approved the quantity is added to your inventory automatically &mdash;
             you do not need to record it again under Receive Stock.
         </p>
@@ -400,7 +400,7 @@
              never appear in the numbers. --}}
         <p class="kpi-note">
             For something a specific family needs that is not standard stock &mdash; newborn diapers,
-            maintenance medicine, a wheelchair. The CDRRMO reviews each one.
+            maintenance medicine, a wheelchair. The CSWD Office reviews each one.
             Approved items are sourced outside EvacTech, so they will not show up in your inventory.
         </p>
 

@@ -281,7 +281,7 @@ function initUserAdmin() {
             form.reset();
             form.action = storeUrl;
             methodInput.value = 'POST';
-            title.textContent = 'Add Barangay Personnel';
+            title.textContent = 'Add Camp Manager';
             submit.textContent = 'Create Account';
             statusField.hidden = true;
             pwHint.textContent = '(min 8 characters)';
@@ -296,7 +296,7 @@ function initUserAdmin() {
             form.reset();
             form.action = d.update_url;
             methodInput.value = 'PUT';
-            title.textContent = 'Edit Barangay Personnel';
+            title.textContent = 'Edit Camp Manager';
             submit.textContent = 'Save Changes';
             statusField.hidden = false;
             pwHint.textContent = '(leave blank to keep current)';

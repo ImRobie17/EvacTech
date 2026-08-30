@@ -21,7 +21,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>@yield('title', 'City Admin') &mdash; EvacTech</title>
+    <title>@yield('title', 'CSWD Office') &mdash; EvacTech</title>
     {{-- CHAT C: $viteEntries support, matching layouts/staff. A view opts into
          an extra bundle (charts.js, map.js) by setting the variable in a PHP
          block at its top; Blade renders the child before the layout and passes
@@ -71,7 +71,7 @@
         </div>
 
         <div class="sidebar-user">
-            <span class="sidebar-user-role">City Admin</span>
+            <span class="sidebar-user-role">CSWD Office</span>
             <span class="sidebar-user-name">{{ auth()->user()->name }}</span>
         </div>
 

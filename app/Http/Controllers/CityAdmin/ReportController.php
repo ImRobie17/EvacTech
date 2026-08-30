@@ -352,16 +352,39 @@ class ReportController extends \App\Http\Controllers\Controller
                     $filters
                 )->get()
                     ->map(function ($c) use ($filters) {
-                        // Build member query with sex and age filters
-                        $memberQuery = HouseholdMember::with(['activeClassifications'])
-                            ->whereHas('household', fn ($q) => $q->where('evacuation_center_id', $c->id));
+                        // FIX. As shipped, this closure built $memberQuery,
+                        // applied the filters to it, and then never executed it.
+                        // Every branch below reads $members and $totalMembers,
+                        // neither of which was ever assigned, so the report
+                        // fataled with "Call to a member function filter() on
+                        // null" on every single run. The query is now run.
+                        //
+                        // SECOND FIX, QUIETER AND WORSE. This copy never applied
+                        // the age_tier filter at all -- the barangay copy had the
+                        // block, this one did not. Once the fatal was gone, a
+                        // City Admin picking an age tier would have got an
+                        // unfiltered population under a PDF banner reading
+                        // "Filtered by: Age group: Senior Citizen". A report that
+                        // crashes gets fixed; a report that quietly answers a
+                        // different question than the one printed on it gets
+                        // signed. Both copies now go through the same primitive,
+                        // so they cannot diverge again.
+                        //
+                        // THE FILTER SUBSET IS DELIBERATE. sex and age_tier
+                        // decide WHO IS COUNTED. category decides WHICH ROW IS
+                        // PRINTED, further down. Passing category in here as
+                        // well would narrow the population to that one category
+                        // and every percentage would come out as 100%.
+                        $members = $this->filterMembers(
+                            HouseholdMember::with(['activeClassifications'])
+                                ->whereHas('household', fn ($q) => $q->where('evacuation_center_id', $c->id)),
+                            array_intersect_key($filters, array_flip(['sex', 'age_tier']))
+                        )->get();
 
-                        // Apply sex filter if set
-                        if (! empty($filters['sex'])) {
-                            $memberQuery->where('sex', $filters['sex']);
-                        }
+                        $totalMembers = $members->count();
 
-                        // Get all vulnerability classifications
+                        // Fetched once. The else branch below re-fetched an
+                        // identical collection into this same variable.
                         $classifications = \App\Models\VulnerableClassification::where('is_selectable', true)
                             ->orderBy('name')
                             ->get();
@@ -395,11 +418,7 @@ class ReportController extends \App\Http\Controllers\Controller
                                 ];
                             }
                         } else {
-                            // No category filter: show all classifications
-                            $classifications = \App\Models\VulnerableClassification::where('is_selectable', true)
-                                ->orderBy('name')
-                                ->get();
-
+                            // No category filter: every classification gets a row.
                             foreach ($classifications as $classification) {
                                 $count = $members->filter(function ($member) use ($classification) {
                                     return $member->activeClassifications->contains('id', $classification->id);

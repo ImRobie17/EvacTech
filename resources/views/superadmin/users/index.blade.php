@@ -2,7 +2,7 @@
 
 @section('title', 'User Management')
 @section('page-title', 'User Management')
-@section('page-subtitle', 'Manage City Admin and Barangay Personnel accounts.')
+@section('page-subtitle', 'Manage CSWD Office and Camp Manager accounts.')
 @section('page-actions')
     <button type="button" class="btn-primary" data-open-modal="userModal">+ Add User</button>
 @endsection
@@ -12,8 +12,8 @@
     <input type="search" name="q" value="{{ request('q') }}" placeholder="Search name or email&hellip;" aria-label="Search user">
     <select name="role" aria-label="Filter role">
         <option value="">All roles</option>
-        <option value="city_admin" @selected(request('role') === 'city_admin')>City Admin</option>
-        <option value="barangay_personnel" @selected(request('role') === 'barangay_personnel')>Barangay Personnel</option>
+        <option value="city_admin" @selected(request('role') === 'city_admin')>CSWD Office</option>
+        <option value="barangay_personnel" @selected(request('role') === 'barangay_personnel')>Camp Manager</option>
     </select>
     <select name="status" aria-label="Filter status">
         <option value="">All statuses</option>
@@ -36,8 +36,8 @@
 <div class="card panel table-panel">
     <h2 class="panel-title">Password Reset Requests ({{ $resetRequests->count() }})</h2>
     <p class="text-sm text-ink-muted">
-        Every pending request, from City Admin and barangay accounts alike.
-        City Admin also sees the barangay ones, so check before you call.
+        Every pending request, from CSWD Office and camp manager accounts alike.
+        The CSWD Office also sees the camp manager ones, so check before you call.
         Call the person to confirm the request is really theirs before you reset anything.
         Setting a new password closes the request and clears any sign-in lock.
     </p>
@@ -239,8 +239,8 @@
             <div class="field">
                 <label for="u-role">Role</label>
                 <select id="u-role" name="role" required>
-                    <option value="city_admin">City Admin</option>
-                    <option value="barangay_personnel">Barangay Personnel</option>
+                    <option value="city_admin">CSWD Office</option>
+                    <option value="barangay_personnel">Camp Manager</option>
                 </select>
             </div>
             {{-- Shown only for barangay personnel. superadmin.js toggles the
@@ -248,7 +248,7 @@
                  select while hidden so a leftover barangay id from a previous
                  edit is not submitted for a City Admin account. --}}
             <div class="field" id="u-barangay-field">
-                <label for="u-barangay">Assigned barangay <small>(barangay personnel only)</small></label>
+                <label for="u-barangay">Assigned barangay <small>(camp managers only)</small></label>
                 <select id="u-barangay" name="barangay_id">
                     <option value="">Select barangay&hellip;</option>
                     @foreach($barangays as $b)<option value="{{ $b->id }}">{{ $b->name }}</option>@endforeach

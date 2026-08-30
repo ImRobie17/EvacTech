@@ -111,7 +111,7 @@
             <button type="button" class="icon-btn" data-close-modal aria-label="Close">&times;</button>
         </div>
 
-        <p>Refusing tells the origin shelter not to send <strong id="tx-rf-label"></strong>, and alerts City Admin.</p>
+        <p>Refusing tells the origin shelter not to send <strong id="tx-rf-label"></strong>, and alerts the CSWD Office.</p>
         <p class="text-sm text-ink-muted">
             A transfer can only be refused before it is confirmed. Once you confirm, you are committed:
             receive the family, then file a fresh transfer if they need to move on.

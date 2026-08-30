@@ -52,11 +52,21 @@ class BarangayPersonnelDemoSeeder extends Seeder
                     'role_id' => $role->id,
                     // Nominal only. Access comes from the pivot, never from this.
                     'barangay_id' => $center->barangay_id,
-                    'name' => $center->name . ' Staff',
+                    'name' => $center->name . ' Camp Manager',
                     'password' => Hash::make(self::PASSWORD),
                     'status' => 'active',
                 ]
             );
+
+            /* DROP A. Same rename guard as CityAdminDemoSeeder. firstOrCreate
+               matched on email and applied none of the array above, so an
+               account created before the rename still reads "... Staff".
+               Name only -- no password re-hash -- and only when the row still
+               carries the value this seeder wrote, so a hand-set name survives
+               a re-run. */
+            if ($user->name === $center->name . ' Staff') {
+                $user->update(['name' => $center->name . ' Camp Manager']);
+            }
 
             /* sync(), not syncWithoutDetaching(). One staff account, one
                shelter -- if this seeder is re-run after somebody was reassigned

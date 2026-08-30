@@ -102,7 +102,7 @@ class TransferController extends BarangayController
 
         $this->transfers->refuse($transfer, $request->user(), $data['refusal_reason']);
 
-        return back()->with('success', 'Transfer refused. City Admin has been alerted.');
+        return back()->with('success', 'Transfer refused. The CSWD Office has been alerted.');
     }
 
     public function depart(ShelterTransfer $transfer, Request $request)

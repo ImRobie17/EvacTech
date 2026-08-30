@@ -235,7 +235,7 @@ class ShelterDetailController extends Controller
 
         $household->refresh();
 
-        $note = "City Admin checked in {$household->household_code} at {$center->name} ({$household->members_present} present)";
+        $note = "CSWD Office checked in {$household->household_code} at {$center->name} ({$household->members_present} present)";
 
         if ($household->acting_head_member_id) {
             $acting = $household->actingHeadMember?->full_name ?? 'a member';
@@ -352,7 +352,7 @@ class ShelterDetailController extends Controller
             $center->recalcOccupancy();
         });
 
-        AuditLogger::log('updated', $household, "City Admin checked out {$household->household_code}");
+        AuditLogger::log('updated', $household, "CSWD Office checked out {$household->household_code}");
 
         return $this->backToTab($center, 'households', "Household {$household->household_code} checked out.");
     }
@@ -571,7 +571,7 @@ class ShelterDetailController extends Controller
             $center->recalcOccupancy();
         });
 
-        AuditLogger::log('updated', $household, "City Admin updated family group {$household->household_code}");
+        AuditLogger::log('updated', $household, "CSWD Office updated family group {$household->household_code}");
 
         return $this->backToTab($center, 'households', 'Family group updated.');
     }
@@ -646,7 +646,7 @@ class ShelterDetailController extends Controller
             ]);
         });
 
-        AuditLogger::log('created', $center, "City Admin recorded relief stock received at {$center->name}");
+        AuditLogger::log('created', $center, "CSWD Office recorded relief stock received at {$center->name}");
 
         return $this->backToTab($center, 'relief', 'Stock received and inventory updated.');
     }
@@ -694,7 +694,7 @@ class ShelterDetailController extends Controller
             }
         });
 
-        AuditLogger::log('created', $household, "City Admin distributed relief to {$household->household_code}");
+        AuditLogger::log('created', $household, "CSWD Office distributed relief to {$household->household_code}");
 
         return $this->backToTab($center, 'relief', 'Relief distribution logged.');
     }

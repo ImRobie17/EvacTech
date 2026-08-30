@@ -68,7 +68,7 @@
         <dl class="detail-list">
             <dt>Status</dt><dd>@include('partials.status-badge', ['center' => $center])</dd>
             <dt>Barangay</dt><dd>{{ $center->barangay?->name ?? '-' }}</dd>
-            <dt>Assigned staff</dt>
+            <dt>Assigned camp managers</dt>
             <dd>
                 @if ($center->assignedStaff->isEmpty())
                     <span class="badge badge-warning">None assigned</span>

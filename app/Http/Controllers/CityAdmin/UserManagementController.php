@@ -97,7 +97,7 @@ class UserManagementController extends Controller
         });
 
         AuditLogger::log('created', $user,
-            "Created barangay personnel account for {$user->name} (" . count($data['shelters']) . ' shelter assignment(s))');
+            "Created camp manager account for {$user->name} (" . count($data['shelters']) . ' shelter assignment(s))');
 
         return back()->with('success', "Account for {$user->name} created.");
     }
@@ -146,7 +146,7 @@ class UserManagementController extends Controller
         });
 
         AuditLogger::log('updated', $user,
-            "Updated barangay personnel account {$user->name}; shelters: " . $user->assignedCenters()->pluck('name')->implode(', '));
+            "Updated camp manager account {$user->name}; shelters: " . $user->assignedCenters()->pluck('name')->implode(', '));
 
         return back()->with('success', "Account for {$user->name} updated.");
     }
@@ -250,6 +250,6 @@ class UserManagementController extends Controller
     private function authorizeTarget(User $user): void
     {
         abort_if($user->role?->name !== Role::BARANGAY_PERSONNEL, 403,
-            'You can only manage barangay personnel accounts.');
+            'You can only manage camp manager accounts.');
     }
 }

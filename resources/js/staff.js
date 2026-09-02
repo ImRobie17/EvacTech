@@ -1,3 +1,4 @@
+import { renderComposition } from './relief-composition.js';
 import { wireAgeGroup, tierShortLabel } from './age-tiers';
 // PHASE 4 item B.4: initTheme() moved to its own module so the public bundle
 // can have it without pulling in this file. Behaviour is unchanged.
@@ -1334,6 +1335,13 @@ function initReliefModals() {
             ? `Household tags: ${tags.join(', ')} \u2014 consider matching special items below.`
             : 'No special tags on this household.';
 
+        /* DROP B2. Family composition + fixed-rule notes, so the camp manager
+           can see who they are actually issuing for without leaving the modal.
+           Everything comes from the payload already fetched above -- no extra
+           request, no model, no network call. Shared with the CSWD Office modal
+           through relief-composition.js. */
+        renderComposition(document.getElementById('dist-composition'), data);
+
         distForm.hidden = false;
     }
 
@@ -1406,6 +1414,30 @@ function initReliefModals() {
     // Distribute modal, where a household is already loaded and carrying it over
     // saves searching for the same family twice.
     initSpecialRequest(cfg, () => currentDistHousehold);
+
+    /* DROP B2. Restore after a REJECTED submit.
+       Blade renders this modal and its form already visible when the last
+       distribute attempt failed validation, with household_id and the item rows
+       re-emitted from old(). What Blade cannot re-emit is the household header
+       and the composition panel, because those come from a fetch. So: if the
+       form is showing with a household id already in it at page load, re-fetch
+       that household and fill the profile exactly as a click would.
+
+       Deliberately NOT wired to evactech:modal-open -- that event does not fire
+       for a server-rendered-open modal, and its handler resets the form, which
+       is precisely what must not happen here.
+
+       itemIndex is advanced past the highest index Blade rendered. Leaving it
+       at 1 would make the next "Add another item" collide with an existing row
+       name and silently overwrite the operator's quantity. */
+    const restoreId = document.getElementById('dist-household-id')?.value;
+    if (distForm && !distForm.hidden && restoreId) {
+        const rendered = itemsWrap ? itemsWrap.querySelectorAll('[data-item-row]').length : 1;
+        itemIndex = Math.max(itemIndex, rendered);
+        selectHousehold(restoreId).catch((err) => {
+            console.error('[EvacTech/staff] could not restore household after a failed distribution.', err);
+        });
+    }
 
     if (cfg.autoOpen) openModal('distributeModal');
 }

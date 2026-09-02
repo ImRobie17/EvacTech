@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Barangay;
 
+use App\Http\Controllers\Concerns\DistributesRelief;
+use App\Http\Controllers\Concerns\RecordsReliefReceipt;
 use App\Models\EvacuationCenter;
 use App\Models\Household;
 use App\Models\ReliefGood;
@@ -14,15 +16,40 @@ use Illuminate\Support\Facades\DB;
 
 class ReliefController extends BarangayController
 {
+    // DROP B1. Rules and the stock-in write are shared with the two CSWD
+    // Office paths -- see the trait for why all three had to move into one
+    // place.
+    use RecordsReliefReceipt;
+
+    /* DROP B2. Distribution rules and the write, shared with
+       CityAdmin\ShelterDetailController::distributeRelief(). Those two had
+       already drifted apart once on shelter scoping; they cannot now. */
+    use DistributesRelief;
+
     public function index(Request $request, ?EvacuationCenter $center = null)
     {
         $center = $this->center($center);
 
-        $stats = ['received' => 0, 'distributed' => 0, 'remaining' => 0, 'days_left' => null];
+        $stats = [
+            'received' => 0, 'distributed' => 0, 'remaining' => 0,
+            'days_left' => null, 'value_received' => 0.0,
+        ];
         $log = collect();
         $priority = collect();
         $inventory = collect();
         $goods = ReliefGood::orderBy('name')->get();
+
+        // Prepared here rather than read from the model in Blade -- controllers
+        // prepare, views render. Same reason reportFilterOptions() is passed in
+        // rather than the view calling VulnerableClassification directly.
+        $donorTypes = ReliefTransaction::DONOR_TYPES;
+
+        // DROP B1. Stock-in rows for the new Stock Receipts panel. Before this
+        // drop NOTHING on any screen rendered a `received` transaction -- both
+        // relief pages showed only the Distribution Log -- so donor, value and
+        // remarks would have been write-only fields the client could never see.
+        $receipts = collect();
+        $receiptCount = 0;
 
         // Initialised outside the $center branch, like the collections above,
         // because compact() at the end of this method runs either way.
@@ -30,19 +57,22 @@ class ReliefController extends BarangayController
         $specialRequests = collect();
 
         if ($center) {
-            $stats['received'] = ReliefTransaction::where('evacuation_center_id', $center->id)
-                ->whereIn('type', ['received', 'allocated_in'])->sum('quantity');
-            $stats['distributed'] = ReliefTransaction::where('evacuation_center_id', $center->id)
-                ->where('type', 'distributed')->sum('quantity');
-            $stats['remaining'] = ReliefInventory::where('evacuation_center_id', $center->id)->sum('quantity_on_hand');
+            /* DROP B1. The four unit figures and the peso total now come from
+               RecordsReliefReceipt::reliefStockStats(), which excludes MONETARY
+               goods from every unit count. They used to be written out longhand
+               here and again, identically, in CityAdmin\ShelterDetailController
+               ::reliefData() -- two copies of one rule, which is how the two
+               distribute paths came to disagree about shelter scoping for a
+               whole phase.
 
-            // Projection: 7-day rolling average of distribution rate. An estimate, not a promise.
-            $last7 = ReliefTransaction::where('evacuation_center_id', $center->id)
-                ->where('type', 'distributed')
-                ->where('transaction_date', '>=', Carbon::today()->subDays(6))
-                ->sum('quantity');
-            $dailyRate = $last7 / 7;
-            $stats['days_left'] = $dailyRate > 0 ? (int) floor($stats['remaining'] / $dailyRate) : null;
+               The exclusion matters: Financial Assistance stores pesos in
+               `quantity` by the client's decision, so counting it here would
+               make "Received" read 5,200 where 200 packs arrived, and would
+               make the days-of-stock projection divide pesos by packs. */
+            $stats = $this->reliefStockStats($center);
+
+            $receipts = $this->reliefReceipts($center);
+            $receiptCount = $this->reliefReceiptCount($center);
 
             $logQuery = ReliefTransaction::with(['household.headMember', 'reliefGood', 'recordedBy'])
                 ->where('evacuation_center_id', $center->id)
@@ -106,88 +136,87 @@ class ReliefController extends BarangayController
 
         return view('barangay.relief.index', compact(
             'center', 'stats', 'log', 'priority', 'inventory', 'goods',
-            'restockRequests', 'specialRequests'
+            'restockRequests', 'specialRequests', 'receipts', 'receiptCount', 'donorTypes'
         ));
     }
 
     /** Distribute relief to a household. Auto-decrements inventory (PB-09). */
+    /**
+     * Log relief handed to one household.
+     *
+     * DROP B2. Four things changed, and all four are shared with
+     * CityAdmin\ShelterDetailController::distributeRelief() through the
+     * DistributesRelief trait. CHANGE THEM TOGETHER OR NOT AT ALL.
+     *
+     *   1. Duplicate rows of the same item are aggregated before the stock
+     *      check, so "Rice 5" twice against a stock of 8 reports one honest
+     *      shortage instead of half-succeeding and then quoting a number the
+     *      operator never saw.
+     *   2. A shortage is a ValidationException, not abort(422), so the operator
+     *      gets the form back with their household, item rows and remarks
+     *      intact rather than a bare error page.
+     *   3. Quantity is bounded above as well as below.
+     *   4. THE BEHAVIOUR CHANGE: the household must be checked in AT THIS
+     *      SHELTER. authorizeHousehold() alone never proved that, because
+     *      canManageHousehold() returns true for a household with a null
+     *      evacuation_center_id. See assertHouseholdIsHere().
+     */
     public function distribute(Request $request)
     {
         $center = $this->centerOrFail();
 
-        $data = $request->validate([
-            'household_id' => ['required', 'exists:households,id'],
-            'items' => ['required', 'array', 'min:1'],
-            'items.*.relief_good_id' => ['required', 'exists:relief_goods,id'],
-            'items.*.quantity' => ['required', 'integer', 'min:1'],
-            'remarks' => ['nullable', 'string', 'max:500'], // free-text special requests (diapers, meds, wheelchair...)
-        ]);
+        $data = $request->validate($this->reliefDistributionRules());
 
         $household = Household::findOrFail($data['household_id']);
         // Shelter-based authorisation (was: origin_barangay_id vs user barangay_id).
         $this->authorizeHousehold($household);
+        // DROP B2. And now the rule the picker always implied but the endpoint
+        // never enforced.
+        $this->assertHouseholdIsHere($household, $center);
 
-        DB::transaction(function () use ($data, $center, $household) {
-            foreach ($data['items'] as $item) {
-                $inventory = ReliefInventory::firstOrCreate(
-                    ['evacuation_center_id' => $center->id, 'relief_good_id' => $item['relief_good_id']],
-                    ['quantity_on_hand' => 0, 'reorder_level' => 0]
-                );
-
-                if ($inventory->quantity_on_hand < $item['quantity']) {
-                    abort(422, 'Not enough stock of ' . $inventory->reliefGood->name . " (on hand: {$inventory->quantity_on_hand}).");
-                }
-
-                $inventory->decrement('quantity_on_hand', $item['quantity']);
-                $inventory->update(['last_updated_at' => now()]);
-
-                ReliefTransaction::create([
-                    'evacuation_center_id' => $center->id,
-                    'relief_good_id' => $item['relief_good_id'],
-                    'type' => 'distributed',
-                    'quantity' => $item['quantity'],
-                    'household_id' => $household->id,
-                    'recorded_by' => auth()->id(),
-                    'transaction_date' => now()->toDateString(),
-                    'remarks' => $data['remarks'] ?? null,
-                ]);
-            }
-        });
+        $this->distributeReliefTo($center, $household, $data);
 
         AuditLogger::log('created', $household, "Distributed relief to {$household->household_code}");
 
         return redirect()->route('barangay.relief.index')->with('success', 'Relief distribution logged.');
     }
 
-    /** Record stock received at the center (delivery from city / donations). */
+    /**
+     * Record stock received at the center (delivery from city / donations).
+     *
+     * DROP B1. Now captures a donor category (required), a donor name
+     * (optional), a peso value and remarks -- and can create the relief item
+     * itself when a donation arrives that is not on the sixteen-item list.
+     *
+     * The `source` free-text field is gone. It asked one vague question
+     * ("CDRRMO delivery, donation") and got one vague answer, which is exactly
+     * why the client could not report on where relief came from. Donor category
+     * and donor name are the two facts they actually track, and the category is
+     * a fixed list so it can be counted.
+     *
+     * CHANGE THIS METHOD AND CityAdmin\ShelterDetailController::receiveRelief()
+     * TOGETHER. They are the same operation performed by two roles, and the
+     * shared parts now live in RecordsReliefReceipt so they cannot drift again.
+     */
     public function receive(Request $request)
     {
         $center = $this->centerOrFail();
 
-        $data = $request->validate([
-            'relief_good_id' => ['required', 'exists:relief_goods,id'],
-            'quantity' => ['required', 'integer', 'min:1'],
-            'source' => ['nullable', 'string', 'max:255'],
-        ]);
+        $data = $request->validate($this->reliefReceiptRules());
 
-        DB::transaction(function () use ($data, $center) {
-            $inventory = ReliefInventory::firstOrCreate(
-                ['evacuation_center_id' => $center->id, 'relief_good_id' => $data['relief_good_id']],
-                ['quantity_on_hand' => 0, 'reorder_level' => 0]
-            );
-            $inventory->increment('quantity_on_hand', $data['quantity']);
-            $inventory->update(['last_updated_at' => now()]);
+        $transaction = DB::transaction(function () use ($data, $center) {
+            $good = $this->resolveReliefGood($data);
 
-            ReliefTransaction::create([
-                'evacuation_center_id' => $center->id,
-                'relief_good_id' => $data['relief_good_id'],
-                'type' => 'received',
-                'quantity' => $data['quantity'],
-                'source_or_recipient' => $data['source'] ?? null,
-                'recorded_by' => auth()->id(),
-                'transaction_date' => now()->toDateString(),
-            ]);
+            return $this->applyReliefReceipt($center, $good, $data);
         });
+
+        AuditLogger::log('created', $transaction, sprintf(
+            'Recorded relief stock received at %s: %s %s from %s',
+            $center->name,
+            $transaction->quantity,
+            $transaction->reliefGood?->name ?? 'item',
+            $transaction->donorTypeLabel()
+        ));
 
         return back()->with('success', 'Stock received and inventory updated.');
     }

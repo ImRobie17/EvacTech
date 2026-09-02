@@ -38,6 +38,7 @@ class ReportController extends \App\Http\Controllers\Controller
     public const TYPES = [
         'household_registry', 'attendance', 'relief', 'vulnerable',
         'occupancy', 'demographics', 'shelter_ranking', 'shelter_demographic_summary',
+        'relief_received',
     ];
 
     public function index()
@@ -241,6 +242,42 @@ class ReportController extends \App\Http\Controllers\Controller
                         $t->quantity . ' ' . $t->reliefGood->unit, $t->recordedBy?->name ?? '-',
                     ])->all(),
                 'Relief Distribution',
+            ],
+
+            /* DROP B2 -- stock RECEIVED, the counterpart to the distribution
+               report above.
+
+               THE TRAP, AND IT IS THE SAME ONE DROP 0 FIXED. The three
+               demographic filters apply to EVERY type on this form (gotcha 39).
+               A received transaction has household_id = NULL, so running this
+               arm through filterRelief() -- which does
+               whereHas('household.members', ...) -- would return ZERO ROWS the
+               moment any filter is set, silently, while the PDF header
+               cheerfully printed "Filtered by: Category: PWD". A report that
+               quietly answers a different question from the one printed on it is
+               worse than one that crashes.
+
+               So the demographic filters are NOT applied here at all, and
+               FiltersReports::reportFilterNote() carries a case saying so in
+               plain words. The date range still applies: that is a property of
+               the receipt, not of a household.
+
+               allocated_in rows are INCLUDED by decision. Stock from an approved
+               city restock is real stock-in, and since Drop B1 it can carry a
+               donor too, because a donation does not always reach a shelter
+               directly. Excluding them would make this report disagree with the
+               inventory it exists to explain. */
+            'relief_received' => [
+                ['Date', 'Shelter', 'Barangay', 'Item', 'Quantity', 'Donor Type', 'Donor Name', 'Value (PHP)', 'Received By', 'Remarks'],
+                $this->reliefReceivedRows(
+                    $centerFilter($range(
+                        ReliefTransaction::with(['reliefGood', 'recordedBy', 'evacuationCenter.barangay'])
+                            ->whereIn('type', ReliefTransaction::STOCK_IN_TYPES),
+                        'transaction_date'
+                    ))->latest('transaction_date')->get(),
+                    true
+                ),
+                'Relief Stock Received',
             ],
 
             // ITEM 11b FIX. This used to select on whereHas('vulnerabilities')

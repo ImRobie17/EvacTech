@@ -36,7 +36,11 @@
 @unless($center)
     <div class="alert alert-warning">No evacuation center is registered for your barangay yet.</div>
 @else
-<section class="mb-4 grid grid-cols-1 items-stretch gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Relief stock summary">
+{{-- DROP B1. Four cards became five, so the wide breakpoint goes to five
+     columns; at xl:grid-cols-4 the new card wrapped onto a row of its own.
+     sm:grid-cols-2 is unchanged, which leaves it paired at tablet width and
+     full-width on a phone. --}}
+<section class="mb-4 grid grid-cols-1 items-stretch gap-3 sm:grid-cols-2 xl:grid-cols-5" aria-label="Relief stock summary">
     <article class="card kpi-card">
         <div class="kpi-head"><span class="kpi-title">Received</span></div>
         <p class="kpi-value" data-numeric>{{ number_format($stats['received']) }}</p>
@@ -57,7 +61,22 @@
         <p class="kpi-value" data-numeric>{{ $stats['days_left'] !== null ? '~' . $stats['days_left'] . ' days' : '-' }}</p>
         <p class="kpi-note">Estimate from 7-day avg. distribution rate</p>
     </article>
+    {{-- DROP B1. The client tracks relief by peso value as well as by count.
+         Sums stock-in rows only, so goods allocated between city and shelter
+         without a donation behind them add nothing here. --}}
+    <article class="card kpi-card">
+        <div class="kpi-head"><span class="kpi-title">Value Received</span></div>
+        <p class="kpi-value" data-numeric>PHP {{ number_format($stats['value_received'], 2) }}</p>
+        <p class="kpi-note">Declared value of all stock received here</p>
+    </article>
 </section>
+
+{{-- The disclosure that stops the four unit cards above reading as a lie.
+     Financial Assistance stores pesos in its quantity by the client's
+     decision, so it is excluded from every unit figure -- otherwise one
+     5,000-peso grant would make "Received" read 5,200 where 200 packs
+     arrived, and Projected Stock would be dividing pesos by packs. --}}
+<p class="kpi-note mb-4">Unit figures count physical goods only. Cash items such as Financial Assistance are excluded from them and appear under Value Received and in the inventory table below.</p>
 
 <section class="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
     <div class="lg:col-span-2">
@@ -149,6 +168,61 @@
                 </tbody>
             </table>
         </div>
+
+        {{-- ======== DROP B1: Stock Receipts ========
+
+             Before this drop NOTHING anywhere in the application rendered a
+             `received` transaction -- both relief screens showed only the
+             Distribution Log. Donor, value and remarks would have been written
+             to the database and been invisible to the client who asked for
+             them. Gotcha 37: a new field with nowhere to read it is write-only.
+
+             ALWAYS RENDERED, with the true count in the heading and a written
+             empty state. A panel that appears only when it has rows makes "no
+             stock has arrived" and "this feature does not exist" look
+             identical, and that cost a full debugging round in Phase 7.
+
+             Deliberately not paginated -- the Distribution Log above already
+             owns the `page` parameter, and a second paginator on the same
+             screen would turn both tables at once. --}}
+        <div class="card panel table-panel mt-4">
+            <h2 class="panel-title">Stock Receipts <span class="badge badge-info">{{ number_format($receiptCount) }} total</span></h2>
+            <p class="kpi-note">Everything that has arrived at this shelter, with who donated it. Showing the {{ $receipts->count() }} most recent.</p>
+            <table class="data-table" data-stack>
+                <thead>
+                    <tr>
+                        <th scope="col">Date</th>
+                        <th scope="col">Item</th>
+                        <th scope="col">Quantity</th>
+                        <th scope="col">Donor</th>
+                        <th scope="col">Value</th>
+                        <th scope="col">Recorded By</th>
+                        <th scope="col">Remarks</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @forelse($receipts as $r)
+                        <tr>
+                            <td data-label="Date" data-numeric>{{ $r->transaction_date?->format('M d, Y') }}</td>
+                            <td data-label="Item" data-fit>{{ $r->reliefGood?->name ?? 'Item removed' }}</td>
+                            <td data-label="Quantity" data-numeric>{{ number_format($r->quantity) }} {{ $r->reliefGood?->unit }}</td>
+                            <td data-label="Donor">
+                                {{ $r->donorTypeLabel() }}
+                                @if($r->donor_name)<br><small class="text-ink-muted">{{ $r->donor_name }}</small>@endif
+                            </td>
+                            {{-- @if/@else rather than `?? '&mdash;'`: an HTML entity
+                                 inside an escaped echo is double-encoded by e() and
+                                 renders the literal text &mdash;. Gotcha 4. --}}
+                            <td data-label="Value" data-numeric>@if($r->monetary_value !== null){{ 'PHP ' . number_format($r->monetary_value, 2) }}@else&mdash;@endif</td>
+                            <td data-label="Recorded By">{{ $r->recordedBy?->name ?? '-' }}</td>
+                            <td data-label="Remarks" data-fit>@if($r->remarks){{ $r->remarks }}@else&mdash;@endif</td>
+                        </tr>
+                    @empty
+                        <tr><td colspan="7" class="empty-note">No stock has been received at this shelter yet. Use "Receive Stock" when a delivery or donation arrives.</td></tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </div>
     </div>
 
     <div class="flex flex-col gap-6">
@@ -230,7 +304,23 @@
 
 @push('modals')
 {{-- ======== Distribute Relief modal ======== --}}
-<div class="modal-backdrop" id="distributeModal" hidden>
+{{-- DROP B2. Reopens itself on a REJECTED submit, carrying the operator's work
+     back with it. Before this, a shortage produced abort(422) -- a bare error
+     page -- and the household they had searched for, every item row and their
+     remarks were gone.
+
+     `hidden` is emitted only when this form was not the one that failed. The
+     household id and the item rows come back from old(); the household header
+     and the composition panel are refetched by staff.js, which watches for a
+     form that is already visible with an id in it at load. --}}
+@php
+    $distFailed = $errors->any() && old('_form') === 'distribute';
+    // Row 0 must always exist, so a failed submit with no items still renders
+    // one empty row rather than an item list with no rows and no Add button
+    // reachable.
+    $distOldItems = old('items') ?: [['relief_good_id' => '', 'quantity' => 1]];
+@endphp
+<div class="modal-backdrop" id="distributeModal" @unless($distFailed) hidden @endunless>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="distTitle">
         <div class="modal-head">
             <h2 id="distTitle">Distribute Relief</h2>
@@ -245,12 +335,42 @@
             <ul class="search-results" id="dist-results" hidden></ul>
         </div>
 
-        <form method="POST" action="{{ route('barangay.relief.distribute') }}" id="distributeForm" hidden>
+        <form method="POST" action="{{ route('barangay.relief.distribute') }}" id="distributeForm" @unless($distFailed) hidden @endunless>
             @csrf
-            <input type="hidden" name="household_id" id="dist-household-id">
+            <input type="hidden" name="_form" value="distribute">
+            <input type="hidden" name="household_id" id="dist-household-id" value="{{ old('household_id') }}">
+
+            {{-- The stock shortage and the not-checked-in refusal both land
+                 here, on the form, instead of on an error page. --}}
+            @if($distFailed)
+                <div class="alert alert-danger">
+                    <ul>
+                        @foreach($errors->all() as $message)
+                            <li>{{ $message }}</li>
+                        @endforeach
+                    </ul>
+                </div>
+            @endif
             <div class="ci-profile">
                 <p><strong id="dist-code"></strong> &middot; <span id="dist-head"></span></p>
                 <p class="kpi-note" id="dist-tags-note"></p>
+            </div>
+
+            {{-- DROP B2: family composition + fixed-rule notes.
+
+                 Filled by relief-composition.js from the household payload the
+                 modal has already fetched -- no extra request, and NO AI or
+                 model of any kind. The rules are a fixed table in that file, so
+                 the same family always produces the same notes and any line on
+                 screen can be traced to a line of code.
+
+                 Starts hidden because there is no household selected yet; it is
+                 revealed on selection, not on emptiness. --}}
+            <div class="card panel mb-3" id="dist-composition" hidden>
+                <h3 class="panel-title">Who you are issuing for</h3>
+                <ul class="kpi-note" data-composition-facts></ul>
+                <div class="kpi-note bg-info-bg text-info p-2" data-composition-notes></div>
+                <small class="field-hint">Notes are reminders generated from this family's own records. They are not instructions and do not reserve or deduct stock.</small>
             </div>
 
             <div id="dist-items">
@@ -260,16 +380,23 @@
                      reopening the modal and starting again. The button is disabled
                      while a single row remains, rather than hidden, so it does not
                      appear and disappear as rows are added. --}}
-                <div class="dist-item-row" data-item-row>
-                    <select name="items[0][relief_good_id]" required aria-label="Relief good">
-                        <option value="">Select item&hellip;</option>
-                        @foreach($goods as $g)
-                            <option value="{{ $g->id }}">{{ $g->name }} ({{ $g->unit }})</option>
-                        @endforeach
-                    </select>
-                    <input type="number" name="items[0][quantity]" min="1" value="1" required aria-label="Quantity">
-                    <button type="button" class="btn-link btn-link-danger" data-remove-item aria-label="Remove this item" disabled>&times; Remove</button>
-                </div>
+                {{-- DROP B2. Rendered from old() so a rejected submit brings
+                     every item row back. Normally this is exactly one empty
+                     row, which is what it was before. The Remove control is
+                     disabled while a single row remains, rather than hidden, so
+                     it does not appear and disappear as rows are added. --}}
+                @foreach($distOldItems as $i => $oldItem)
+                    <div class="dist-item-row" data-item-row>
+                        <select name="items[{{ $i }}][relief_good_id]" required aria-label="Relief good">
+                            <option value="">Select item&hellip;</option>
+                            @foreach($goods as $g)
+                                <option value="{{ $g->id }}" @selected(($oldItem['relief_good_id'] ?? '') == $g->id)>{{ $g->name }} ({{ $g->unit }})</option>
+                            @endforeach
+                        </select>
+                        <input type="number" name="items[{{ $i }}][quantity]" min="1" max="10000000" value="{{ $oldItem['quantity'] ?? 1 }}" required aria-label="Quantity">
+                        <button type="button" class="btn-link btn-link-danger" data-remove-item aria-label="Remove this item" @disabled(count($distOldItems) <= 1)>&times; Remove</button>
+                    </div>
+                @endforeach
             </div>
             <button type="button" class="btn-link" id="addItemBtn">+ Add another item</button>
 
@@ -281,7 +408,7 @@
                      nobody reads. Staff followed the label and their requests
                      went nowhere. Notes are notes; requests have a button. --}}
                 <label for="dist-remarks">Notes on this distribution <small>(optional &mdash; e.g. collected by a neighbour)</small></label>
-                <textarea id="dist-remarks" name="remarks" rows="2" maxlength="500"></textarea>
+                <textarea id="dist-remarks" name="remarks" rows="2" maxlength="500">{{ old('remarks') }}</textarea>
                 <small class="field-hint">
                     Need an item that is not in stock, like diapers or maintenance medicine?
                     <button type="button" class="btn-link" id="dist-special-link">Request a special item for this family</button>
@@ -313,8 +440,27 @@
     </div>
 </template>
 
-{{-- ======== Receive Stock modal ======== --}}
-<div class="modal-backdrop" id="receiveModal" hidden>
+{{-- ======== Receive Stock modal ========
+
+     DROP B1. The single free-text "Source" field is gone. It asked one vague
+     question and got one vague answer, which is precisely why the client could
+     not report on where relief came from. Donor CATEGORY is a fixed list so it
+     can be counted; donor NAME is free text and optional, because a private
+     donor who does not want naming must not block the receipt.
+
+     REOPENS ITSELF ON A VALIDATION ERROR. `hidden` is emitted only when this
+     form was not the one that failed, so a rejected submit comes back with the
+     modal open, the operator's input still in the fields and the message
+     visible above. Done in Blade rather than JS: no ?open= deep link to strip,
+     no new bundle, and nothing listens for evactech:modal-open on this modal so
+     rendering it open is equivalent to opening it. --}}
+@php
+    // Built here rather than inline in the attribute: a php block is the
+    // documented home for anything with logic in it, and this decides whether
+    // an attribute is emitted at all.
+    $recvFailed = $errors->any() && old('_form') === 'receive';
+@endphp
+<div class="modal-backdrop" id="receiveModal" @unless($recvFailed) hidden @endunless>
     <div class="modal modal-narrow" role="dialog" aria-modal="true" aria-labelledby="recvTitle">
         <div class="modal-head">
             <h2 id="recvTitle">Receive Stock</h2>
@@ -323,23 +469,97 @@
         <p class="kpi-note">Goods that have physically arrived at this shelter. This adds them to inventory immediately.</p>
         <form method="POST" action="{{ route('barangay.relief.receive') }}">
             @csrf
+            {{-- Marks which form failed, so only that modal reopens. --}}
+            <input type="hidden" name="_form" value="receive">
+
             <div class="field">
                 <label for="recv-good">Relief good</label>
-                <select id="recv-good" name="relief_good_id" required>
+                <select id="recv-good" name="relief_good_id">
                     <option value="">Select item&hellip;</option>
                     @foreach($goods as $g)
-                        <option value="{{ $g->id }}">{{ $g->name }} ({{ $g->unit }})</option>
+                        <option value="{{ $g->id }}" @selected(old('relief_good_id') == $g->id)>{{ $g->name }} ({{ $g->unit }})</option>
                     @endforeach
                 </select>
+                @error('relief_good_id')<small class="field-hint text-danger">{{ $message }}</small>@enderror
             </div>
+
+            {{-- On-the-fly catalogue entry. Camp managers can do this by
+                 decision: a donor at the door with something not on the list
+                 must be recordable, or it gets filed under "Others" with the
+                 truth buried in the remarks -- which is the problem the fixed
+                 list was meant to solve.
+
+                 A <details> disclosure rather than a JS toggle: no bundle
+                 change, and it degrades to plain open markup with no script at
+                 all. Forced open when this form failed so a typed name is not
+                 hidden behind a closed panel with an error against it. --}}
+            <details class="mb-3" @if($recvFailed && old('new_good_name')) open @endif>
+                <summary class="btn-link cursor-pointer">Item not on the list? Add it here</summary>
+                <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-[2fr_1fr]">
+                    <div class="field">
+                        <label for="recv-new-name">New item name</label>
+                        <input type="text" id="recv-new-name" name="new_good_name" maxlength="100"
+                               value="{{ old('new_good_name') }}" placeholder="e.g. Sopas">
+                        @error('new_good_name')<small class="field-hint text-danger">{{ $message }}</small>@enderror
+                    </div>
+                    <div class="field">
+                        <label for="recv-new-unit">Unit</label>
+                        <input type="text" id="recv-new-unit" name="new_good_unit" maxlength="20"
+                               value="{{ old('new_good_unit') }}" placeholder="e.g. pot">
+                        @error('new_good_unit')<small class="field-hint text-danger">{{ $message }}</small>@enderror
+                    </div>
+                </div>
+                <small class="field-hint">
+                    The unit is part of what makes a stock line. Record different pack sizes as
+                    different items &mdash; "Rice 50kg" in sacks and "Rice 5kg" in bags &mdash; so one
+                    remaining sack is never mistaken for two bags. A name that already exists is reused.
+                </small>
+            </details>
+
             <div class="field">
                 <label for="recv-qty">Quantity</label>
-                <input type="number" id="recv-qty" name="quantity" min="1" required>
+                <input type="number" id="recv-qty" name="quantity" min="1" max="10000000" value="{{ old('quantity') }}" required>
+                <small class="field-hint">
+                    For Financial Assistance the quantity is the peso amount &mdash; one unit per peso.
+                    Cash is kept out of the unit counters at the top of this page.
+                </small>
+                @error('quantity')<small class="field-hint text-danger">{{ $message }}</small>@enderror
             </div>
+
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div class="field">
+                    <label for="recv-donor-type">Donor category</label>
+                    <select id="recv-donor-type" name="donor_type" required>
+                        <option value="">Select&hellip;</option>
+                        @foreach($donorTypes as $key => $label)
+                            <option value="{{ $key }}" @selected(old('donor_type') === $key)>{{ $label }}</option>
+                        @endforeach
+                    </select>
+                    @error('donor_type')<small class="field-hint text-danger">{{ $message }}</small>@enderror
+                </div>
+                <div class="field">
+                    <label for="recv-donor-name">Donor name <small>(optional)</small></label>
+                    <input type="text" id="recv-donor-name" name="donor_name" maxlength="255"
+                           value="{{ old('donor_name') }}" placeholder="e.g. Cabuyao Rotary Club">
+                    @error('donor_name')<small class="field-hint text-danger">{{ $message }}</small>@enderror
+                </div>
+            </div>
+
             <div class="field">
-                <label for="recv-source">Source <small>(optional - e.g. CDRRMO delivery, donation)</small></label>
-                <input type="text" id="recv-source" name="source" maxlength="255">
+                <label for="recv-value">Declared value <small>(PHP)</small></label>
+                <input type="number" id="recv-value" name="monetary_value" min="0" step="0.01"
+                       value="{{ old('monetary_value') }}" required>
+                <small class="field-hint">Enter 0 if the value is not known. Leave blank for Financial Assistance and the quantity is used.</small>
+                @error('monetary_value')<small class="field-hint text-danger">{{ $message }}</small>@enderror
             </div>
+
+            <div class="field">
+                <label for="recv-remarks">Remarks <small>(optional)</small></label>
+                <textarea id="recv-remarks" name="remarks" rows="2" maxlength="500">{{ old('remarks') }}</textarea>
+                <small class="field-hint">Use this to say what an "Others" item actually was, or anything about the condition it arrived in.</small>
+                @error('remarks')<small class="field-hint text-danger">{{ $message }}</small>@enderror
+            </div>
+
             <div class="modal-actions flex flex-col gap-2 sm:flex-row sm:justify-end">
                 <button type="button" class="btn-secondary" data-close-modal>Cancel</button>
                 <button type="submit" class="btn-primary">Add to Inventory</button>

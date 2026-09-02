@@ -95,6 +95,7 @@
                     <option value="household_registry">Household Registry</option>
                     <option value="attendance">Attendance / Headcount</option>
                     <option value="relief">Relief Distribution</option>
+                    <option value="relief_received">Relief Stock Received</option>
                     <option value="vulnerable">Vulnerable Population</option>
                     <option value="occupancy">Shelter Occupancy Summary</option>
                     {{-- Item 11b. Demographics is every member, not only the

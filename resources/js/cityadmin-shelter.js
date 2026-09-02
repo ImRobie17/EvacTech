@@ -1,3 +1,4 @@
+import { renderComposition } from './relief-composition.js';
 import { wireAgeGroup } from './age-tiers';
 // City Admin shelter detail page behaviour.
 //
@@ -621,10 +622,60 @@ const runReliefSearch = wireSearch('cd-dist-search', 'cd-dist-results', 'reliefS
         const form = document.getElementById('cdDistributeForm');
         if (results) results.hidden = true;
         if (form) form.hidden = false;
+        // DROP B2. The search row carries only id/code/head/size, so the
+        // composition panel needs the full household. Same endpoint the edit
+        // and view modals already use.
+        cdLoadComposition(row.id);
     });
 }, {
     term: 'No checked-in household matches that name.',
     blank: 'No household is checked in at this shelter yet.',
+});
+
+/**
+ * DROP B2. Fetch a household and render the composition panel beside the item
+ * rows, so the CSWD Office sees the same family facts a camp manager does.
+ *
+ * Failure is non-fatal and SILENT ON SCREEN by design: the panel is an aid, and
+ * a family that cannot be summarised must not block a distribution that is
+ * otherwise valid. The reason goes to the console, which is where every other
+ * failure path in this file reports.
+ */
+async function cdLoadComposition(id) {
+    const box = document.getElementById('cd-dist-composition');
+    if (!box) return;
+    try {
+        const c = cfg();
+        if (!c) return;
+        const data = await cdJson(c.householdUrlTemplate.replace(':id', id));
+        renderComposition(box, data);
+    } catch (err) {
+        box.hidden = true;
+        console.error(TAG + ' could not load household composition for the distribute modal.', err);
+    }
+}
+
+/* DROP B2. Restore after a REJECTED submit. Blade renders this modal and its
+   form already open when the last attempt failed validation, with household_id
+   and the item rows re-emitted from old(). The header and the composition panel
+   come from a fetch, so they are refilled here.
+
+   NOT wired to the modal-open click handler above -- that handler RESETS the
+   form and drops extra item rows, which is exactly what must not happen to a
+   rejected submission the operator is trying to correct. */
+document.addEventListener('DOMContentLoaded', () => {
+    const form = document.getElementById('cdDistributeForm');
+    const idInput = document.getElementById('cd-dist-household-id');
+    if (!form || form.hidden || !idInput || !idInput.value) return;
+
+    const itemBox = document.getElementById('cd-dist-items');
+    if (itemBox) {
+        // Advance past the rows Blade rendered, or the next "Add another item"
+        // reuses an index already in the form and overwrites a quantity.
+        distItemIndex = Math.max(distItemIndex, itemBox.querySelectorAll('[data-item-row]').length);
+        cdSyncRemoveButtons();
+    }
+    cdLoadComposition(idInput.value);
 });
 
 // ---------------------------------------------------------------------

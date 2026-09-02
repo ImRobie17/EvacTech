@@ -50,6 +50,10 @@ class GeneratedReport extends Model
             'household_registry' => 'Household Registry',
             'attendance' => 'Attendance / Headcount',
             'relief' => 'Relief Distribution',
+            // DROP B2. The counterpart to the line above: goods going OUT vs
+            // goods coming IN. Named so the two sort together in the recent-
+            // reports list and cannot be mistaken for one another on a printout.
+            'relief_received' => 'Relief Stock Received',
             'vulnerable' => 'Vulnerable Population',
             'occupancy' => 'Shelter Occupancy Summary',
             // Phase 3 item 11b. Both ARE in ReportController::TYPES, unlike the

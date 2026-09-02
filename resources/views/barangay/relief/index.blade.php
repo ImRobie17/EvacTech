@@ -29,6 +29,11 @@
          the reported "requests never appear on the City Admin side": not a
          backend failure, a missing button. --}}
     <button type="button" class="btn-secondary w-full sm:w-auto" data-open-modal="restockModal">&#8593; Request Stock</button>
+    {{-- DROP C. Secondary, and BEFORE Distribute Relief on purpose. The batch
+         path is the optional one -- single distribution is what this screen is
+         for and stays the primary action, which also keeps it last so it remains
+         the Enter-key default. --}}
+    <button type="button" class="btn-secondary w-full sm:w-auto" data-open-modal="batchModal">&#128101; Batch Distribute</button>
     <button type="button" class="btn-primary w-full sm:w-auto" data-open-modal="distributeModal">&#128230; Distribute Relief</button>
 @endsection
 
@@ -108,7 +113,23 @@
                                  entity convention is right; it just cannot be
                                  applied inside a format string. The separator is
                                  now outside the call. --}}
-                            <td data-label="Date &amp; Time" data-numeric>{{ $t->created_at->format('M d, Y') }} &middot; {{ $t->created_at->format('h:i A') }}</td>
+                            {{-- DROP C. A batch writes one of these rows per
+                                 family per item, exactly as a single
+                                 distribution does, so the only thing marking
+                                 them as one act is batch_id. The badge sits
+                                 INSIDE this cell rather than in a sixth column:
+                                 the log already runs five columns under
+                                 text-fit's 15px floor, and a new column would
+                                 have meant new data-label handling on the
+                                 stacked phone view for a one-word flag.
+
+                                 Rows written before this drop have a null
+                                 batch_id and render exactly as they always
+                                 have. Nothing backfills them, and null is not
+                                 missing data here -- it means single. --}}
+                            <td data-label="Date &amp; Time" data-numeric>{{ $t->created_at->format('M d, Y') }} &middot; {{ $t->created_at->format('h:i A') }}
+                                @if($t->batch_id)<br><span class="badge badge-info">Batch Distribution</span>@endif
+                            </td>
                             <td data-label="Household Head">{{ $t->household?->headMember?->full_name ?? '-' }}</td>
                             <td data-label="Family Size" data-numeric>{{ $t->household?->number_of_members ?? '-' }}</td>
                             <td data-label="Relief Given">{{ $t->quantity }} {{ $t->reliefGood->unit }} - {{ $t->reliefGood->name }}
@@ -318,7 +339,14 @@
     // Row 0 must always exist, so a failed submit with no items still renders
     // one empty row rather than an item list with no rows and no Add button
     // reachable.
-    $distOldItems = old('items') ?: [['relief_good_id' => '', 'quantity' => 1]];
+    /* DROP C added a second form on this page that also posts `items`, so
+       old('items') alone is no longer enough to identify whose rows these are:
+       a rejected BATCH submit would otherwise repopulate this modal with the
+       batch's item rows. Both forms are hidden in that case so nothing is
+       visibly wrong, but an operator opening Distribute Relief afterwards would
+       find someone else's quantities already in it. Gated on the same _form
+       marker the failed flag above already uses. */
+    $distOldItems = (old('_form') === 'distribute' && old('items')) ? old('items') : [['relief_good_id' => '', 'quantity' => 1]];
 @endphp
 <div class="modal-backdrop" id="distributeModal" @unless($distFailed) hidden @endunless>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="distTitle">
@@ -437,6 +465,182 @@
         </select>
         <input type="number" name="items[__INDEX__][quantity]" min="1" value="1" required aria-label="Quantity">
         <button type="button" class="btn-link btn-link-danger" data-remove-item aria-label="Remove this item">&times; Remove</button>
+    </div>
+</template>
+
+{{-- ======== DROP C: Batch Distribute modal ========
+
+     ONE PACK, MANY FAMILIES. The item rows at the top describe what every
+     ticked family receives; the checklist below chooses who. One submit writes
+     one ReliefTransaction per family per item, all sharing one batch_id, which
+     is what keeps each family credited in "Priority: Not Yet Received".
+
+     ID PREFIX IS `bd-`, NOT `dist-`. Element ids are load-bearing on this page:
+     it now carries five modals and two templates, and staff.js reaches into
+     both by id. Nothing here may collide with the Distribute modal's dist-*
+     ids or its [data-item-row] rows, hence the separate [data-batch-item-row]
+     marker -- the two Add-another-item handlers are scoped to their own
+     wrappers and must stay that way.
+
+     REOPENS ITSELF ON A REJECTED SUBMIT, the same convention Drop B2
+     established: its own `_form` value, its own failed flag, `hidden` emitted
+     only when this was not the form that failed. A batch is the most work an
+     operator can lose in one form on this screen -- ticking twenty-three
+     families and then being handed a bare error page would be the worst version
+     of the bug that convention exists to prevent. --}}
+@php
+    $batchFailed = $errors->any() && old('_form') === 'batch';
+
+    /* Gated on _form for the same reason $distOldItems is: both forms post
+       `items` and `remarks`, so old() alone cannot say which form they came
+       from. array_values() re-indexes because old() preserves the submitted
+       keys -- if the operator removed a middle row, old('items') comes back
+       sparse as 0 and 2, and staff.js advances its index counter by counting
+       rendered rows. Two rows counted, next index 2, and the new row would
+       silently overwrite the existing items[2]. Contiguous keys make the count
+       and the highest index the same number again. */
+    $batchOldItems = array_values(
+        ($batchFailed && old('items')) ? old('items') : [['relief_good_id' => '', 'quantity' => 1]]
+    );
+
+    /* Cast to int so the @checked comparison below can be strict. old() returns
+       every value as a string, and `in_array($h->id, ['7'], true)` is false. */
+    $batchOldHouseholds = $batchFailed ? array_map('intval', (array) old('households', [])) : [];
+@endphp
+<div class="modal-backdrop" id="batchModal" @unless($batchFailed) hidden @endunless>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="batchTitle">
+        <div class="modal-head">
+            <h2 id="batchTitle">Batch Distribute Relief</h2>
+            <button type="button" class="icon-btn" data-close-modal aria-label="Close">&times;</button>
+        </div>
+
+        {{-- Said before the form is filled in, not after it is refused. A
+             control that behaves differently from the one beside it has to
+             explain itself first. --}}
+        <p class="kpi-note bg-info-bg text-info p-2">
+            Every family you tick receives the <strong>same items</strong>, dated today.
+            If one family needs something different, close this and use Distribute Relief for them.
+        </p>
+
+        <form method="POST" action="{{ route('barangay.relief.batch-distribute') }}" id="batchForm">
+            @csrf
+            <input type="hidden" name="_form" value="batch">
+
+            @if($batchFailed)
+                <div class="alert alert-danger">
+                    <ul>
+                        @foreach($errors->all() as $message)
+                            <li>{{ $message }}</li>
+                        @endforeach
+                    </ul>
+                </div>
+            @endif
+
+            <p class="panel-title">What each family receives</p>
+            <div id="bd-items">
+                @foreach($batchOldItems as $i => $oldItem)
+                    <div class="dist-item-row" data-batch-item-row>
+                        <select name="items[{{ $i }}][relief_good_id]" required aria-label="Relief good">
+                            <option value="">Select item&hellip;</option>
+                            @foreach($goods as $g)
+                                <option value="{{ $g->id }}" @selected(($oldItem['relief_good_id'] ?? '') == $g->id)>{{ $g->name }} ({{ $g->unit }})</option>
+                            @endforeach
+                        </select>
+                        <input type="number" name="items[{{ $i }}][quantity]" min="1" max="10000000" value="{{ $oldItem['quantity'] ?? 1 }}" required aria-label="Quantity per family">
+                        {{-- Disabled rather than hidden while one row remains,
+                             and the disabled state is in the SERVER-RENDERED
+                             markup: delegation cannot observe a row being cloned
+                             into the DOM, so the correct default has to ship
+                             with the row. --}}
+                        <button type="button" class="btn-link btn-link-danger" data-batch-remove-item aria-label="Remove this item" @disabled(count($batchOldItems) <= 1)>&times; Remove</button>
+                    </div>
+                @endforeach
+            </div>
+            <button type="button" class="btn-link" id="bd-add-item">+ Add another item</button>
+
+            <div class="field">
+                <div class="flex flex-wrap items-baseline justify-between gap-2">
+                    <label id="bd-families-label">Families receiving this pack</label>
+                    {{-- SELECT-ALL SCOPE. There is no filter box in this modal,
+                         so "visible" and "eligible" are the same set and the
+                         count in the label is the whole truth. If a search box
+                         is ever added here, this label has to change with it --
+                         a select-all that silently means "some of them" is worse
+                         than no select-all. --}}
+                    <label class="flex min-h-[44px] items-center gap-2">
+                        <input type="checkbox" id="bd-select-all">
+                        <span>Select all {{ $batchHouseholds->count() }} {{ $batchHouseholds->count() === 1 ? 'family' : 'families' }}</span>
+                    </label>
+                </div>
+                <div class="checkbox-list max-h-64 overflow-y-auto" role="group" aria-labelledby="bd-families-label">
+                    @forelse($batchHouseholds as $h)
+                        <label class="flex min-h-[44px] flex-wrap items-center gap-2 px-2">
+                            <input type="checkbox" name="households[]" value="{{ $h->id }}" data-batch-household @checked(in_array($h->id, $batchOldHouseholds, true))>
+                            <span class="min-w-0 flex-1">{{ $h->headMember?->full_name ?? $h->household_code }}
+                                <small class="text-ink-muted">&middot; {{ $h->household_code }} &middot; {{ $h->members_present }} present</small>
+                            </span>
+                            {{-- Badged, not filtered. A family who received rice
+                                 yesterday is still standing in today's queue, so
+                                 they stay on the list; this only says who has
+                                 waited longest. --}}
+                            @if($h->is_priority)<span class="badge badge-warning">Not yet received</span>@endif
+                        </label>
+                    @empty
+                        <p class="empty-note">No family is checked in at this shelter yet, so there is nobody to distribute to.</p>
+                    @endforelse
+                </div>
+            </div>
+
+            {{-- TOTAL SUMMARY. Filled by staff.js from the controls above -- no
+                 request, no stored state, just multiplication the operator would
+                 otherwise do in their head while twenty-three families wait.
+                 It is what turns "only 40 on hand" into something they can see
+                 coming before they submit.
+
+                 Rendered always, with a written empty state, rather than hidden
+                 until it has something to say. A panel that appears and
+                 disappears reads as a glitch. --}}
+            <div class="card panel mb-3" id="bd-summary">
+                <h3 class="panel-title">Total to be given out</h3>
+                <ul class="kpi-note" data-batch-summary>
+                    <li>Tick at least one family and choose an item to see the total.</li>
+                </ul>
+                <small class="field-hint">Stock is checked against this total when you submit. If any item is short, nothing is given out and every shortage is listed at once.</small>
+            </div>
+
+            <div class="field">
+                <label for="bd-remarks">Notes on this batch <small>(optional &mdash; e.g. Typhoon relief pack, Day 3)</small></label>
+                <textarea id="bd-remarks" name="remarks" rows="2" maxlength="500">{{ $batchFailed ? old('remarks') : '' }}</textarea>
+                <small class="field-hint">The same note is saved against every family in this batch.</small>
+            </div>
+
+            <div class="modal-actions flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <button type="button" class="btn-secondary" data-close-modal>Cancel</button>
+                {{-- btn-primary stays last so it remains the Enter-key default.
+                     The confirmation dialog is built in staff.js rather than
+                     data-confirm, because its text names the actual items,
+                     quantities and family count -- a static string could not,
+                     and this is the largest irreversible write this screen
+                     performs. --}}
+                <button type="submit" class="btn-primary" id="bd-submit">Log Batch Distribution</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{{-- DROP C. Separate template from distItemTemplate: same row shape, different
+     input marker and a different remove hook, so the two modals' handlers can
+     never reach into each other's rows. __INDEX__ is substituted in staff.js. --}}
+<template id="bdItemTemplate">
+    <div class="dist-item-row" data-batch-item-row>
+        <select name="items[__INDEX__][relief_good_id]" required aria-label="Relief good">
+            <option value="">Select item&hellip;</option>
+            @foreach($goods as $g)
+                <option value="{{ $g->id }}">{{ $g->name }} ({{ $g->unit }})</option>
+            @endforeach
+        </select>
+        <input type="number" name="items[__INDEX__][quantity]" min="1" max="10000000" value="1" required aria-label="Quantity per family">
+        <button type="button" class="btn-link btn-link-danger" data-batch-remove-item aria-label="Remove this item">&times; Remove</button>
     </div>
 </template>
 

@@ -61,6 +61,18 @@ class ReliefTransaction extends Model
         // anywhere -- the form looks like it worked and the column stays null.
         // That is the headcount-stuck-at-0 bug, and it costs an hour every time.
         'donor_type', 'donor_name', 'monetary_value',
+        /* DROP C. Same rule, and here it would have been especially quiet: a
+           batch would have written every row correctly, decremented stock
+           correctly, credited every household correctly, and simply never
+           marked itself as a batch. Nothing would error and the only symptom
+           would be a missing badge.
+
+           NOTE that nothing passes this key to create(). Batch rows are written
+           by DistributesRelief::distributeReliefTo(), whose create() payload is
+           fixed and is deliberately not edited by this drop, and are stamped
+           immediately afterwards by an update() inside the same transaction.
+           Fillable still matters, because mass assignment guards update() too. */
+        'batch_id',
     ];
 
     protected function casts(): array

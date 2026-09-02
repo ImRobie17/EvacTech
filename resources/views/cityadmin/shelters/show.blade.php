@@ -389,7 +389,16 @@
             <tbody>
                 @forelse($log as $t)
                     <tr>
-                        <td data-label="Date" data-numeric class="whitespace-nowrap">{{ $t->transaction_date?->format('M d, Y') }}</td>
+                        {{-- DROP C. Batch distribution is Camp Manager only, but
+                             its rows land in this shelter's transactions and
+                             the CSWD Office reads the same log. Without this the
+                             two logs would describe the same twenty-four rows
+                             differently, and the role with oversight would be
+                             the one missing the context. One line, no new
+                             column, null batch_id renders as before. --}}
+                        <td data-label="Date" data-numeric class="whitespace-nowrap">{{ $t->transaction_date?->format('M d, Y') }}
+                            @if($t->batch_id)<br><span class="badge badge-info">Batch Distribution</span>@endif
+                        </td>
                         <td data-label="Household" data-fit>{{ $t->household?->headMember?->full_name ?? '-' }}</td>
                         <td data-label="Item">{{ $t->reliefGood?->name }}</td>
                         <td data-label="Qty" data-numeric>{{ number_format($t->quantity) }} {{ $t->reliefGood?->unit }}</td>

@@ -107,6 +107,17 @@ Route::middleware(['auth', 'role:barangay_personnel', 'shelter.assigned'])
            type-ahead endpoints in this group. */
         Route::get('/relief/recipients', [ReliefController::class, 'searchRecipients'])->name('relief.recipients');
         Route::post('/relief/distribute', [ReliefController::class, 'distribute'])->name('relief.distribute');
+        /* DROP C. One pack, many families, one submit -- Camp Manager only,
+           matching how reunification was scoped. There is deliberately no CSWD
+           Office equivalent: CityAdmin\ShelterDetailController is untouched by
+           this drop.
+
+           A separate action rather than a mode flag on distribute(): that
+           method is two lines of glue over DistributesRelief and adding a
+           branch to it would put batch logic on the path every single
+           distribution takes. Every relief route here is a literal segment with
+           no model binding, so nothing is at risk of being swallowed. */
+        Route::post('/relief/batch-distribute', [ReliefController::class, 'batchDistribute'])->name('relief.batch-distribute');
         Route::post('/relief/receive', [ReliefController::class, 'receive'])->name('relief.receive');
         Route::post('/relief/request-restock', [ReliefController::class, 'requestRestock'])->name('relief.request-restock');
         Route::post('/relief/request-special', [ReliefController::class, 'requestSpecial'])->name('relief.request-special');

@@ -17,6 +17,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initHouseholdView();
     initShelterModals();
     initReliefModals();
+    initBatchDistribute();
 });
 
 // ---------------------------------------------------------------------
@@ -1440,6 +1441,260 @@ function initReliefModals() {
     }
 
     if (cfg.autoOpen) openModal('distributeModal');
+}
+
+// ---------------------------------------------------------------------
+// DROP C -- Batch relief distribution
+// ---------------------------------------------------------------------
+/* One pack, many families. This module owns four things and writes nothing:
+   the repeating item rows, the select-all, the live total, and the confirmation
+   dialog. The submit is an ordinary form post; every rule that matters is
+   enforced again on the server, because a rule the interface enforces and the
+   server does not is not enforced.
+
+   DELIBERATELY SEPARATE FROM initReliefModals(). That function is a working
+   screen with a fetch-backed picker, a composition panel and a hand-off to the
+   special-request modal, and folding a second feature into it in the same pass
+   is how a working screen breaks. The two share nothing but window.ReliefConfig,
+   read-only.
+
+   NOTHING HERE IS SCOPED WIDER THAN #batchModal. The Distribute modal's rows
+   carry [data-item-row]; these carry [data-batch-item-row]. Neither handler can
+   see the other's rows even though both live on this page. */
+function initBatchDistribute() {
+    const modal = document.getElementById('batchModal');
+    if (!modal) return; // not the barangay relief screen
+
+    const form = document.getElementById('batchForm');
+    const itemsWrap = document.getElementById('bd-items');
+    const addBtn = document.getElementById('bd-add-item');
+    const template = document.getElementById('bdItemTemplate');
+    const selectAll = document.getElementById('bd-select-all');
+    const summary = modal.querySelector('[data-batch-summary]');
+
+    /* Every lookup guarded and every failure named. An unguarded
+       querySelector(...).value on markup that moved throws on the first line and
+       silently abandons the rest of the function, which is how a feature ends up
+       half-wired with a clean console in production and no clue where to look. */
+    if (!form || !itemsWrap) {
+        console.error('[EvacTech/staff] batch distribution: #batchModal is present but #batchForm or #bd-items is missing. The modal will open and do nothing.');
+        return;
+    }
+    if (!template) {
+        console.error('[EvacTech/staff] batch distribution: #bdItemTemplate is missing, so "Add another item" cannot work.');
+    }
+    if (!summary) {
+        console.error('[EvacTech/staff] batch distribution: no [data-batch-summary] list, so the total will not render.');
+    }
+
+    /* Labels come from window.ReliefConfig.goods, which the relief page already
+       emits as {id, label} -- "Rice 50kg (sack)". Reusing it keeps the wording in
+       the dialog identical to the wording in the select the operator just used.
+       Falls back to an empty list rather than throwing if the config is absent;
+       the summary then reads "item", and the server still knows the real name. */
+    const goods = (window.ReliefConfig && window.ReliefConfig.goods) || [];
+
+    function goodLabel(id) {
+        const match = goods.find((g) => String(g.id) === String(id));
+        return match ? match.label : 'item';
+    }
+
+    /* Advanced past the rows Blade rendered. Blade re-indexes old('items')
+       contiguously, so the count IS the next free index -- leaving this at 1
+       after a failed submit that came back with three rows would make the next
+       "Add another item" reuse items[1] and silently overwrite a quantity the
+       operator had already typed. */
+    let itemIndex = Math.max(1, itemsWrap.querySelectorAll('[data-batch-item-row]').length);
+
+    function householdBoxes() {
+        return Array.from(modal.querySelectorAll('[data-batch-household]'));
+    }
+
+    function tickedCount() {
+        return householdBoxes().filter((box) => box.checked).length;
+    }
+
+    /* Aggregate per relief good BEFORE displaying anything, by the same rule the
+       server applies: two rows of "Rice 5" are one line of 10, not two lines of
+       5. If the summary aggregated differently from the write, the operator
+       would be shown one total and charged another. */
+    function perFamilyTotals() {
+        const totals = new Map();
+
+        itemsWrap.querySelectorAll('[data-batch-item-row]').forEach((row) => {
+            const select = row.querySelector('select');
+            const qtyInput = row.querySelector('input[type="number"]');
+            if (!select || !qtyInput) return;
+
+            const id = select.value;
+            const qty = parseInt(qtyInput.value, 10);
+            if (!id || !Number.isFinite(qty) || qty < 1) return;
+
+            totals.set(id, (totals.get(id) || 0) + qty);
+        });
+
+        return totals;
+    }
+
+    /* The shared source of truth for the panel and the dialog, so the numbers in
+       the confirmation are the numbers that were on screen a moment earlier. */
+    function summaryLines() {
+        const families = tickedCount();
+        const lines = [];
+
+        perFamilyTotals().forEach((perFamily, id) => {
+            lines.push(`${goodLabel(id)}: ${perFamily} each \u00D7 ${families} families = ${perFamily * families}`);
+        });
+
+        return { families, lines };
+    }
+
+    function renderSummary() {
+        if (!summary) return;
+
+        const { families, lines } = summaryLines();
+        summary.innerHTML = '';
+
+        /* Two different empty states, because they call for two different
+           actions. "Nothing ticked" and "no items chosen" are not the same
+           problem and a single generic line would leave the operator guessing
+           which half to fix. */
+        if (families === 0 || lines.length === 0) {
+            const li = document.createElement('li');
+            if (families === 0 && lines.length === 0) {
+                li.textContent = 'Tick at least one family and choose an item to see the total.';
+            } else if (families === 0) {
+                li.textContent = 'Tick the families who will receive this pack.';
+            } else {
+                li.textContent = 'Choose a relief item and a quantity per family.';
+            }
+            summary.appendChild(li);
+            return;
+        }
+
+        lines.forEach((text) => {
+            const li = document.createElement('li');
+            li.textContent = text;
+            summary.appendChild(li);
+        });
+
+        const footer = document.createElement('li');
+        footer.className = 'font-medium';
+        footer.textContent = `${families} ${families === 1 ? 'family' : 'families'} \u00D7 ${lines.length} ${lines.length === 1 ? 'item' : 'items'}`;
+        summary.appendChild(footer);
+    }
+
+    // ---- select-all ----
+    if (selectAll) {
+        selectAll.addEventListener('change', () => {
+            householdBoxes().forEach((box) => { box.checked = selectAll.checked; });
+            renderSummary();
+        });
+    }
+
+    /* Delegated on the modal so it covers the checklist and the item rows,
+       including rows added after load. Unticking one family after Select all
+       must untick the master box too, or the box would claim a state the form no
+       longer has. */
+    modal.addEventListener('change', (e) => {
+        if (e.target.closest('[data-batch-household]')) {
+            if (selectAll) {
+                const boxes = householdBoxes();
+                selectAll.checked = boxes.length > 0 && boxes.every((box) => box.checked);
+            }
+            renderSummary();
+            return;
+        }
+        if (e.target.closest('[data-batch-item-row]')) renderSummary();
+    });
+
+    // Typing in a quantity fires input, not change, so the total keeps up with
+    // the keyboard rather than waiting for the field to be left.
+    itemsWrap.addEventListener('input', (e) => {
+        if (e.target.closest('[data-batch-item-row]')) renderSummary();
+    });
+
+    // ---- repeating item rows ----
+    function syncBatchRemoveButtons() {
+        const rows = itemsWrap.querySelectorAll('[data-batch-item-row]');
+        rows.forEach((row) => {
+            const btn = row.querySelector('[data-batch-remove-item]');
+            if (btn) btn.disabled = rows.length <= 1;
+        });
+    }
+
+    if (addBtn && template) {
+        addBtn.addEventListener('click', () => {
+            const html = template.innerHTML.replace(/__INDEX__/g, String(itemIndex));
+            const holder = document.createElement('div');
+            holder.innerHTML = html;
+            const row = holder.querySelector('[data-batch-item-row]');
+            if (!row) {
+                console.error('[EvacTech/staff] batch distribution: #bdItemTemplate has no [data-batch-item-row] inside it.');
+                return;
+            }
+            itemsWrap.appendChild(row);
+            itemIndex++;
+            syncBatchRemoveButtons();
+            renderSummary();
+            row.querySelector('select')?.focus();
+        });
+    }
+
+    itemsWrap.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-batch-remove-item]');
+        if (!btn) return;
+        // Never remove the last row: an empty items list fails server-side with
+        // a message that could not explain itself.
+        if (itemsWrap.querySelectorAll('[data-batch-item-row]').length <= 1) return;
+        btn.closest('[data-batch-item-row]')?.remove();
+        syncBatchRemoveButtons();
+        renderSummary();
+    });
+
+    syncBatchRemoveButtons();
+
+    /* ---- confirm before submit ----
+
+       NOT data-confirm. initConfirmForms() binds a fixed string at init, and the
+       whole value of this dialog is that it names the actual items, quantities
+       and family count. There is no undo for a relief transaction anywhere in
+       this system and this is the largest irreversible write the screen can
+       perform, so the last thing between a mis-tapped Select all and
+       twenty-three wrong records should be a sentence that says what is about to
+       happen.
+
+       The two blocking cases are handled before the dialog rather than inside
+       it, because "are you sure you want to give nothing to nobody" is not a
+       question. Both are validated again on the server for the submit that
+       arrives without JavaScript. */
+    form.addEventListener('submit', (e) => {
+        const { families, lines } = summaryLines();
+
+        if (families === 0) {
+            e.preventDefault();
+            alert('Tick at least one family before logging a batch distribution.');
+            return;
+        }
+        if (lines.length === 0) {
+            e.preventDefault();
+            alert('Choose at least one relief item and a quantity per family.');
+            return;
+        }
+
+        const message = 'Give the following to ' + families + (families === 1 ? ' family' : ' families') + '?\n\n'
+            + lines.join('\n')
+            + '\n\nThis is dated today and cannot be undone.';
+
+        if (!confirm(message)) e.preventDefault();
+    });
+
+    /* Rendered once at load, which is what covers the modal Blade rendered
+       already-open after a rejected submit -- evactech:modal-open does not fire
+       for those, because nothing called openModal(). The listener covers the
+       ordinary path, where the operator clicks Batch Distribute. */
+    modal.addEventListener('evactech:modal-open', renderSummary);
+    renderSummary();
 }
 
 // ---------------------------------------------------------------------

@@ -77,6 +77,9 @@ class ReportController extends BarangayController
     public function idp(Request $request)
     {
         $data = $request->validate([
+            // DROP D. Preview is a second SUBMIT BUTTON, not a third format.
+            // Nothing else may be posted here, so the whitelist is one value.
+            'action' => ['nullable', 'in:preview'],
             'disaster_name' => ['required', 'string', 'max:150'],
             'disaster_date' => ['required', 'date', 'before_or_equal:today'],
             'affected_families' => ['nullable', 'integer', 'min:0', 'max:9999999'],
@@ -86,9 +89,16 @@ class ReportController extends BarangayController
             'disaster_date.required' => 'Enter the date the disaster occurred.',
         ]);
 
+        $preview = ($data['action'] ?? null) === 'preview';
+
         $center = $this->centerOrFail();
         $form = IdpForm::forCenter($center);
 
+        // DROP D. A preview IS logged. It renders a full shelter roll-up, and a
+        // read that leaves no trace is worse than a Recently Generated list
+        // that fills up faster. The format stays 'pdf' -- that column records
+        // the artifact, not how it was delivered -- and the audit description
+        // is the only thing that distinguishes the two.
         $record = GeneratedReport::create([
             'report_type' => IdpForm::TYPE,
             'format' => 'pdf',
@@ -96,10 +106,11 @@ class ReportController extends BarangayController
             'evacuation_center_id' => $center->id,
         ]);
 
+        $verb = $preview ? 'Previewed' : 'Generated';
         AuditLogger::log('created', $record,
-            "Generated IDP Monitoring Form for {$center->name} (disaster: {$data['disaster_name']})");
+            "{$verb} IDP Monitoring Form for {$center->name} (disaster: {$data['disaster_name']})");
 
-        return $this->renderIdpPdf($data, $form);
+        return $this->renderIdpPdf($data, $form, $preview);
     }
 
     public function generate(Request $request)
@@ -107,9 +118,29 @@ class ReportController extends BarangayController
         $data = $request->validate(array_merge([
             'report_type' => ['required', 'in:' . implode(',', self::TYPES)],
             'format' => ['required', 'in:pdf,xlsx'],
+            // DROP D. Deliberately NOT a third value on the format radio.
+            // Preview is orthogonal to format: a 'preview' radio would create
+            // the combination preview+xlsx, which is invalid and would need
+            // guarding anyway, and it would write the string 'preview' into
+            // generated_reports.format where a real format belongs. A separate
+            // submit button leaves format clean.
+            'action' => ['nullable', 'in:preview'],
             'date_from' => ['nullable', 'date'],
             'date_to' => ['nullable', 'date', 'after_or_equal:date_from'],
         ], $this->reportFilterRules()));
+
+        $preview = ($data['action'] ?? null) === 'preview';
+
+        // A spreadsheet cannot be rendered inline by a browser. Refuse the
+        // combination out loud instead of quietly downloading -- a control that
+        // silently does something other than what it says is the thing this
+        // drop exists to avoid. withInput() keeps the operator's filters and
+        // dates so they only have to change the one radio.
+        if ($preview && $data['format'] === 'xlsx') {
+            return back()->withInput()->withErrors([
+                'format' => 'Excel files cannot be previewed. Choose PDF to preview, or press Generate to download the spreadsheet.',
+            ]);
+        }
 
         $center = $this->centerOrFail();
         $filters = $this->reportFilters($data);
@@ -133,7 +164,8 @@ class ReportController extends BarangayController
         // migration for a column nothing reads back. They are recorded here,
         // where an auditor can already see who generated what and when.
         $note = $filterLabels === [] ? '' : ('; filters: ' . implode(' | ', $filterLabels));
-        AuditLogger::log('created', $record, "Generated {$title} report ({$data['format']}{$note})");
+        $verb = $preview ? 'Previewed' : 'Generated';
+        AuditLogger::log('created', $record, "{$verb} {$title} report ({$data['format']}{$note})");
 
         $filename = str_replace(' ', '_', strtolower($title))
             . $this->reportFilterSlug($filters)
@@ -155,7 +187,7 @@ class ReportController extends BarangayController
             'generatedBy' => auth()->user()->name,
         ])->setPaper('a4', 'landscape');
 
-        return $pdf->download($filename . '.pdf');
+        return $this->pdfResponse($pdf, $filename . '.pdf', $preview);
     }
 
     /**
@@ -289,10 +321,22 @@ class ReportController extends BarangayController
             // a signed report. The derived tier is authoritative and always
             // present, so it gets its own column and the numeric age falls back
             // to a dash.
+            // DROP D added Household Head, Contact Number and Head Contact.
+            // This report is already ONE ROW PER PERSON; the gap was never
+            // person-vs-household, it was that the person rows do not say who
+            // to call. Two separate number columns rather than one with a
+            // fallback: the heading then says whose number it is, and a blank
+            // Contact Number beside a populated Head Contact reads correctly
+            // without a marker. contact_number lives on household_members, so
+            // the head's is one eager-load away via household.headMember.
+            //
+            // headMember(), NOT currentHead(). The acting head is a shelter
+            // operations stand-in and v10 keeps it out of reports entirely.
             'vulnerable' => [
-                ['Name', 'Age', 'Age Group', 'Sex', 'Household', 'Categories', 'Currently Present'],
+                ['Name', 'Age', 'Age Group', 'Sex', 'Household', 'Categories',
+                    'Household Head', 'Contact Number', 'Head Contact', 'Currently Present'],
                 $range($this->filterMembers(
-                    HouseholdMember::with(['household', 'activeClassifications'])
+                    HouseholdMember::with(['household.headMember', 'activeClassifications'])
                         ->whereHas('household', fn ($q) => $q->where('evacuation_center_id', $center->id))
                         ->whereHas('activeClassifications'),
                     $filters
@@ -305,6 +349,9 @@ class ReportController extends BarangayController
                         ucfirst((string) $m->sex),
                         $m->household?->household_code ?? '-',
                         $m->activeClassifications->pluck('name')->implode(', '),
+                        $m->household?->headMember?->full_name ?? '-',
+                        $m->contact_number ?: '-',
+                        $m->household?->headMember?->contact_number ?: '-',
                         $m->is_present ? 'Yes' : 'No',
                     ])->all(),
                 'Vulnerable Population',
@@ -314,9 +361,13 @@ class ReportController extends BarangayController
             // Population answers "who needs special handling"; this answers
             // "who is here", which is the question the three filters are for.
             'demographics' => [
-                ['Name', 'Age', 'Age Group', 'Sex', 'Household', 'Categories', 'Currently Present'],
+                // DROP D. Same three columns as 'vulnerable', in the same
+                // order. The two reports are read side by side and a column
+                // that moves between them is a column that gets misread.
+                ['Name', 'Age', 'Age Group', 'Sex', 'Household', 'Categories',
+                    'Household Head', 'Contact Number', 'Head Contact', 'Currently Present'],
                 $range($this->filterMembers(
-                    HouseholdMember::with(['household', 'activeClassifications'])
+                    HouseholdMember::with(['household.headMember', 'activeClassifications'])
                         ->whereHas('household', fn ($q) => $q->where('evacuation_center_id', $center->id)),
                     $filters
                 ), 'household_members.created_at')
@@ -328,6 +379,9 @@ class ReportController extends BarangayController
                         ucfirst((string) $m->sex),
                         $m->household?->household_code ?? '-',
                         $m->activeClassifications->pluck('name')->implode(', ') ?: '-',
+                        $m->household?->headMember?->full_name ?? '-',
+                        $m->contact_number ?: '-',
+                        $m->household?->headMember?->contact_number ?: '-',
                         $m->is_present ? 'Yes' : 'No',
                     ])->all(),
                 'Evacuee Demographics',

@@ -29,11 +29,25 @@
         <div class="field">
             <label>File format</label>
             <div class="radio-list">
-                <label class="radio-row"><input type="radio" name="format" value="pdf" checked> PDF (printable)</label>
-                <label class="radio-row"><input type="radio" name="format" value="xlsx"> Excel (.xlsx)</label>
+                <label class="radio-row"><input type="radio" name="format" value="pdf" @checked(old('format', 'pdf') === 'pdf')> PDF (printable)</label>
+                <label class="radio-row"><input type="radio" name="format" value="xlsx" @checked(old('format') === 'xlsx')> Excel (.xlsx)</label>
             </div>
+            <p class="mt-1 text-xs text-ink-muted">
+                Preview opens the PDF in a new tab and downloads nothing.
+                Excel files cannot be previewed and will always download.
+            </p>
         </div>
-        <button type="submit" class="btn-primary">&darr; Generate &amp; Download</button>
+        {{-- DROP D. Generate stays btn-primary and stays LAST, so it remains
+             the form's default submit -- pressing Enter in a date field still
+             downloads rather than previews.
+
+             formtarget="_blank" is on the PREVIEW button only, not on the
+             <form>. One attribute, no JS, no bundle rebuild, and the two
+             buttons keep different targets from the same form. --}}
+        <div class="flex flex-col gap-2 sm:flex-row">
+            <button type="submit" name="action" value="preview" formtarget="_blank" class="btn-secondary w-full min-h-[44px] sm:w-auto">Preview</button>
+            <button type="submit" class="btn-primary w-full min-h-[44px] sm:w-auto">&darr; Generate &amp; Download</button>
+        </div>
     </form>
 </div>
 @endsection

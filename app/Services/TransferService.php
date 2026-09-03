@@ -799,7 +799,15 @@ class TransferService
             ->orderByDesc('checked_in_at')
             ->limit($limit)
             ->get()
-            ->map(function (Household $h) {
+            // `use ($term)` is load-bearing. Every closure ABOVE this one is an
+            // arrow fn, which captures the enclosing scope automatically; this
+            // one is a full closure, which does not. Without the binding, the
+            // $term on the 'matched' line below was undefined, PHP raised a
+            // warning, Laravel's handler turned it into an ErrorException, and
+            // the endpoint answered HTTP 500 on EVERY call -- blank term or not,
+            // in both roles. The picker had been dead since Phase 9 item 1 added
+            // that line.
+            ->map(function (Household $h) use ($term) {
                 $open = ShelterTransfer::where('household_id', $h->id)->open()->exists();
 
                 return [

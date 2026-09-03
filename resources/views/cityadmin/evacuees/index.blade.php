@@ -117,7 +117,14 @@
         </div>
         <form method="POST" action="{{ route('city.evacuees.store') }}" id="cityEvacueeForm">
             @csrf
-            <div class="member-grid">
+            {{-- Two fields, so a two-column grid. This used to reuse
+                 .member-grid, which is tuned for the five-field member row and
+                 widens to five equal tracks at 1280px: the two selects were
+                 squeezed into the first two of five, so "Not assigned yet" was
+                 clipped and the right third of the modal sat empty. Same
+                 wrapper the barangay evacuee modal already uses for the same
+                 two-field case. --}}
+            <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <div class="field">
                     <label for="ce-barangay">Origin barangay</label>
                     <select id="ce-barangay" name="origin_barangay_id" required>
@@ -133,12 +140,18 @@
                      and the controller then discarded the choice anyway. The
                      server now requires it only when checkin=1, which is what
                      "Save &amp; Check-in" posts. --}}
+                {{-- The hint moved OUT of the label and under the select. In the
+                     label it wrapped to three lines while "Origin barangay" took
+                     one, which pushed this select ~60px below its neighbour.
+                     Both labels are one line now, so the two controls share a
+                     baseline. --}}
                 <div class="field">
-                    <label for="ce-shelter">Evacuation shelter <small>(only needed to check in now)</small></label>
+                    <label for="ce-shelter">Evacuation shelter</label>
                     <select id="ce-shelter" name="evacuation_center_id">
                         <option value="">Not assigned yet</option>
                         @foreach($shelters as $s)<option value="{{ $s->id }}">{{ $s->name }}</option>@endforeach
                     </select>
+                    <small class="field-hint">Only needed if you are checking them in now.</small>
                 </div>
             </div>
             <div class="field"><label for="ce-address">Family address</label><input type="text" id="ce-address" name="address" required maxlength="255"></div>

@@ -20,10 +20,16 @@ use Illuminate\Support\Carbon;
 trait RendersIdpForm
 {
     /**
+     * DROP D added $preview. It defaults to false, so the two existing callers
+     * behave exactly as they did if they do not pass it, and the actual
+     * download-vs-stream decision is made in Controller::pdfResponse() -- the
+     * same method the three generic generate() actions use, so the IDP form and
+     * every other report cannot end up disagreeing about what preview means.
+     *
      * @param  array  $data  the validated manual header inputs
      * @param  array  $form  the figures from IdpForm::forCenter()/accumulated()
      */
-    protected function renderIdpPdf(array $data, array $form)
+    protected function renderIdpPdf(array $data, array $form, bool $preview = false)
     {
         $now = now();
 
@@ -55,6 +61,7 @@ trait RendersIdpForm
         $slug = $form['accumulated'] ? 'accumulated_shelters' : 'shelter';
         $filename = 'idp_monitoring_form_' . $slug . '_' . $now->format('Ymd_His') . '.pdf';
 
-        return $pdf->download($filename);
+        // $filename already ends in '.pdf' -- pdfResponse() appends nothing.
+        return $this->pdfResponse($pdf, $filename, $preview);
     }
 }

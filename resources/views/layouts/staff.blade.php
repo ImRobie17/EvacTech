@@ -87,7 +87,7 @@
             {{-- Staff are no longer identified by barangay: they are identified by
                  the shelter they are currently operating. --}}
             <span class="sidebar-user-role">
-                {{ $navActiveCenter?->barangay?->name ? 'Brgy. ' . $navActiveCenter->barangay->name . ' Staff' : 'Shelter Staff' }}
+                {{ $navActiveCenter?->barangay?->name ? 'Brgy. ' . $navActiveCenter->barangay->name . ' Camp Manager' : 'Camp Manager' }}
             </span>
             <span class="sidebar-user-name">{{ auth()->user()->name }}</span>
         </div>

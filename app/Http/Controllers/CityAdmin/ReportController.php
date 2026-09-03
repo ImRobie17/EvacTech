@@ -38,6 +38,7 @@ class ReportController extends \App\Http\Controllers\Controller
     public const TYPES = [
         'household_registry', 'attendance', 'relief', 'vulnerable',
         'occupancy', 'demographics', 'shelter_ranking', 'shelter_demographic_summary',
+        'relief_received',
     ];
 
     public function index()
@@ -78,6 +79,9 @@ class ReportController extends \App\Http\Controllers\Controller
     public function idp(Request $request)
     {
         $data = $request->validate([
+            // DROP D. Preview is a second SUBMIT BUTTON, not a third format.
+            // Nothing else may be posted here, so the whitelist is one value.
+            'action' => ['nullable', 'in:preview'],
             'center' => ['nullable', 'exists:evacuation_centers,id'],
             'disaster_name' => ['required', 'string', 'max:150'],
             'disaster_date' => ['required', 'date', 'before_or_equal:today'],
@@ -88,6 +92,8 @@ class ReportController extends \App\Http\Controllers\Controller
             'disaster_date.required' => 'Enter the date the disaster occurred.',
         ]);
 
+        $preview = ($data['action'] ?? null) === 'preview';
+
         // Empty center = accumulate every shelter. The barangay relation is
         // eager-loaded because the header block prints the shelter's barangay.
         $center = ! empty($data['center'])
@@ -96,6 +102,11 @@ class ReportController extends \App\Http\Controllers\Controller
 
         $form = $center ? IdpForm::forCenter($center) : IdpForm::accumulated();
 
+        // DROP D. A preview IS logged. It renders a full city-wide roll-up,
+        // and a read that leaves no trace is worse than a Recently Generated
+        // list that fills up faster. The format stays 'pdf' -- that column
+        // records the artifact, not how it was delivered -- and the audit
+        // description is the only thing that distinguishes the two.
         $record = GeneratedReport::create([
             'report_type' => IdpForm::TYPE,
             'format' => 'pdf',
@@ -104,10 +115,11 @@ class ReportController extends \App\Http\Controllers\Controller
         ]);
 
         $scope = $center ? $center->name : IdpForm::ACCUMULATED_LABEL;
+        $verb = $preview ? 'Previewed' : 'Generated';
         AuditLogger::log('created', $record,
-            "Generated IDP Monitoring Form for {$scope} (disaster: {$data['disaster_name']})");
+            "{$verb} IDP Monitoring Form for {$scope} (disaster: {$data['disaster_name']})");
 
-        return $this->renderIdpPdf($data, $form);
+        return $this->renderIdpPdf($data, $form, $preview);
     }
 
     public function generate(Request $request)
@@ -115,10 +127,30 @@ class ReportController extends \App\Http\Controllers\Controller
         $data = $request->validate(array_merge([
             'report_type' => ['required', 'in:' . implode(',', self::TYPES)],
             'format' => ['required', 'in:pdf,xlsx'],
+            // DROP D. Deliberately NOT a third value on the format radio.
+            // Preview is orthogonal to format: a 'preview' radio would create
+            // the combination preview+xlsx, which is invalid and would need
+            // guarding anyway, and it would write the string 'preview' into
+            // generated_reports.format where a real format belongs. A separate
+            // submit button leaves format clean.
+            'action' => ['nullable', 'in:preview'],
             'center' => ['nullable', 'exists:evacuation_centers,id'],
             'date_from' => ['nullable', 'date'],
             'date_to' => ['nullable', 'date', 'after_or_equal:date_from'],
         ], $this->reportFilterRules()));
+
+        $preview = ($data['action'] ?? null) === 'preview';
+
+        // A spreadsheet cannot be rendered inline by a browser. Refuse the
+        // combination out loud instead of quietly downloading -- a control that
+        // silently does something other than what it says is the thing this
+        // drop exists to avoid. withInput() keeps the operator's shelter,
+        // filters and dates so they only have to change the one radio.
+        if ($preview && $data['format'] === 'xlsx') {
+            return back()->withInput()->withErrors([
+                'format' => 'Excel files cannot be previewed. Choose PDF to preview, or press Generate to download the spreadsheet.',
+            ]);
+        }
 
         // null center = city-wide (all shelters)
         $center = ! empty($data['center']) ? EvacuationCenter::find($data['center']) : null;
@@ -145,7 +177,8 @@ class ReportController extends \App\Http\Controllers\Controller
         // migration for a column nothing reads back. They are recorded here,
         // where an auditor can already see who generated what and when.
         $note = $filterLabels === [] ? '' : ('; filters: ' . implode(' | ', $filterLabels));
-        AuditLogger::log('created', $record, "Generated {$title} report ({$scope}, {$data['format']}{$note})");
+        $verb = $preview ? 'Previewed' : 'Generated';
+        AuditLogger::log('created', $record, "{$verb} {$title} report ({$scope}, {$data['format']}{$note})");
 
         $filename = str_replace(' ', '_', strtolower($title))
             . $this->reportFilterSlug($filters)
@@ -168,7 +201,7 @@ class ReportController extends \App\Http\Controllers\Controller
             'generatedBy' => auth()->user()->name,
         ])->setPaper('a4', 'landscape');
 
-        return $pdf->download($filename . '.pdf');
+        return $this->pdfResponse($pdf, $filename . '.pdf', $preview);
     }
 
     /**
@@ -243,6 +276,42 @@ class ReportController extends \App\Http\Controllers\Controller
                 'Relief Distribution',
             ],
 
+            /* DROP B2 -- stock RECEIVED, the counterpart to the distribution
+               report above.
+
+               THE TRAP, AND IT IS THE SAME ONE DROP 0 FIXED. The three
+               demographic filters apply to EVERY type on this form (gotcha 39).
+               A received transaction has household_id = NULL, so running this
+               arm through filterRelief() -- which does
+               whereHas('household.members', ...) -- would return ZERO ROWS the
+               moment any filter is set, silently, while the PDF header
+               cheerfully printed "Filtered by: Category: PWD". A report that
+               quietly answers a different question from the one printed on it is
+               worse than one that crashes.
+
+               So the demographic filters are NOT applied here at all, and
+               FiltersReports::reportFilterNote() carries a case saying so in
+               plain words. The date range still applies: that is a property of
+               the receipt, not of a household.
+
+               allocated_in rows are INCLUDED by decision. Stock from an approved
+               city restock is real stock-in, and since Drop B1 it can carry a
+               donor too, because a donation does not always reach a shelter
+               directly. Excluding them would make this report disagree with the
+               inventory it exists to explain. */
+            'relief_received' => [
+                ['Date', 'Shelter', 'Barangay', 'Item', 'Quantity', 'Donor Type', 'Donor Name', 'Value (PHP)', 'Received By', 'Remarks'],
+                $this->reliefReceivedRows(
+                    $centerFilter($range(
+                        ReliefTransaction::with(['reliefGood', 'recordedBy', 'evacuationCenter.barangay'])
+                            ->whereIn('type', ReliefTransaction::STOCK_IN_TYPES),
+                        'transaction_date'
+                    ))->latest('transaction_date')->get(),
+                    true
+                ),
+                'Relief Stock Received',
+            ],
+
             // ITEM 11b FIX. This used to select on whereHas('vulnerabilities')
             // and print vulnerableClassifications->pluck('name'), so a member
             // whose only tag was a RETIRED category still appeared, and retired
@@ -255,10 +324,27 @@ class ReportController extends \App\Http\Controllers\Controller
             // a signed report. The derived tier is authoritative and always
             // present, so it gets its own column and the numeric age falls back
             // to a dash.
+            // DROP D added Household Head, Contact Number and Head Contact.
+            // This report is already ONE ROW PER PERSON; the gap was never
+            // person-vs-household, it was that the person rows do not say who
+            // to call. Two separate number columns rather than one with a
+            // fallback: the heading then says whose number it is, and a blank
+            // Contact Number beside a populated Head Contact reads correctly
+            // without a marker. contact_number lives on household_members, so
+            // the head's is one eager-load away via household.headMember.
+            //
+            // headMember(), NOT currentHead(). The acting head is a shelter
+            // operations stand-in and v10 keeps it out of reports entirely.
+            //
+            // ELEVEN COLUMNS on landscape A4. The widest report in the system.
+            // If it crowds, the Household Head NAME is the column to drop --
+            // the household code already identifies the family and the two
+            // numbers are the point of the change.
             'vulnerable' => [
-                ['Name', 'Age', 'Age Group', 'Sex', 'Household', 'Shelter', 'Categories', 'Present'],
+                ['Name', 'Age', 'Age Group', 'Sex', 'Household', 'Shelter', 'Categories',
+                    'Household Head', 'Contact Number', 'Head Contact', 'Present'],
                 $range($this->filterMembers(
-                    HouseholdMember::with(['household.evacuationCenter', 'activeClassifications'])
+                    HouseholdMember::with(['household.evacuationCenter', 'household.headMember', 'activeClassifications'])
                         ->whereHas('activeClassifications')
                         ->when($center, fn ($q) => $q->whereHas('household', fn ($q) => $q->where('evacuation_center_id', $center->id))),
                     $filters
@@ -266,6 +352,9 @@ class ReportController extends \App\Http\Controllers\Controller
                     $m->full_name, $m->age ?? '-', $m->ageTierLabel(), ucfirst((string) $m->sex),
                     $m->household?->household_code ?? '-', $m->household?->evacuationCenter?->name ?? '-',
                     $m->activeClassifications->pluck('name')->implode(', '),
+                    $m->household?->headMember?->full_name ?? '-',
+                    $m->contact_number ?: '-',
+                    $m->household?->headMember?->contact_number ?: '-',
                     $m->is_present ? 'Yes' : 'No',
                 ])->all(),
                 'Vulnerable Population',
@@ -275,15 +364,22 @@ class ReportController extends \App\Http\Controllers\Controller
             // Population answers "who needs special handling"; this answers
             // "who is here", which is the question the three filters are for.
             'demographics' => [
-                ['Name', 'Age', 'Age Group', 'Sex', 'Household', 'Shelter', 'Categories', 'Present'],
+                // DROP D. Same three columns as 'vulnerable', in the same
+                // order. The two reports are read side by side and a column
+                // that moves between them is a column that gets misread.
+                ['Name', 'Age', 'Age Group', 'Sex', 'Household', 'Shelter', 'Categories',
+                    'Household Head', 'Contact Number', 'Head Contact', 'Present'],
                 $range($this->filterMembers(
-                    HouseholdMember::with(['household.evacuationCenter', 'activeClassifications'])
+                    HouseholdMember::with(['household.evacuationCenter', 'household.headMember', 'activeClassifications'])
                         ->when($center, fn ($q) => $q->whereHas('household', fn ($q) => $q->where('evacuation_center_id', $center->id))),
                     $filters
                 ), 'household_members.created_at')->get()->map(fn ($m) => [
                     $m->full_name, $m->age ?? '-', $m->ageTierLabel(), ucfirst((string) $m->sex),
                     $m->household?->household_code ?? '-', $m->household?->evacuationCenter?->name ?? '-',
                     $m->activeClassifications->pluck('name')->implode(', ') ?: '-',
+                    $m->household?->headMember?->full_name ?? '-',
+                    $m->contact_number ?: '-',
+                    $m->household?->headMember?->contact_number ?: '-',
                     $m->is_present ? 'Yes' : 'No',
                 ])->all(),
                 'Evacuee Demographics',
@@ -352,16 +448,39 @@ class ReportController extends \App\Http\Controllers\Controller
                     $filters
                 )->get()
                     ->map(function ($c) use ($filters) {
-                        // Build member query with sex and age filters
-                        $memberQuery = HouseholdMember::with(['activeClassifications'])
-                            ->whereHas('household', fn ($q) => $q->where('evacuation_center_id', $c->id));
+                        // FIX. As shipped, this closure built $memberQuery,
+                        // applied the filters to it, and then never executed it.
+                        // Every branch below reads $members and $totalMembers,
+                        // neither of which was ever assigned, so the report
+                        // fataled with "Call to a member function filter() on
+                        // null" on every single run. The query is now run.
+                        //
+                        // SECOND FIX, QUIETER AND WORSE. This copy never applied
+                        // the age_tier filter at all -- the barangay copy had the
+                        // block, this one did not. Once the fatal was gone, a
+                        // City Admin picking an age tier would have got an
+                        // unfiltered population under a PDF banner reading
+                        // "Filtered by: Age group: Senior Citizen". A report that
+                        // crashes gets fixed; a report that quietly answers a
+                        // different question than the one printed on it gets
+                        // signed. Both copies now go through the same primitive,
+                        // so they cannot diverge again.
+                        //
+                        // THE FILTER SUBSET IS DELIBERATE. sex and age_tier
+                        // decide WHO IS COUNTED. category decides WHICH ROW IS
+                        // PRINTED, further down. Passing category in here as
+                        // well would narrow the population to that one category
+                        // and every percentage would come out as 100%.
+                        $members = $this->filterMembers(
+                            HouseholdMember::with(['activeClassifications'])
+                                ->whereHas('household', fn ($q) => $q->where('evacuation_center_id', $c->id)),
+                            array_intersect_key($filters, array_flip(['sex', 'age_tier']))
+                        )->get();
 
-                        // Apply sex filter if set
-                        if (! empty($filters['sex'])) {
-                            $memberQuery->where('sex', $filters['sex']);
-                        }
+                        $totalMembers = $members->count();
 
-                        // Get all vulnerability classifications
+                        // Fetched once. The else branch below re-fetched an
+                        // identical collection into this same variable.
                         $classifications = \App\Models\VulnerableClassification::where('is_selectable', true)
                             ->orderBy('name')
                             ->get();
@@ -395,11 +514,7 @@ class ReportController extends \App\Http\Controllers\Controller
                                 ];
                             }
                         } else {
-                            // No category filter: show all classifications
-                            $classifications = \App\Models\VulnerableClassification::where('is_selectable', true)
-                                ->orderBy('name')
-                                ->get();
-
+                            // No category filter: every classification gets a row.
                             foreach ($classifications as $classification) {
                                 $count = $members->filter(function ($member) use ($classification) {
                                     return $member->activeClassifications->contains('id', $classification->id);

@@ -247,7 +247,7 @@ class EvacueeProfilingController extends Controller
             return $household;
         }));
 
-        AuditLogger::log('created', $household, "City Admin registered household {$household->household_code}");
+        AuditLogger::log('created', $household, "CSWD Office registered household {$household->household_code}");
 
         return redirect()->route('city.evacuees.index')
             ->with('success', "Household {$household->household_code} registered" . ($checkin ? ' and checked in.' : '.'));

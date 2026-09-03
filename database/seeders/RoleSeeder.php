@@ -11,12 +11,12 @@ class RoleSeeder extends Seeder
     {
         $roles = [
             ['name' => Role::SUPER_ADMIN, 'display_name' => 'Super Admin'],
-            ['name' => Role::CITY_ADMIN, 'display_name' => 'City Dept / CDRRMO'],
-            ['name' => Role::BARANGAY_PERSONNEL, 'display_name' => 'Barangay Personnel'],
+            ['name' => Role::CITY_ADMIN, 'display_name' => 'CSWD Office'],
+            ['name' => Role::BARANGAY_PERSONNEL, 'display_name' => 'Camp Manager'],
         ];
 
         foreach ($roles as $role) {
-            Role::firstOrCreate(['name' => $role['name']], $role);
+            Role::updateOrCreate(['name' => $role['name']], $role);
         }
     }
 }

@@ -136,7 +136,7 @@ class TransferService
                a guard at every read site, in exchange for a less honest record. */
             AuditLogger::log('updated', $transfer, sprintf(
                 $auto
-                    ? 'Auto-approved transfer of %s into %s (requested by City Admin; City Admin approval is not required a second time)'
+                    ? 'Auto-approved transfer of %s into %s (requested by the CSWD Office; CSWD Office approval is not required a second time)'
                     : 'Confirmed transfer of %s into %s',
                 $transfer->household?->household_code,
                 $transfer->toCenter?->name

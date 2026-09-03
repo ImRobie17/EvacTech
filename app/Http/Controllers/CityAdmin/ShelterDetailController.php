@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\CityAdmin;
 
 use App\Http\Controllers\Concerns\FiltersReports;
+use App\Http\Controllers\Concerns\DistributesRelief;
+use App\Http\Controllers\Concerns\RecordsReliefReceipt;
 use App\Http\Controllers\Controller;
 use App\Models\EvacuationCenter;
 use App\Models\Household;
@@ -19,7 +21,6 @@ use App\Services\TransferService;
 use App\Support\AgeTier;
 use App\Support\MemberRules;
 use Illuminate\Http\Request;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -47,6 +48,16 @@ class ShelterDetailController extends Controller
        vulnerable-group and age-group match, and reusing it is what keeps a
        filtered shelter screen and a filtered report selecting the same people. */
     use FiltersReports;
+
+    /* DROP B1. Receive rules and the stock-in write, shared with
+       Barangay\ReliefController::receive() and with approveRestock() on the
+       city relief screen. Three stock-in paths, one definition. */
+    use RecordsReliefReceipt;
+
+    /* DROP B2. Distribution rules and the write, shared with
+       Barangay\ReliefController::distribute(). These two drifted apart on
+       shelter scoping for a whole phase; one definition now. */
+    use DistributesRelief;
 
     public function __construct(
         private HouseholdMemberSync $sync,
@@ -235,7 +246,7 @@ class ShelterDetailController extends Controller
 
         $household->refresh();
 
-        $note = "City Admin checked in {$household->household_code} at {$center->name} ({$household->members_present} present)";
+        $note = "CSWD Office checked in {$household->household_code} at {$center->name} ({$household->members_present} present)";
 
         if ($household->acting_head_member_id) {
             $acting = $household->actingHeadMember?->full_name ?? 'a member';
@@ -352,7 +363,7 @@ class ShelterDetailController extends Controller
             $center->recalcOccupancy();
         });
 
-        AuditLogger::log('updated', $household, "City Admin checked out {$household->household_code}");
+        AuditLogger::log('updated', $household, "CSWD Office checked out {$household->household_code}");
 
         return $this->backToTab($center, 'households', "Household {$household->household_code} checked out.");
     }
@@ -571,7 +582,7 @@ class ShelterDetailController extends Controller
             $center->recalcOccupancy();
         });
 
-        AuditLogger::log('updated', $household, "City Admin updated family group {$household->household_code}");
+        AuditLogger::log('updated', $household, "CSWD Office updated family group {$household->household_code}");
 
         return $this->backToTab($center, 'households', 'Family group updated.');
     }
@@ -582,15 +593,18 @@ class ShelterDetailController extends Controller
 
     private function reliefData(Request $request, EvacuationCenter $center): array
     {
-        $distributed = ReliefTransaction::where('evacuation_center_id', $center->id)
-            ->where('type', 'distributed');
+        /* DROP B1. The four unit figures were written out longhand here and
+           again, identically, in Barangay\ReliefController::index(). Two copies
+           of one rule is how the two DISTRIBUTE paths came to disagree about
+           shelter scoping for a whole phase, so before adding a fifth figure
+           both copies moved into RecordsReliefReceipt::reliefStockStats().
 
-        $remaining = ReliefInventory::where('evacuation_center_id', $center->id)->sum('quantity_on_hand');
-
-        $last7 = (clone $distributed)
-            ->where('transaction_date', '>=', Carbon::today()->subDays(6))
-            ->sum('quantity');
-        $dailyRate = $last7 / 7;
+           That shared version excludes MONETARY goods from every unit count:
+           Financial Assistance stores pesos in `quantity` by the client's
+           decision, so counting it would make "Total received" read 5,200 where
+           200 packs arrived, and would make the days-of-stock estimate divide
+           pesos by packs. */
+        $stats = $this->reliefStockStats($center);
 
         $logQuery = ReliefTransaction::with(['household.headMember', 'reliefGood', 'recordedBy'])
             ->where('evacuation_center_id', $center->id)
@@ -604,49 +618,41 @@ class ShelterDetailController extends Controller
         }
 
         return [
-            'stats' => [
-                'received' => ReliefTransaction::where('evacuation_center_id', $center->id)
-                    ->whereIn('type', ['received', 'allocated_in'])->sum('quantity'),
-                'distributed' => (clone $distributed)->sum('quantity'),
-                'remaining' => $remaining,
-                'days_left' => $dailyRate > 0 ? (int) floor($remaining / $dailyRate) : null,
-            ],
+            'stats' => $stats,
             'log' => $logQuery->latest('created_at')->paginate(15)->withQueryString(),
             'inventory' => ReliefInventory::with('reliefGood')
                 ->where('evacuation_center_id', $center->id)->get(),
             'goods' => ReliefGood::orderBy('name')->get(),
+            // DROP B1. Nothing on this screen rendered a stock-in row before
+            // now -- the relief tab showed only the Distribution Log -- so
+            // donor and value would have been written and never displayed.
+            'receipts' => $this->reliefReceipts($center),
+            'receiptCount' => $this->reliefReceiptCount($center),
+            'donorTypes' => ReliefTransaction::DONOR_TYPES,
         ];
     }
 
-    /** Record stock received at this shelter (city delivery or donation). */
+    /**
+     * Record stock received at this shelter (city delivery or donation).
+     *
+     * DROP B1. Captures donor category (required), donor name (optional), a
+     * peso value and remarks, and can create the relief item itself when a
+     * donation arrives that is not on the catalogue.
+     *
+     * CHANGE THIS METHOD AND Barangay\ReliefController::receive() TOGETHER.
+     * They are the same operation performed by two roles; the shared rules and
+     * the write now live in RecordsReliefReceipt so they cannot drift again.
+     */
     public function receiveRelief(Request $request, EvacuationCenter $center)
     {
-        $data = $request->validate([
-            'relief_good_id' => ['required', 'exists:relief_goods,id'],
-            'quantity' => ['required', 'integer', 'min:1'],
-            'source' => ['nullable', 'string', 'max:255'],
-        ]);
+        $data = $request->validate($this->reliefReceiptRules());
 
         DB::transaction(function () use ($data, $center) {
-            $inventory = ReliefInventory::firstOrCreate(
-                ['evacuation_center_id' => $center->id, 'relief_good_id' => $data['relief_good_id']],
-                ['quantity_on_hand' => 0, 'reorder_level' => 0]
-            );
-            $inventory->increment('quantity_on_hand', $data['quantity']);
-            $inventory->update(['last_updated_at' => now()]);
-
-            ReliefTransaction::create([
-                'evacuation_center_id' => $center->id,
-                'relief_good_id' => $data['relief_good_id'],
-                'type' => 'received',
-                'quantity' => $data['quantity'],
-                'source_or_recipient' => $data['source'] ?? null,
-                'recorded_by' => auth()->id(),
-                'transaction_date' => now()->toDateString(),
-            ]);
+            $good = $this->resolveReliefGood($data);
+            $this->applyReliefReceipt($center, $good, $data);
         });
 
-        AuditLogger::log('created', $center, "City Admin recorded relief stock received at {$center->name}");
+        AuditLogger::log('created', $center, "CSWD Office recorded relief stock received at {$center->name}");
 
         return $this->backToTab($center, 'relief', 'Stock received and inventory updated.');
     }
@@ -654,47 +660,23 @@ class ShelterDetailController extends Controller
     /** Distribute relief to a household at this shelter. */
     public function distributeRelief(Request $request, EvacuationCenter $center)
     {
-        $data = $request->validate([
-            'household_id' => ['required', 'exists:households,id'],
-            'items' => ['required', 'array', 'min:1'],
-            'items.*.relief_good_id' => ['required', 'exists:relief_goods,id'],
-            'items.*.quantity' => ['required', 'integer', 'min:1'],
-            'remarks' => ['nullable', 'string', 'max:500'],
-        ]);
+        $data = $request->validate($this->reliefDistributionRules());
 
         $household = Household::findOrFail($data['household_id']);
-        abort_if($household->evacuation_center_id !== $center->id, 404,
-            'This household is not registered at this shelter.');
 
-        DB::transaction(function () use ($data, $center, $household) {
-            foreach ($data['items'] as $item) {
-                $inventory = ReliefInventory::firstOrCreate(
-                    ['evacuation_center_id' => $center->id, 'relief_good_id' => $item['relief_good_id']],
-                    ['quantity_on_hand' => 0, 'reorder_level' => 0]
-                );
+        /* DROP B2. This used to be abort_if(..., 404), which was right about
+           the rule and wrong about the response: a 404 page for a household the
+           operator had just picked from a list reads as a broken link, not as a
+           refusal. It also said "not registered at this shelter" while actually
+           testing something stricter.
 
-                if ($inventory->quantity_on_hand < $item['quantity']) {
-                    abort(422, 'Not enough stock of ' . $inventory->reliefGood->name
-                        . " (on hand: {$inventory->quantity_on_hand}).");
-                }
+           assertHouseholdIsHere() is the same rule stated once for both roles,
+           and it now also requires checked_in rather than mere assignment. */
+        $this->assertHouseholdIsHere($household, $center);
 
-                $inventory->decrement('quantity_on_hand', $item['quantity']);
-                $inventory->update(['last_updated_at' => now()]);
+        $this->distributeReliefTo($center, $household, $data);
 
-                ReliefTransaction::create([
-                    'evacuation_center_id' => $center->id,
-                    'relief_good_id' => $item['relief_good_id'],
-                    'type' => 'distributed',
-                    'quantity' => $item['quantity'],
-                    'household_id' => $household->id,
-                    'recorded_by' => auth()->id(),
-                    'transaction_date' => now()->toDateString(),
-                    'remarks' => $data['remarks'] ?? null,
-                ]);
-            }
-        });
-
-        AuditLogger::log('created', $household, "City Admin distributed relief to {$household->household_code}");
+        AuditLogger::log('created', $household, "CSWD Office distributed relief to {$household->household_code}");
 
         return $this->backToTab($center, 'relief', 'Relief distribution logged.');
     }

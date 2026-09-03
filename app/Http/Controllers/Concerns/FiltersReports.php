@@ -334,6 +334,19 @@ trait FiltersReports
 
         return match ($type) {
             'vulnerable', 'demographics' => null,
+            /* DROP B2. Without this case the type falls through to the
+               household-shaped default sentence, which would be a flat lie
+               here: a stock receipt is not attached to a household at all, so
+               there is no "household containing a matching member" to speak of.
+               Gotcha 40 -- every new report type needs a case, and this one had
+               to say something different in kind, not just different in wording.
+
+               The rows are NOT filtered by these selects (see the relief_received
+               arm in both report controllers for why), so the sentence says so
+               outright rather than describing how they were applied. */
+            'relief_received' => 'The demographic filters do NOT apply to this report. '
+                . 'A stock receipt records goods arriving at the shelter and is not attached to any household, '
+                . 'so every receipt in the date range is listed regardless of the filters shown above.',
             'relief' => 'Rows are distributions to households containing at least one matching member. '
                 . 'Quantities are for the whole distribution, not for the matching members alone.',
             'occupancy', 'shelter_ranking' => 'Rows are shelters containing at least one matching member. '
@@ -341,6 +354,56 @@ trait FiltersReports
             default => 'Rows are households containing at least one matching member. '
                 . 'Family size and members present are whole-household figures.',
         };
+    }
+
+
+    /**
+     * DROP B2. Rows for the Relief Stock Received report.
+     *
+     * Shared by both ReportControllers because the alternative is two
+     * hand-written copies of a column layout and a total, and the two
+     * shelter_demographic_summary arms had already drifted on exactly that kind
+     * of duplication until Drop 0 fixed them.
+     *
+     * $withShelter prefixes Shelter and Barangay, which is the only difference
+     * between the city-wide report and the single-shelter one.
+     */
+    protected function reliefReceivedRows($rows, bool $withShelter = false): array
+    {
+        $out = $rows->map(function ($t) use ($withShelter) {
+            $lead = [$t->transaction_date->format('M d, Y')];
+
+            if ($withShelter) {
+                $lead[] = $t->evacuationCenter?->name ?? '-';
+                $lead[] = $t->evacuationCenter?->barangay?->name ?? '-';
+            }
+
+            return array_merge($lead, [
+                $t->reliefGood?->name ?? 'Item removed',
+                // Unit included: "50 Rice 50kg" does not say sacks on a signed
+                // document, and this one is handed to the CSWD Office.
+                $t->quantity . ' ' . ($t->reliefGood?->unit ?? ''),
+                $t->donorTypeLabel(),
+                $t->donor_name ?? '-',
+                $t->monetary_value !== null ? number_format((float) $t->monetary_value, 2) : '-',
+                $t->recordedBy?->name ?? '-',
+                $t->remarks ?? '',
+            ]);
+        })->all();
+
+        /* Total value. The client tracks relief by peso value, so a report of
+           receipts that does not add up is half a report. Appended only when
+           there are rows -- a lone TOTAL line under an empty table reads as a
+           rendering fault. */
+        if ($out) {
+            $pad = $withShelter ? 6 : 4;
+            $out[] = array_merge(
+                array_fill(0, $pad, ''),
+                ['TOTAL VALUE', number_format((float) $rows->sum('monetary_value'), 2), '', '']
+            );
+        }
+
+        return $out;
     }
 
     /**

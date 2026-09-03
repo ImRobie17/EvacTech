@@ -62,7 +62,7 @@
                 <th scope="col">Location</th>
                 <th scope="col">Capacity</th>
                 <th scope="col">Occupancy</th>
-                <th scope="col">Assigned Staff</th>
+                <th scope="col">Camp Managers</th>
                 <th scope="col">Status</th>
                 <th scope="col">Actions</th>
             </tr>
@@ -105,7 +105,7 @@
                             <small class="over-note">+{{ number_format($c->overBy()) }} over</small>
                         @endif
                     </td>
-                    <td data-label="Staff">
+                    <td data-label="Camp Managers">
                         @if ($c->staff_count > 0)
                             <details class="staff-list">
                                 <summary>{{ $c->staff_count }} assigned</summary>
@@ -206,7 +206,7 @@
                  shifts and work overtime during bad events, so everyone assigned has
                  equal, always-on rights over the shelter. ---- --}}
             <fieldset class="member-fieldset">
-                <legend>Assigned staff</legend>
+                <legend>Assigned camp managers</legend>
                 {{-- PHASE 6. The second sentence used to read "Staff may be
                      assigned to more than one shelter". They may not: assignment
                      is exclusive, so ticking someone here removes them from
@@ -215,8 +215,8 @@
                      other end. Saying so here is the difference between a
                      deliberate reassignment and a surprise. --}}
                 <p class="field-hint">
-                    Every staff member ticked here has equal rights over this shelter.
-                    A staff member works one shelter at a time, so adding someone here
+                    Every camp manager ticked here has equal rights over this shelter.
+                    A camp manager works one shelter at a time, so adding someone here
                     removes them from any shelter they are currently assigned to.
                 </p>
                 {{-- PHASE 8 ITEM 3. Same fix as the shelter picker on
@@ -225,14 +225,14 @@
                      but NOT their markup. See that file for the full reasoning:
                      .roster-search has no border of its own, so the input read
                      as a caption rather than a control. --}}
-                <label for="sh-staff-search" class="mb-1 block text-sm font-medium text-ink-soft">Filter staff</label>
+                <label for="sh-staff-search" class="mb-1 block text-sm font-medium text-ink-soft">Filter camp managers</label>
                 <div class="roster-toolbar">
                     <input type="search" id="sh-staff-search"
                            class="roster-search w-full min-w-0 rounded-sm border border-border bg-bg px-3 py-2 text-ink"
-                           placeholder="Type a staff name&hellip;">
+                           placeholder="Type a camp manager name&hellip;">
                     <span class="roster-count" id="sh-staff-count">0 selected</span>
                 </div>
-                <div class="roster-list" id="sh-staff-list" role="group" aria-label="Assigned staff">
+                <div class="roster-list" id="sh-staff-list" role="group" aria-label="Assigned camp managers">
                     @forelse($staffPool as $s)
                         <label class="checkbox-row roster-row" data-staff-name="{{ strtolower($s->name) }}">
                             <input type="checkbox" name="staff[]" value="{{ $s->id }}">
@@ -240,7 +240,7 @@
                             <span class="roster-meta">{{ $s->barangay?->name ? 'Brgy. ' . $s->barangay->name : 'Unassigned' }}</span>
                         </label>
                     @empty
-                        <p class="empty-note">No active barangay personnel accounts yet. Create them in User Management first.</p>
+                        <p class="empty-note">No active camp manager accounts yet. Create them in User Management first.</p>
                     @endforelse
                 </div>
             </fieldset>

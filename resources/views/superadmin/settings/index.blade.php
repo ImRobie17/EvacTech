@@ -43,7 +43,7 @@
             @if($health['maintenance'])
                 <div class="alert alert-warning"><strong>Maintenance mode is currently ON.</strong> Non-super-admin users are locked out.</div>
             @else
-                <p class="kpi-note">Turning this on will log out and block all City Admin and Barangay Personnel users to prevent activity during maintenance. Super Admins keep access.</p>
+                <p class="kpi-note">Turning this on will log out and block all CSWD Office and Camp Manager users to prevent activity during maintenance. Super Admins keep access.</p>
             @endif
             <form method="POST" action="{{ route('super.settings.maintenance') }}" data-confirm="{{ $health['maintenance'] ? 'Turn OFF maintenance mode and restore access to everyone?' : 'Turn ON maintenance mode? All non-super-admin users will be logged out.' }}">
                 @csrf

@@ -29,6 +29,11 @@
          the reported "requests never appear on the City Admin side": not a
          backend failure, a missing button. --}}
     <button type="button" class="btn-secondary w-full sm:w-auto" data-open-modal="restockModal">&#8593; Request Stock</button>
+    {{-- DROP C. Secondary, and BEFORE Distribute Relief on purpose. The batch
+         path is the optional one -- single distribution is what this screen is
+         for and stays the primary action, which also keeps it last so it remains
+         the Enter-key default. --}}
+    <button type="button" class="btn-secondary w-full sm:w-auto" data-open-modal="batchModal">&#128101; Batch Distribute</button>
     <button type="button" class="btn-primary w-full sm:w-auto" data-open-modal="distributeModal">&#128230; Distribute Relief</button>
 @endsection
 
@@ -36,7 +41,11 @@
 @unless($center)
     <div class="alert alert-warning">No evacuation center is registered for your barangay yet.</div>
 @else
-<section class="mb-4 grid grid-cols-1 items-stretch gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Relief stock summary">
+{{-- DROP B1. Four cards became five, so the wide breakpoint goes to five
+     columns; at xl:grid-cols-4 the new card wrapped onto a row of its own.
+     sm:grid-cols-2 is unchanged, which leaves it paired at tablet width and
+     full-width on a phone. --}}
+<section class="mb-4 grid grid-cols-1 items-stretch gap-3 sm:grid-cols-2 xl:grid-cols-5" aria-label="Relief stock summary">
     <article class="card kpi-card">
         <div class="kpi-head"><span class="kpi-title">Received</span></div>
         <p class="kpi-value" data-numeric>{{ number_format($stats['received']) }}</p>
@@ -57,7 +66,22 @@
         <p class="kpi-value" data-numeric>{{ $stats['days_left'] !== null ? '~' . $stats['days_left'] . ' days' : '-' }}</p>
         <p class="kpi-note">Estimate from 7-day avg. distribution rate</p>
     </article>
+    {{-- DROP B1. The client tracks relief by peso value as well as by count.
+         Sums stock-in rows only, so goods allocated between city and shelter
+         without a donation behind them add nothing here. --}}
+    <article class="card kpi-card">
+        <div class="kpi-head"><span class="kpi-title">Value Received</span></div>
+        <p class="kpi-value" data-numeric>PHP {{ number_format($stats['value_received'], 2) }}</p>
+        <p class="kpi-note">Declared value of all stock received here</p>
+    </article>
 </section>
+
+{{-- The disclosure that stops the four unit cards above reading as a lie.
+     Financial Assistance stores pesos in its quantity by the client's
+     decision, so it is excluded from every unit figure -- otherwise one
+     5,000-peso grant would make "Received" read 5,200 where 200 packs
+     arrived, and Projected Stock would be dividing pesos by packs. --}}
+<p class="kpi-note mb-4">Unit figures count physical goods only. Cash items such as Financial Assistance are excluded from them and appear under Value Received and in the inventory table below.</p>
 
 <section class="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
     <div class="lg:col-span-2">
@@ -89,7 +113,23 @@
                                  entity convention is right; it just cannot be
                                  applied inside a format string. The separator is
                                  now outside the call. --}}
-                            <td data-label="Date &amp; Time" data-numeric>{{ $t->created_at->format('M d, Y') }} &middot; {{ $t->created_at->format('h:i A') }}</td>
+                            {{-- DROP C. A batch writes one of these rows per
+                                 family per item, exactly as a single
+                                 distribution does, so the only thing marking
+                                 them as one act is batch_id. The badge sits
+                                 INSIDE this cell rather than in a sixth column:
+                                 the log already runs five columns under
+                                 text-fit's 15px floor, and a new column would
+                                 have meant new data-label handling on the
+                                 stacked phone view for a one-word flag.
+
+                                 Rows written before this drop have a null
+                                 batch_id and render exactly as they always
+                                 have. Nothing backfills them, and null is not
+                                 missing data here -- it means single. --}}
+                            <td data-label="Date &amp; Time" data-numeric>{{ $t->created_at->format('M d, Y') }} &middot; {{ $t->created_at->format('h:i A') }}
+                                @if($t->batch_id)<br><span class="badge badge-info">Batch Distribution</span>@endif
+                            </td>
                             <td data-label="Household Head">{{ $t->household?->headMember?->full_name ?? '-' }}</td>
                             <td data-label="Family Size" data-numeric>{{ $t->household?->number_of_members ?? '-' }}</td>
                             <td data-label="Relief Given">{{ $t->quantity }} {{ $t->reliefGood->unit }} - {{ $t->reliefGood->name }}
@@ -149,6 +189,61 @@
                 </tbody>
             </table>
         </div>
+
+        {{-- ======== DROP B1: Stock Receipts ========
+
+             Before this drop NOTHING anywhere in the application rendered a
+             `received` transaction -- both relief screens showed only the
+             Distribution Log. Donor, value and remarks would have been written
+             to the database and been invisible to the client who asked for
+             them. Gotcha 37: a new field with nowhere to read it is write-only.
+
+             ALWAYS RENDERED, with the true count in the heading and a written
+             empty state. A panel that appears only when it has rows makes "no
+             stock has arrived" and "this feature does not exist" look
+             identical, and that cost a full debugging round in Phase 7.
+
+             Deliberately not paginated -- the Distribution Log above already
+             owns the `page` parameter, and a second paginator on the same
+             screen would turn both tables at once. --}}
+        <div class="card panel table-panel mt-4">
+            <h2 class="panel-title">Stock Receipts <span class="badge badge-info">{{ number_format($receiptCount) }} total</span></h2>
+            <p class="kpi-note">Everything that has arrived at this shelter, with who donated it. Showing the {{ $receipts->count() }} most recent.</p>
+            <table class="data-table" data-stack>
+                <thead>
+                    <tr>
+                        <th scope="col">Date</th>
+                        <th scope="col">Item</th>
+                        <th scope="col">Quantity</th>
+                        <th scope="col">Donor</th>
+                        <th scope="col">Value</th>
+                        <th scope="col">Recorded By</th>
+                        <th scope="col">Remarks</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @forelse($receipts as $r)
+                        <tr>
+                            <td data-label="Date" data-numeric>{{ $r->transaction_date?->format('M d, Y') }}</td>
+                            <td data-label="Item" data-fit>{{ $r->reliefGood?->name ?? 'Item removed' }}</td>
+                            <td data-label="Quantity" data-numeric>{{ number_format($r->quantity) }} {{ $r->reliefGood?->unit }}</td>
+                            <td data-label="Donor">
+                                {{ $r->donorTypeLabel() }}
+                                @if($r->donor_name)<br><small class="text-ink-muted">{{ $r->donor_name }}</small>@endif
+                            </td>
+                            {{-- @if/@else rather than `?? '&mdash;'`: an HTML entity
+                                 inside an escaped echo is double-encoded by e() and
+                                 renders the literal text &mdash;. Gotcha 4. --}}
+                            <td data-label="Value" data-numeric>@if($r->monetary_value !== null){{ 'PHP ' . number_format($r->monetary_value, 2) }}@else&mdash;@endif</td>
+                            <td data-label="Recorded By">{{ $r->recordedBy?->name ?? '-' }}</td>
+                            <td data-label="Remarks" data-fit>@if($r->remarks){{ $r->remarks }}@else&mdash;@endif</td>
+                        </tr>
+                    @empty
+                        <tr><td colspan="7" class="empty-note">No stock has been received at this shelter yet. Use "Receive Stock" when a delivery or donation arrives.</td></tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </div>
     </div>
 
     <div class="flex flex-col gap-6">
@@ -174,7 +269,7 @@
                         @if($r->status === 'approved')
                             <span class="text-success">&check; Approved &mdash; stock was added to this shelter's inventory automatically.</span>
                         @elseif($r->status === 'rejected')
-                            <span class="text-danger">Not approved. Contact the CDRRMO if this is still needed.</span>
+                            <span class="text-danger">Not approved. Contact the CSWD Office if this is still needed.</span>
                         @endif
                     </div>
                 @empty
@@ -195,7 +290,7 @@
                             <span class="text-ink-soft">Note: {{ $s->remarks }}</span>
                         @endif
                         @if($s->status === 'approved')
-                            <span class="text-success">&check; Approved by the CDRRMO. The item is sourced outside the system, so it will not appear in inventory.</span>
+                            <span class="text-success">&check; Approved by the CSWD Office. The item is sourced outside the system, so it will not appear in inventory.</span>
                         @endif
                     </div>
                 @endforeach
@@ -230,7 +325,30 @@
 
 @push('modals')
 {{-- ======== Distribute Relief modal ======== --}}
-<div class="modal-backdrop" id="distributeModal" hidden>
+{{-- DROP B2. Reopens itself on a REJECTED submit, carrying the operator's work
+     back with it. Before this, a shortage produced abort(422) -- a bare error
+     page -- and the household they had searched for, every item row and their
+     remarks were gone.
+
+     `hidden` is emitted only when this form was not the one that failed. The
+     household id and the item rows come back from old(); the household header
+     and the composition panel are refetched by staff.js, which watches for a
+     form that is already visible with an id in it at load. --}}
+@php
+    $distFailed = $errors->any() && old('_form') === 'distribute';
+    // Row 0 must always exist, so a failed submit with no items still renders
+    // one empty row rather than an item list with no rows and no Add button
+    // reachable.
+    /* DROP C added a second form on this page that also posts `items`, so
+       old('items') alone is no longer enough to identify whose rows these are:
+       a rejected BATCH submit would otherwise repopulate this modal with the
+       batch's item rows. Both forms are hidden in that case so nothing is
+       visibly wrong, but an operator opening Distribute Relief afterwards would
+       find someone else's quantities already in it. Gated on the same _form
+       marker the failed flag above already uses. */
+    $distOldItems = (old('_form') === 'distribute' && old('items')) ? old('items') : [['relief_good_id' => '', 'quantity' => 1]];
+@endphp
+<div class="modal-backdrop" id="distributeModal" @unless($distFailed) hidden @endunless>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="distTitle">
         <div class="modal-head">
             <h2 id="distTitle">Distribute Relief</h2>
@@ -245,12 +363,42 @@
             <ul class="search-results" id="dist-results" hidden></ul>
         </div>
 
-        <form method="POST" action="{{ route('barangay.relief.distribute') }}" id="distributeForm" hidden>
+        <form method="POST" action="{{ route('barangay.relief.distribute') }}" id="distributeForm" @unless($distFailed) hidden @endunless>
             @csrf
-            <input type="hidden" name="household_id" id="dist-household-id">
+            <input type="hidden" name="_form" value="distribute">
+            <input type="hidden" name="household_id" id="dist-household-id" value="{{ old('household_id') }}">
+
+            {{-- The stock shortage and the not-checked-in refusal both land
+                 here, on the form, instead of on an error page. --}}
+            @if($distFailed)
+                <div class="alert alert-danger">
+                    <ul>
+                        @foreach($errors->all() as $message)
+                            <li>{{ $message }}</li>
+                        @endforeach
+                    </ul>
+                </div>
+            @endif
             <div class="ci-profile">
                 <p><strong id="dist-code"></strong> &middot; <span id="dist-head"></span></p>
                 <p class="kpi-note" id="dist-tags-note"></p>
+            </div>
+
+            {{-- DROP B2: family composition + fixed-rule notes.
+
+                 Filled by relief-composition.js from the household payload the
+                 modal has already fetched -- no extra request, and NO AI or
+                 model of any kind. The rules are a fixed table in that file, so
+                 the same family always produces the same notes and any line on
+                 screen can be traced to a line of code.
+
+                 Starts hidden because there is no household selected yet; it is
+                 revealed on selection, not on emptiness. --}}
+            <div class="card panel mb-3" id="dist-composition" hidden>
+                <h3 class="panel-title">Who you are issuing for</h3>
+                <ul class="kpi-note" data-composition-facts></ul>
+                <div class="kpi-note bg-info-bg text-info p-2" data-composition-notes></div>
+                <small class="field-hint">Notes are reminders generated from this family's own records. They are not instructions and do not reserve or deduct stock.</small>
             </div>
 
             <div id="dist-items">
@@ -260,16 +408,23 @@
                      reopening the modal and starting again. The button is disabled
                      while a single row remains, rather than hidden, so it does not
                      appear and disappear as rows are added. --}}
-                <div class="dist-item-row" data-item-row>
-                    <select name="items[0][relief_good_id]" required aria-label="Relief good">
-                        <option value="">Select item&hellip;</option>
-                        @foreach($goods as $g)
-                            <option value="{{ $g->id }}">{{ $g->name }} ({{ $g->unit }})</option>
-                        @endforeach
-                    </select>
-                    <input type="number" name="items[0][quantity]" min="1" value="1" required aria-label="Quantity">
-                    <button type="button" class="btn-link btn-link-danger" data-remove-item aria-label="Remove this item" disabled>&times; Remove</button>
-                </div>
+                {{-- DROP B2. Rendered from old() so a rejected submit brings
+                     every item row back. Normally this is exactly one empty
+                     row, which is what it was before. The Remove control is
+                     disabled while a single row remains, rather than hidden, so
+                     it does not appear and disappear as rows are added. --}}
+                @foreach($distOldItems as $i => $oldItem)
+                    <div class="dist-item-row" data-item-row>
+                        <select name="items[{{ $i }}][relief_good_id]" required aria-label="Relief good">
+                            <option value="">Select item&hellip;</option>
+                            @foreach($goods as $g)
+                                <option value="{{ $g->id }}" @selected(($oldItem['relief_good_id'] ?? '') == $g->id)>{{ $g->name }} ({{ $g->unit }})</option>
+                            @endforeach
+                        </select>
+                        <input type="number" name="items[{{ $i }}][quantity]" min="1" max="10000000" value="{{ $oldItem['quantity'] ?? 1 }}" required aria-label="Quantity">
+                        <button type="button" class="btn-link btn-link-danger" data-remove-item aria-label="Remove this item" @disabled(count($distOldItems) <= 1)>&times; Remove</button>
+                    </div>
+                @endforeach
             </div>
             <button type="button" class="btn-link" id="addItemBtn">+ Add another item</button>
 
@@ -281,11 +436,11 @@
                      nobody reads. Staff followed the label and their requests
                      went nowhere. Notes are notes; requests have a button. --}}
                 <label for="dist-remarks">Notes on this distribution <small>(optional &mdash; e.g. collected by a neighbour)</small></label>
-                <textarea id="dist-remarks" name="remarks" rows="2" maxlength="500"></textarea>
+                <textarea id="dist-remarks" name="remarks" rows="2" maxlength="500">{{ old('remarks') }}</textarea>
                 <small class="field-hint">
                     Need an item that is not in stock, like diapers or maintenance medicine?
                     <button type="button" class="btn-link" id="dist-special-link">Request a special item for this family</button>
-                    &mdash; a note here is not a request and does not reach the CDRRMO.
+                    &mdash; a note here is not a request and does not reach the CSWD Office.
                 </small>
             </div>
 
@@ -313,8 +468,203 @@
     </div>
 </template>
 
-{{-- ======== Receive Stock modal ======== --}}
-<div class="modal-backdrop" id="receiveModal" hidden>
+{{-- ======== DROP C: Batch Distribute modal ========
+
+     ONE PACK, MANY FAMILIES. The item rows at the top describe what every
+     ticked family receives; the checklist below chooses who. One submit writes
+     one ReliefTransaction per family per item, all sharing one batch_id, which
+     is what keeps each family credited in "Priority: Not Yet Received".
+
+     ID PREFIX IS `bd-`, NOT `dist-`. Element ids are load-bearing on this page:
+     it now carries five modals and two templates, and staff.js reaches into
+     both by id. Nothing here may collide with the Distribute modal's dist-*
+     ids or its [data-item-row] rows, hence the separate [data-batch-item-row]
+     marker -- the two Add-another-item handlers are scoped to their own
+     wrappers and must stay that way.
+
+     REOPENS ITSELF ON A REJECTED SUBMIT, the same convention Drop B2
+     established: its own `_form` value, its own failed flag, `hidden` emitted
+     only when this was not the form that failed. A batch is the most work an
+     operator can lose in one form on this screen -- ticking twenty-three
+     families and then being handed a bare error page would be the worst version
+     of the bug that convention exists to prevent. --}}
+@php
+    $batchFailed = $errors->any() && old('_form') === 'batch';
+
+    /* Gated on _form for the same reason $distOldItems is: both forms post
+       `items` and `remarks`, so old() alone cannot say which form they came
+       from. array_values() re-indexes because old() preserves the submitted
+       keys -- if the operator removed a middle row, old('items') comes back
+       sparse as 0 and 2, and staff.js advances its index counter by counting
+       rendered rows. Two rows counted, next index 2, and the new row would
+       silently overwrite the existing items[2]. Contiguous keys make the count
+       and the highest index the same number again. */
+    $batchOldItems = array_values(
+        ($batchFailed && old('items')) ? old('items') : [['relief_good_id' => '', 'quantity' => 1]]
+    );
+
+    /* Cast to int so the @checked comparison below can be strict. old() returns
+       every value as a string, and `in_array($h->id, ['7'], true)` is false. */
+    $batchOldHouseholds = $batchFailed ? array_map('intval', (array) old('households', [])) : [];
+@endphp
+<div class="modal-backdrop" id="batchModal" @unless($batchFailed) hidden @endunless>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="batchTitle">
+        <div class="modal-head">
+            <h2 id="batchTitle">Batch Distribute Relief</h2>
+            <button type="button" class="icon-btn" data-close-modal aria-label="Close">&times;</button>
+        </div>
+
+        {{-- Said before the form is filled in, not after it is refused. A
+             control that behaves differently from the one beside it has to
+             explain itself first. --}}
+        <p class="kpi-note bg-info-bg text-info p-2">
+            Every family you tick receives the <strong>same items</strong>, dated today.
+            If one family needs something different, close this and use Distribute Relief for them.
+        </p>
+
+        <form method="POST" action="{{ route('barangay.relief.batch-distribute') }}" id="batchForm">
+            @csrf
+            <input type="hidden" name="_form" value="batch">
+
+            @if($batchFailed)
+                <div class="alert alert-danger">
+                    <ul>
+                        @foreach($errors->all() as $message)
+                            <li>{{ $message }}</li>
+                        @endforeach
+                    </ul>
+                </div>
+            @endif
+
+            <p class="panel-title">What each family receives</p>
+            <div id="bd-items">
+                @foreach($batchOldItems as $i => $oldItem)
+                    <div class="dist-item-row" data-batch-item-row>
+                        <select name="items[{{ $i }}][relief_good_id]" required aria-label="Relief good">
+                            <option value="">Select item&hellip;</option>
+                            @foreach($goods as $g)
+                                <option value="{{ $g->id }}" @selected(($oldItem['relief_good_id'] ?? '') == $g->id)>{{ $g->name }} ({{ $g->unit }})</option>
+                            @endforeach
+                        </select>
+                        <input type="number" name="items[{{ $i }}][quantity]" min="1" max="10000000" value="{{ $oldItem['quantity'] ?? 1 }}" required aria-label="Quantity per family">
+                        {{-- Disabled rather than hidden while one row remains,
+                             and the disabled state is in the SERVER-RENDERED
+                             markup: delegation cannot observe a row being cloned
+                             into the DOM, so the correct default has to ship
+                             with the row. --}}
+                        <button type="button" class="btn-link btn-link-danger" data-batch-remove-item aria-label="Remove this item" @disabled(count($batchOldItems) <= 1)>&times; Remove</button>
+                    </div>
+                @endforeach
+            </div>
+            <button type="button" class="btn-link" id="bd-add-item">+ Add another item</button>
+
+            <div class="field">
+                <div class="flex flex-wrap items-baseline justify-between gap-2">
+                    <label id="bd-families-label">Families receiving this pack</label>
+                    {{-- SELECT-ALL SCOPE. There is no filter box in this modal,
+                         so "visible" and "eligible" are the same set and the
+                         count in the label is the whole truth. If a search box
+                         is ever added here, this label has to change with it --
+                         a select-all that silently means "some of them" is worse
+                         than no select-all. --}}
+                    <label class="flex min-h-[44px] items-center gap-2">
+                        <input type="checkbox" id="bd-select-all">
+                        <span>Select all {{ $batchHouseholds->count() }} {{ $batchHouseholds->count() === 1 ? 'family' : 'families' }}</span>
+                    </label>
+                </div>
+                <div class="checkbox-list max-h-64 overflow-y-auto" role="group" aria-labelledby="bd-families-label">
+                    @forelse($batchHouseholds as $h)
+                        <label class="flex min-h-[44px] flex-wrap items-center gap-2 px-2">
+                            <input type="checkbox" name="households[]" value="{{ $h->id }}" data-batch-household @checked(in_array($h->id, $batchOldHouseholds, true))>
+                            <span class="min-w-0 flex-1">{{ $h->headMember?->full_name ?? $h->household_code }}
+                                <small class="text-ink-muted">&middot; {{ $h->household_code }} &middot; {{ $h->members_present }} present</small>
+                            </span>
+                            {{-- Badged, not filtered. A family who received rice
+                                 yesterday is still standing in today's queue, so
+                                 they stay on the list; this only says who has
+                                 waited longest. --}}
+                            @if($h->is_priority)<span class="badge badge-warning">Not yet received</span>@endif
+                        </label>
+                    @empty
+                        <p class="empty-note">No family is checked in at this shelter yet, so there is nobody to distribute to.</p>
+                    @endforelse
+                </div>
+            </div>
+
+            {{-- TOTAL SUMMARY. Filled by staff.js from the controls above -- no
+                 request, no stored state, just multiplication the operator would
+                 otherwise do in their head while twenty-three families wait.
+                 It is what turns "only 40 on hand" into something they can see
+                 coming before they submit.
+
+                 Rendered always, with a written empty state, rather than hidden
+                 until it has something to say. A panel that appears and
+                 disappears reads as a glitch. --}}
+            <div class="card panel mb-3" id="bd-summary">
+                <h3 class="panel-title">Total to be given out</h3>
+                <ul class="kpi-note" data-batch-summary>
+                    <li>Tick at least one family and choose an item to see the total.</li>
+                </ul>
+                <small class="field-hint">Stock is checked against this total when you submit. If any item is short, nothing is given out and every shortage is listed at once.</small>
+            </div>
+
+            <div class="field">
+                <label for="bd-remarks">Notes on this batch <small>(optional &mdash; e.g. Typhoon relief pack, Day 3)</small></label>
+                <textarea id="bd-remarks" name="remarks" rows="2" maxlength="500">{{ $batchFailed ? old('remarks') : '' }}</textarea>
+                <small class="field-hint">The same note is saved against every family in this batch.</small>
+            </div>
+
+            <div class="modal-actions flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <button type="button" class="btn-secondary" data-close-modal>Cancel</button>
+                {{-- btn-primary stays last so it remains the Enter-key default.
+                     The confirmation dialog is built in staff.js rather than
+                     data-confirm, because its text names the actual items,
+                     quantities and family count -- a static string could not,
+                     and this is the largest irreversible write this screen
+                     performs. --}}
+                <button type="submit" class="btn-primary" id="bd-submit">Log Batch Distribution</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{{-- DROP C. Separate template from distItemTemplate: same row shape, different
+     input marker and a different remove hook, so the two modals' handlers can
+     never reach into each other's rows. __INDEX__ is substituted in staff.js. --}}
+<template id="bdItemTemplate">
+    <div class="dist-item-row" data-batch-item-row>
+        <select name="items[__INDEX__][relief_good_id]" required aria-label="Relief good">
+            <option value="">Select item&hellip;</option>
+            @foreach($goods as $g)
+                <option value="{{ $g->id }}">{{ $g->name }} ({{ $g->unit }})</option>
+            @endforeach
+        </select>
+        <input type="number" name="items[__INDEX__][quantity]" min="1" max="10000000" value="1" required aria-label="Quantity per family">
+        <button type="button" class="btn-link btn-link-danger" data-batch-remove-item aria-label="Remove this item">&times; Remove</button>
+    </div>
+</template>
+
+{{-- ======== Receive Stock modal ========
+
+     DROP B1. The single free-text "Source" field is gone. It asked one vague
+     question and got one vague answer, which is precisely why the client could
+     not report on where relief came from. Donor CATEGORY is a fixed list so it
+     can be counted; donor NAME is free text and optional, because a private
+     donor who does not want naming must not block the receipt.
+
+     REOPENS ITSELF ON A VALIDATION ERROR. `hidden` is emitted only when this
+     form was not the one that failed, so a rejected submit comes back with the
+     modal open, the operator's input still in the fields and the message
+     visible above. Done in Blade rather than JS: no ?open= deep link to strip,
+     no new bundle, and nothing listens for evactech:modal-open on this modal so
+     rendering it open is equivalent to opening it. --}}
+@php
+    // Built here rather than inline in the attribute: a php block is the
+    // documented home for anything with logic in it, and this decides whether
+    // an attribute is emitted at all.
+    $recvFailed = $errors->any() && old('_form') === 'receive';
+@endphp
+<div class="modal-backdrop" id="receiveModal" @unless($recvFailed) hidden @endunless>
     <div class="modal modal-narrow" role="dialog" aria-modal="true" aria-labelledby="recvTitle">
         <div class="modal-head">
             <h2 id="recvTitle">Receive Stock</h2>
@@ -323,23 +673,97 @@
         <p class="kpi-note">Goods that have physically arrived at this shelter. This adds them to inventory immediately.</p>
         <form method="POST" action="{{ route('barangay.relief.receive') }}">
             @csrf
+            {{-- Marks which form failed, so only that modal reopens. --}}
+            <input type="hidden" name="_form" value="receive">
+
             <div class="field">
                 <label for="recv-good">Relief good</label>
-                <select id="recv-good" name="relief_good_id" required>
+                <select id="recv-good" name="relief_good_id">
                     <option value="">Select item&hellip;</option>
                     @foreach($goods as $g)
-                        <option value="{{ $g->id }}">{{ $g->name }} ({{ $g->unit }})</option>
+                        <option value="{{ $g->id }}" @selected(old('relief_good_id') == $g->id)>{{ $g->name }} ({{ $g->unit }})</option>
                     @endforeach
                 </select>
+                @error('relief_good_id')<small class="field-hint text-danger">{{ $message }}</small>@enderror
             </div>
+
+            {{-- On-the-fly catalogue entry. Camp managers can do this by
+                 decision: a donor at the door with something not on the list
+                 must be recordable, or it gets filed under "Others" with the
+                 truth buried in the remarks -- which is the problem the fixed
+                 list was meant to solve.
+
+                 A <details> disclosure rather than a JS toggle: no bundle
+                 change, and it degrades to plain open markup with no script at
+                 all. Forced open when this form failed so a typed name is not
+                 hidden behind a closed panel with an error against it. --}}
+            <details class="mb-3" @if($recvFailed && old('new_good_name')) open @endif>
+                <summary class="btn-link cursor-pointer">Item not on the list? Add it here</summary>
+                <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-[2fr_1fr]">
+                    <div class="field">
+                        <label for="recv-new-name">New item name</label>
+                        <input type="text" id="recv-new-name" name="new_good_name" maxlength="100"
+                               value="{{ old('new_good_name') }}" placeholder="e.g. Sopas">
+                        @error('new_good_name')<small class="field-hint text-danger">{{ $message }}</small>@enderror
+                    </div>
+                    <div class="field">
+                        <label for="recv-new-unit">Unit</label>
+                        <input type="text" id="recv-new-unit" name="new_good_unit" maxlength="20"
+                               value="{{ old('new_good_unit') }}" placeholder="e.g. pot">
+                        @error('new_good_unit')<small class="field-hint text-danger">{{ $message }}</small>@enderror
+                    </div>
+                </div>
+                <small class="field-hint">
+                    The unit is part of what makes a stock line. Record different pack sizes as
+                    different items &mdash; "Rice 50kg" in sacks and "Rice 5kg" in bags &mdash; so one
+                    remaining sack is never mistaken for two bags. A name that already exists is reused.
+                </small>
+            </details>
+
             <div class="field">
                 <label for="recv-qty">Quantity</label>
-                <input type="number" id="recv-qty" name="quantity" min="1" required>
+                <input type="number" id="recv-qty" name="quantity" min="1" max="10000000" value="{{ old('quantity') }}" required>
+                <small class="field-hint">
+                    For Financial Assistance the quantity is the peso amount &mdash; one unit per peso.
+                    Cash is kept out of the unit counters at the top of this page.
+                </small>
+                @error('quantity')<small class="field-hint text-danger">{{ $message }}</small>@enderror
             </div>
+
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div class="field">
+                    <label for="recv-donor-type">Donor category</label>
+                    <select id="recv-donor-type" name="donor_type" required>
+                        <option value="">Select&hellip;</option>
+                        @foreach($donorTypes as $key => $label)
+                            <option value="{{ $key }}" @selected(old('donor_type') === $key)>{{ $label }}</option>
+                        @endforeach
+                    </select>
+                    @error('donor_type')<small class="field-hint text-danger">{{ $message }}</small>@enderror
+                </div>
+                <div class="field">
+                    <label for="recv-donor-name">Donor name <small>(optional)</small></label>
+                    <input type="text" id="recv-donor-name" name="donor_name" maxlength="255"
+                           value="{{ old('donor_name') }}" placeholder="e.g. Cabuyao Rotary Club">
+                    @error('donor_name')<small class="field-hint text-danger">{{ $message }}</small>@enderror
+                </div>
+            </div>
+
             <div class="field">
-                <label for="recv-source">Source <small>(optional - e.g. CDRRMO delivery, donation)</small></label>
-                <input type="text" id="recv-source" name="source" maxlength="255">
+                <label for="recv-value">Declared value <small>(PHP)</small></label>
+                <input type="number" id="recv-value" name="monetary_value" min="0" step="0.01"
+                       value="{{ old('monetary_value') }}" required>
+                <small class="field-hint">Enter 0 if the value is not known. Leave blank for Financial Assistance and the quantity is used.</small>
+                @error('monetary_value')<small class="field-hint text-danger">{{ $message }}</small>@enderror
             </div>
+
+            <div class="field">
+                <label for="recv-remarks">Remarks <small>(optional)</small></label>
+                <textarea id="recv-remarks" name="remarks" rows="2" maxlength="500">{{ old('remarks') }}</textarea>
+                <small class="field-hint">Use this to say what an "Others" item actually was, or anything about the condition it arrived in.</small>
+                @error('remarks')<small class="field-hint text-danger">{{ $message }}</small>@enderror
+            </div>
+
             <div class="modal-actions flex flex-col gap-2 sm:flex-row sm:justify-end">
                 <button type="button" class="btn-secondary" data-close-modal>Cancel</button>
                 <button type="submit" class="btn-primary">Add to Inventory</button>
@@ -358,7 +782,7 @@
         {{-- Says plainly what approval does, because unlike the special-item
              request this one moves real stock on approval. --}}
         <p class="kpi-note">
-            Asks the CDRRMO to send more of a standard relief item to this shelter.
+            Asks the CSWD Office to send more of a standard relief item to this shelter.
             If it is approved the quantity is added to your inventory automatically &mdash;
             you do not need to record it again under Receive Stock.
         </p>
@@ -400,7 +824,7 @@
              never appear in the numbers. --}}
         <p class="kpi-note">
             For something a specific family needs that is not standard stock &mdash; newborn diapers,
-            maintenance medicine, a wheelchair. The CDRRMO reviews each one.
+            maintenance medicine, a wheelchair. The CSWD Office reviews each one.
             Approved items are sourced outside EvacTech, so they will not show up in your inventory.
         </p>
 

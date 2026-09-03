@@ -27,13 +27,33 @@ class ReportController extends Controller
         $data = $request->validate([
             'report_type' => ['required', 'in:' . implode(',', self::TYPES)],
             'format' => ['required', 'in:pdf,xlsx'],
+            // DROP D. Preview is a second SUBMIT BUTTON, not a third format --
+            // see Controller::pdfResponse(). This controller has no member-level
+            // report types, so it gains the preview control and nothing else:
+            // the Household Head and contact columns are Barangay and CityAdmin
+            // only.
+            'action' => ['nullable', 'in:preview'],
             'date_from' => ['nullable', 'date'],
             'date_to' => ['nullable', 'date', 'after_or_equal:date_from'],
         ]);
 
+        $preview = ($data['action'] ?? null) === 'preview';
+
+        // A spreadsheet cannot be rendered inline by a browser. Refuse the
+        // combination out loud instead of quietly downloading.
+        if ($preview && $data['format'] === 'xlsx') {
+            return back()->withInput()->withErrors([
+                'format' => 'Excel files cannot be previewed. Choose PDF to preview, or press Generate to download the spreadsheet.',
+            ]);
+        }
+
         [$headings, $rows, $title] = $this->buildDataset($data['report_type'], $data['date_from'] ?? null, $data['date_to'] ?? null);
 
-        AuditLogger::log('created', null, "Generated system report: {$title} ({$data['format']})");
+        // DROP D. A preview IS logged, the same as a download. These reports
+        // list user accounts and login activity; a read that leaves no trace is
+        // the wrong default on this screen in particular.
+        $verb = $preview ? 'Previewed' : 'Generated';
+        AuditLogger::log('created', null, "{$verb} system report: {$title} ({$data['format']})");
 
         $filename = str_replace(' ', '_', strtolower($title)) . '_' . now()->format('Ymd_His');
 
@@ -52,7 +72,7 @@ class ReportController extends Controller
             'generatedBy' => auth()->user()->name,
         ])->setPaper('a4', 'landscape');
 
-        return $pdf->download($filename . '.pdf');
+        return $this->pdfResponse($pdf, $filename . '.pdf', $preview);
     }
 
     /** @return array{0: string[], 1: array[], 2: string} */

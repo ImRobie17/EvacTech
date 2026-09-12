@@ -48,17 +48,19 @@
 }
 
 /* =========================================================================
-   Dark mode
-   Toggled by adding data-theme="dark" to <html>. Persisted in a `theme`
+   Multi-theme system
+   Toggled by adding data-theme="color-mode" to <html>. Persisted in a `theme`
    cookie that is excluded from encryptCookies in bootstrap/app.php and set by
-   staff.js. Do NOT switch this to a class strategy or to prefers-color-scheme.
+   theme.js. Format: data-theme="teal-light", "pink-dark", "green-light", etc.
 
    Because Tailwind compiles `bg-surface` to `background-color:
    var(--color-surface)`, redefining the variables here re-themes every colour
    utility in the app at once. That is why almost no `dark:` variants are
    needed anywhere in the markup.
    ========================================================================= */
-[data-theme='dark'] {
+
+/* ---- Dark mode base (shared across all color themes) ---- */
+[data-theme$='-dark'] {
     color-scheme: dark;
 
     --color-bg: #0b1220;
@@ -70,7 +72,66 @@
     --color-ink-soft: #94a3b8;
     --color-ink-muted: #7c8ba6;
 
-    /* The brand ramp inverts: lighter values carry the contrast on a dark bg. */
+    --color-success: #4ade80;
+    --color-success-bg: #052e1a;
+    --color-warning: #fbbf24;
+    --color-warning-bg: #3a2405;
+    --color-danger: #f87171;
+    --color-danger-bg: #3a0a0a;
+
+    --color-over: #f9fafb;
+    --color-over-contrast: #111827;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45);
+    --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.55);
+}
+
+/* ---- Light mode base (shared across all color themes) ---- */
+[data-theme$='-light'] {
+    color-scheme: light;
+
+    --color-bg: #ffffff;
+    --color-surface: #f1f5f9;
+    --color-surface-alt: #e2e8f0;
+    --color-border: #cbd5e1;
+
+    --color-ink: #0f172a;
+    --color-ink-soft: #475569;
+    --color-ink-muted: #64748b;
+
+    --color-success: #15803d;
+    --color-success-bg: #f0fdf4;
+    --color-warning: #b45309;
+    --color-warning-bg: #fffbeb;
+    --color-danger: #b91c1c;
+    --color-danger-bg: #fef2f2;
+
+    --color-over: #111827;
+    --color-over-contrast: #f9fafb;
+
+    --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+    --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.1);
+    --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.14);
+}
+
+/* ---- TEAL THEME (default) ---- */
+[data-theme='teal-light'] {
+    --color-primary-50: #ecfeff;
+    --color-primary-100: #cffafe;
+    --color-primary-400: #22d3ee;
+    --color-primary-600: #0891b2;
+    --color-primary-700: #0e7490;
+    --color-primary-800: #155e75;
+    --color-primary-900: #164e63;
+    --color-primary: #0e7490;
+    --color-primary-hover: #155e75;
+    --color-primary-contrast: #ffffff;
+    --color-info: #0e7490;
+    --color-info-bg: #ecfeff;
+}
+
+[data-theme='teal-dark'] {
     --color-primary-50: #083344;
     --color-primary-100: #0e4a5c;
     --color-primary-400: #22d3ee;
@@ -81,23 +142,238 @@
     --color-primary: #38bdf8;
     --color-primary-hover: #67e8f9;
     --color-primary-contrast: #0b1220;
-
-    --color-success: #4ade80;
-    --color-success-bg: #052e1a;
-    --color-warning: #fbbf24;
-    --color-warning-bg: #3a2405;
-    --color-danger: #f87171;
-    --color-danger-bg: #3a0a0a;
     --color-info: #38bdf8;
     --color-info-bg: #0c2230;
+}
 
-    /* Overcapacity inverts so it stays the highest-contrast badge on the page. */
-    --color-over: #f9fafb;
-    --color-over-contrast: #111827;
+/* ---- PINK THEME ---- */
+[data-theme='pink-light'] {
+    --color-primary-50: #fdf2f8;
+    --color-primary-100: #fce7f3;
+    --color-primary-400: #f472b6;
+    --color-primary-600: #db2777;
+    --color-primary-700: #be185d;
+    --color-primary-800: #9d174d;
+    --color-primary-900: #831843;
+    --color-primary: #be185d;
+    --color-primary-hover: #9d174d;
+    --color-primary-contrast: #ffffff;
+    --color-info: #be185d;
+    --color-info-bg: #fdf2f8;
+}
 
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45);
-    --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.55);
+[data-theme='pink-dark'] {
+    --color-primary-50: #500724;
+    --color-primary-100: #831843;
+    --color-primary-400: #f472b6;
+    --color-primary-600: #f472b6;
+    --color-primary-700: #fb7185;
+    --color-primary-800: #fda4af;
+    --color-primary-900: #fecdd3;
+    --color-primary: #fb7185;
+    --color-primary-hover: #fda4af;
+    --color-primary-contrast: #0b1220;
+    --color-info: #fb7185;
+    --color-info-bg: #500724;
+}
+
+/* ---- GREEN THEME ---- */
+[data-theme='green-light'] {
+    --color-primary-50: #f0fdf4;
+    --color-primary-100: #dcfce7;
+    --color-primary-400: #4ade80;
+    --color-primary-600: #16a34a;
+    --color-primary-700: #15803d;
+    --color-primary-800: #166534;
+    --color-primary-900: #14532d;
+    --color-primary: #15803d;
+    --color-primary-hover: #166534;
+    --color-primary-contrast: #ffffff;
+    --color-info: #15803d;
+    --color-info-bg: #f0fdf4;
+}
+
+[data-theme='green-dark'] {
+    --color-primary-50: #052e16;
+    --color-primary-100: #14532d;
+    --color-primary-400: #4ade80;
+    --color-primary-600: #4ade80;
+    --color-primary-700: #86efac;
+    --color-primary-800: #bbf7d0;
+    --color-primary-900: #dcfce7;
+    --color-primary: #86efac;
+    --color-primary-hover: #bbf7d0;
+    --color-primary-contrast: #0b1220;
+    --color-info: #86efac;
+    --color-info-bg: #052e16;
+}
+
+/* ---- BLUE THEME ---- */
+[data-theme='blue-light'] {
+    --color-primary-50: #eff6ff;
+    --color-primary-100: #dbeafe;
+    --color-primary-400: #60a5fa;
+    --color-primary-600: #2563eb;
+    --color-primary-700: #1d4ed8;
+    --color-primary-800: #1e40af;
+    --color-primary-900: #1e3a8a;
+    --color-primary: #1d4ed8;
+    --color-primary-hover: #1e40af;
+    --color-primary-contrast: #ffffff;
+    --color-info: #1d4ed8;
+    --color-info-bg: #eff6ff;
+}
+
+[data-theme='blue-dark'] {
+    --color-primary-50: #172554;
+    --color-primary-100: #1e3a8a;
+    --color-primary-400: #60a5fa;
+    --color-primary-600: #60a5fa;
+    --color-primary-700: #93c5fd;
+    --color-primary-800: #bfdbfe;
+    --color-primary-900: #dbeafe;
+    --color-primary: #93c5fd;
+    --color-primary-hover: #bfdbfe;
+    --color-primary-contrast: #0b1220;
+    --color-info: #93c5fd;
+    --color-info-bg: #172554;
+}
+
+/* ---- PURPLE THEME ---- */
+[data-theme='purple-light'] {
+    --color-primary-50: #faf5ff;
+    --color-primary-100: #f3e8ff;
+    --color-primary-400: #c084fc;
+    --color-primary-600: #9333ea;
+    --color-primary-700: #7c3aed;
+    --color-primary-800: #6b21a8;
+    --color-primary-900: #581c87;
+    --color-primary: #7c3aed;
+    --color-primary-hover: #6b21a8;
+    --color-primary-contrast: #ffffff;
+    --color-info: #7c3aed;
+    --color-info-bg: #faf5ff;
+}
+
+[data-theme='purple-dark'] {
+    --color-primary-50: #3b0764;
+    --color-primary-100: #581c87;
+    --color-primary-400: #c084fc;
+    --color-primary-600: #c084fc;
+    --color-primary-700: #d8b4fe;
+    --color-primary-800: #e9d5ff;
+    --color-primary-900: #f3e8ff;
+    --color-primary: #d8b4fe;
+    --color-primary-hover: #e9d5ff;
+    --color-primary-contrast: #0b1220;
+    --color-info: #d8b4fe;
+    --color-info-bg: #3b0764;
+}
+
+/* ---- ORANGE THEME ---- */
+[data-theme='orange-light'] {
+    --color-primary-50: #fff7ed;
+    --color-primary-100: #ffedd5;
+    --color-primary-400: #fb923c;
+    --color-primary-600: #ea580c;
+    --color-primary-700: #c2410c;
+    --color-primary-800: #9a3412;
+    --color-primary-900: #7c2d12;
+    --color-primary: #c2410c;
+    --color-primary-hover: #9a3412;
+    --color-primary-contrast: #ffffff;
+    --color-info: #c2410c;
+    --color-info-bg: #fff7ed;
+}
+
+[data-theme='orange-dark'] {
+    --color-primary-50: #431407;
+    --color-primary-100: #7c2d12;
+    --color-primary-400: #fb923c;
+    --color-primary-600: #fb923c;
+    --color-primary-700: #fdba74;
+    --color-primary-800: #fed7aa;
+    --color-primary-900: #ffedd5;
+    --color-primary: #fdba74;
+    --color-primary-hover: #fed7aa;
+    --color-primary-contrast: #0b1220;
+    --color-info: #fdba74;
+    --color-info-bg: #431407;
+}
+
+/* ---- HIGH CONTRAST THEME (accessibility for visual impairment) ---- */
+[data-theme='high-contrast-light'] {
+    --color-bg: #ffffff;
+    --color-surface: #ffffff;
+    --color-surface-alt: #e5e5eE5;
+    --color-border: #000000;
+    --color-ink: #000000;
+    --color-ink-soft: #000000;
+    --color-ink-muted: #333333;
+
+    --color-primary-50: #000000;
+    --color-primary-100: #000000;
+    --color-primary-400: #000000;
+    --color-primary-600: #000000;
+    --color-primary-700: #000000;
+    --color-primary-800: #000000;
+    --color-primary-900: #000000;
+    --color-primary: #000000;
+    --color-primary-hover: #333333;
+    --color-primary-contrast: #ffffff;
+    --color-info: #000000;
+    --color-info-bg: #ffffff;
+
+    --color-success: #000000;
+    --color-success-bg: #ffffff;
+    --color-warning: #000000;
+    --color-warning-bg: #ffffff;
+    --color-danger: #000000;
+    --color-danger-bg: #ffffff;
+
+    --color-over: #ffffff;
+    --color-over-contrast: #000000;
+
+    --shadow-sm: none;
+    --shadow-md: none;
+    --shadow-lg: none;
+}
+
+[data-theme='high-contrast-dark'] {
+    --color-bg: #000000;
+    --color-surface: #000000;
+    --color-surface-alt: #1a1a1a;
+    --color-border: #ffffff;
+    --color-ink: #ffffff;
+    --color-ink-soft: #ffffff;
+    --color-ink-muted: #cccccc;
+
+    --color-primary-50: #ffffff;
+    --color-primary-100: #ffffff;
+    --color-primary-400: #ffffff;
+    --color-primary-600: #ffffff;
+    --color-primary-700: #ffffff;
+    --color-primary-800: #ffffff;
+    --color-primary-900: #ffffff;
+    --color-primary: #ffffff;
+    --color-primary-hover: #cccccc;
+    --color-primary-contrast: #000000;
+    --color-info: #ffffff;
+    --color-info-bg: #000000;
+
+    --color-success: #ffffff;
+    --color-success-bg: #000000;
+    --color-warning: #ffffff;
+    --color-warning-bg: #000000;
+    --color-danger: #ffffff;
+    --color-danger-bg: #000000;
+
+    --color-over: #000000;
+    --color-over-contrast: #ffffff;
+
+    --shadow-sm: none;
+    --shadow-md: none;
+    --shadow-lg: none;
 }
 
 /* =========================================================================

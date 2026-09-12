@@ -7,7 +7,7 @@
     looking for a relative during a flood should not have to discover a
     hamburger first. The row simply scrolls sideways if it ever overflows.
 --}}
-<html lang="en" data-theme="{{ request()->cookie('theme', 'light') }}">
+<html lang="en" data-theme="{{ request()->cookie('theme', 'teal-light') }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">

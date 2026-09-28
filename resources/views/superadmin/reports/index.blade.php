@@ -22,7 +22,7 @@
                 <option value="login_activity">Login Activity</option>
             </select>
         </div>
-        <div class="member-grid">
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div class="field"><label for="rep-from">Date from <small>(optional)</small></label><input type="date" id="rep-from" name="date_from" max="{{ now()->toDateString() }}"></div>
             <div class="field"><label for="rep-to">Date to <small>(optional)</small></label><input type="date" id="rep-to" name="date_to" max="{{ now()->toDateString() }}"></div>
         </div>

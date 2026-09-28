@@ -103,7 +103,7 @@ function buildConfig(type, payload) {
                     position: isCircular ? 'bottom' : 'top',
                     labels: { color: ink, boxWidth: 14, padding: 12 },
                 },
-                tooltip: { bodyColor: ink, titleColor: ink },
+                tooltip: { bodyColor: token('--color-bg', '#ffffff'), titleColor: token('--color-bg', '#ffffff') },
             },
             scales: isCircular ? {} : {
                 x: { ticks: { color: ink }, grid: { color: grid, drawOnChartArea: false } },

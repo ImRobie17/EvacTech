@@ -5,17 +5,13 @@
 @section('page-subtitle', 'Overview of evacuation operations and shelter status.')
 
 @php
-    // Opts this page into the bundled Chart.js entry (roadmap item 3). The cdnjs
-    // <script> tag is gone. Read by the single @vite() call in layouts/staff.
     $viteEntries = ['resources/js/charts.js'];
 
     $pct = $kpis['capacity_pct'];
     $capClass = $pct === null ? '' : ($pct > 100 ? 'cap-over' : ($pct >= 90 ? 'cap-full' : ($pct >= 70 ? 'cap-warn' : 'cap-ok')));
     $capLabel = $pct === null ? 'No capacity set' : ($pct > 100 ? 'Overcapacity' : ($pct >= 90 ? 'Full' : ($pct >= 70 ? 'Nearing capacity' : 'Space available')));
 
-    // Chart payload for resources/js/charts.js. Built here in a @php block, not
-    // inline in a @json expression: the gotcha list is explicit that @json with
-    // => arrows or across lines fails to parse.
+    
     $chartPayload = [
         'labels' => $chart['labels'],
         'datasets' => [[
@@ -26,18 +22,7 @@
     ];
     $chartJson = json_encode($chartPayload, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
 
-    // ---- PHASE 3 ITEM 9: age-group and vulnerable-category charts ----
-    // Same rule as above: arrays are built here, never inline in a Blade json
-    // directive containing arrows or spanning several lines.
-    //
-    // AGE: a doughnut is legitimate here because the seven tiers are mutually
-    // exclusive and sum to the headcount, so parts-of-a-whole is a true claim.
-    // The Unknown bucket is charted only when it holds someone -- registration
-    // has required a birthdate or an age group since Phase 2, so a populated
-    // Unknown can only come from an older row, and an empty slice would be
-    // noise on every dashboard in the city.
-    // $ageRows is prepared by the controller via AgeTier::chartRows(): short
-    // labels, and the Unknown bucket already dropped when it holds nobody.
+    
     $agePayload = [
         'labels' => array_column($ageRows, 'label'),
         'datasets' => [[
@@ -46,11 +31,6 @@
         ]],
     ];
 
-    // CATEGORIES: a BAR, never a pie. These categories overlap -- one person can
-    // be a pregnant solo parent on 4Ps -- so a pie would assert a whole that
-    // does not exist. IdpForm refuses to print a column total for the same
-    // reason. Rows come from IdpForm so the chart and the signed CSWDO form are
-    // the same figures by construction.
     $categoryPayload = [
         'labels' => array_column($categoryRows, 'label'),
         'datasets' => [[
@@ -65,14 +45,7 @@
 @endphp
 
 @section('page-actions')
-    {{-- This used to read "Live Updates Active" beside a pulsing green dot.
-         Nothing on this page polls -- there is no setInterval, no EventSource,
-         no websocket anywhere in the codebase -- so the badge was telling staff
-         that an occupancy figure refreshes itself when it does not. During a
-         flood that is the kind of reassurance that gets acted on.
-
-         It now reports what the browser actually knows: whether there is a
-         connection, and when this page was loaded. Wired in staff.js. --}}
+    
     <span class="sync-pill" id="connectivityPill" data-conn="online"
           data-rendered-at="{{ now()->format('g:i A') }}"
           role="status" aria-live="polite"
@@ -89,9 +62,6 @@
     </div>
 @endunless
 
-{{-- Five KPI cards. One column on a phone, two from 640px, then three and five.
-     Five across only above 1280px: below that a fifth column squeezes the
-     numbers, and these are the figures the whole screen exists to show. --}}
 <section class="mb-4 grid grid-cols-1 items-stretch gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5" aria-label="Key metrics">
     <article class="card kpi-card">
         <div class="kpi-head">

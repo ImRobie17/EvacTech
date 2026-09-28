@@ -37,7 +37,7 @@
         {{-- An entity cannot go inside {{ }}: Blade's e() double-encodes it and
              "&mdash;" would render as literal text. The branch keeps the entity
              in raw HTML, where the parser decodes it. --}}
-        <p class="kpi-value" data-numeric>@if($system['db_size'] !== null){{ $system['db_size'] }} MB@else&mdash;@endif</p>
+        <p class="kpi-value" data-numeric>@if($system['db_size'] !== null) {{ $system['db_size'] }} MB @else &mdash; @endif</p>
         <p class="kpi-note">Last backup: {{ $system['last_backup']?->diffForHumans() ?? 'never' }}</p>
     </article>
 </section>

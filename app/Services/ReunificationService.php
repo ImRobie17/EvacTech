@@ -63,7 +63,7 @@ class ReunificationService
             ->where('evacuation_center_id', $center->id)
             ->where('status', 'checked_in')
             ->where('is_separated', true)
-            ->with('members')
+            ->with(['members', 'headMember', 'actingHeadMember'])
             ->orderBy('household_code')
             ->get();
     }
@@ -83,7 +83,7 @@ class ReunificationService
             ->where('status', 'checked_in')
             ->where('id', '!=', $fragment->id)
             ->where('is_separated', false)
-            ->with('members')
+            ->with(['members', 'headMember', 'actingHeadMember'])
             ->orderBy('household_code')
             ->get();
     }

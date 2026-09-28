@@ -824,15 +824,6 @@
 @endpush
 
 @php
-    // PHASE 7 ITEM 7 (XSS sweep). Relief good names are operator-entered and
-    // were being encoded inline with no flags. Same reasoning as the
-    // TransferConfig block further down: the default slash escaping already
-    // kept an end-script sequence from closing the block, and the HEX flags
-    // make that explicit instead of incidental.
-    //
-    // Moved out of the script tag for a second reason: the expression used an
-    // arrow fn with => inside an array literal, on one very long line, which is
-    // exactly the shape that has to live in a @php block in this codebase.
     $goodsOptionsJson = json_encode(
         ($goods ?? collect())
             ->map(fn ($g) => ['id' => $g->id, 'label' => $g->name . ' (' . $g->unit . ')'])
@@ -843,11 +834,7 @@
 
 @push('scripts')
 <script>
-    /* PHASE 6 ITEM 10. The read-only viewer's URL. Points at the same
-       per-shelter household endpoint CityShelterConfig.householdUrlTemplate
-       uses -- one endpoint, now carrying the four extra fields the viewer
-       needs. Kept as its own object so staff.js does not have to know anything
-       about City Admin's config shape. */
+    
     window.HouseholdViewConfig = {
         showUrlTemplate: "{{ route('city.shelters.households.show', [$center, ':id']) }}",
     };
@@ -871,35 +858,12 @@
 @endpush
 
 @php
-    // PHASE 7 ITEM 7 (XSS sweep). Built in a @php block with the HEX flags
-    // rather than json_encode() inline, matching the documented pattern used
-    // elsewhere in this file.
-    //
-    // What this actually changes: json_encode() already escapes a forward
-    // slash by default, so an operator-entered shelter name containing an
-    // end-script sequence was emitted with the slash escaped and never closed
-    // the block. The output was safe. It was safe BY DEFAULT, though, and one
-    // JSON_UNESCAPED_SLASHES added later for readability would have removed
-    // that protection silently. JSON_HEX_TAG escapes the angle brackets
-    // themselves, which makes the safety explicit and independent of any other
-    // flag.
-    //
-    // The array is built by the controller, so there are no => arrows here --
-    // @json with arrows or across lines fails to parse.
+    
     $txConfigJson = json_encode($txConfig, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
 @endphp
 
 @push('scripts')
 <script>
-    // Raw echo, not the escaped one. Blade's escaped echo runs the value through
-    // e(), which turns every double quote in the JSON into an HTML entity. A
-    // browser does not decode entities inside a script tag, so the assignment
-    // threw a SyntaxError and window.TransferConfig was never set. JSON headed
-    // for a script block always needs the raw echo.
-    //
-    // And note there is no Blade echo syntax anywhere in this comment: a JS
-    // comment is still Blade source, so braces here would be compiled and would
-    // break the whole file. Same trap as naming a Blade directive in a comment.
     window.TransferConfig = {!! $txConfigJson !!};
 </script>
 @endpush

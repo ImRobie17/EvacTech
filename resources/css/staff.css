@@ -835,7 +835,8 @@ select:focus {
         padding: var(--space-6);
     }
 
-    .data-table tr:hover td {
+    /* Matrix cells encode stock level with their own fill; never wash them out on row hover. */
+    .data-table tr:hover td:not(.matrix-cell) {
         background: var(--color-surface);
     }
 }
@@ -1004,7 +1005,7 @@ select:focus {
 
 .btn-danger {
     background: var(--color-danger);
-    color: var(--color-white);
+    color: var(--color-status-contrast);
 }
 
 .btn-danger:hover {

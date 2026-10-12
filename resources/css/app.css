@@ -90,6 +90,9 @@
     --color-primary-hover: #0891b2;
     --color-primary-contrast: #ffffff;
 
+    /* Text on solid semantic fills (green/amber/red); not the same as body ink. */
+    --color-status-contrast: #ffffff;
+
     /* Semantic status */
     --color-success: #15803d;
     --color-success-bg: #f0fdf4;

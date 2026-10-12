@@ -415,10 +415,12 @@
                      it does not appear and disappear as rows are added. --}}
                 @foreach($distOldItems as $i => $oldItem)
                     <div class="dist-item-row" data-item-row>
-                        <select name="items[{{ $i }}][relief_good_id]" required aria-label="Relief good">
+                        <select name="items[{{ $i }}][relief_good_id]" required aria-label="Relief good" onchange="enforceMaxQuantity(this)">
                             <option value="">Select item&hellip;</option>
-                            @foreach($goods as $g)
-                                <option value="{{ $g->id }}" @selected(($oldItem['relief_good_id'] ?? '') == $g->id)>{{ $g->name }} ({{ $g->unit }})</option>
+                            @foreach($inventory->where('quantity_on_hand', '>', 0) as $inv)
+                            <option value="{{ $inv->relief_good_id }}" data-max="{{ $inv->quantity_on_hand }}" @selected(($oldItem['relief_good_id'] ?? '') == $inv->relief_good_id)>
+                                {{ $inv->reliefGood->name }} ({{ $inv->quantity_on_hand }} {{ $inv->reliefGood->unit }} left)
+                            </option>
                             @endforeach
                         </select>
                         <input type="number" name="items[{{ $i }}][quantity]" min="1" max="10000000" value="{{ $oldItem['quantity'] ?? 1 }}" required aria-label="Quantity">
@@ -457,10 +459,12 @@
      Remove button impossible. __INDEX__ is substituted in staff.js. --}}
 <template id="distItemTemplate">
     <div class="dist-item-row" data-item-row>
-        <select name="items[__INDEX__][relief_good_id]" required aria-label="Relief good">
+        <select name="items[__INDEX__][relief_good_id]" required aria-label="Relief good" onchange="enforceMaxQuantity(this)">
             <option value="">Select item&hellip;</option>
-            @foreach($goods as $g)
-                <option value="{{ $g->id }}">{{ $g->name }} ({{ $g->unit }})</option>
+            @foreach($inventory->where('quantity_on_hand', '>', 0) as $inv)
+                <option value="{{ $inv->relief_good_id }}" data-max="{{ $inv->quantity_on_hand }}">
+                    {{ $inv->reliefGood->name }} ({{ $inv->quantity_on_hand }} {{ $inv->reliefGood->unit }} left)
+                </option>
             @endforeach
         </select>
         <input type="number" name="items[__INDEX__][quantity]" min="1" value="1" required aria-label="Quantity">
@@ -540,10 +544,12 @@
             <div id="bd-items">
                 @foreach($batchOldItems as $i => $oldItem)
                     <div class="dist-item-row" data-batch-item-row>
-                        <select name="items[{{ $i }}][relief_good_id]" required aria-label="Relief good">
+                        <select name="items[{{ $i }}][relief_good_id]" required aria-label="Relief good" onchange="enforceMaxQuantity(this)">
                             <option value="">Select item&hellip;</option>
-                            @foreach($goods as $g)
-                                <option value="{{ $g->id }}" @selected(($oldItem['relief_good_id'] ?? '') == $g->id)>{{ $g->name }} ({{ $g->unit }})</option>
+                            @foreach($inventory->where('quantity_on_hand', '>', 0) as $inv)
+                                <option value="{{ $inv->relief_good_id }}" data-max="{{ $inv->quantity_on_hand }}" @selected(($oldItem['relief_good_id'] ?? '') == $inv->relief_good_id)>
+                                    {{ $inv->reliefGood->name }} ({{ $inv->quantity_on_hand }} {{ $inv->reliefGood->unit }} left)
+                                </option>
                             @endforeach
                         </select>
                         <input type="number" name="items[{{ $i }}][quantity]" min="1" max="10000000" value="{{ $oldItem['quantity'] ?? 1 }}" required aria-label="Quantity per family">
@@ -633,10 +639,12 @@
      never reach into each other's rows. __INDEX__ is substituted in staff.js. --}}
 <template id="bdItemTemplate">
     <div class="dist-item-row" data-batch-item-row>
-        <select name="items[__INDEX__][relief_good_id]" required aria-label="Relief good">
+        <select name="items[__INDEX__][relief_good_id]" required aria-label="Relief good" onchange="enforceMaxQuantity(this)">
             <option value="">Select item&hellip;</option>
-            @foreach($goods as $g)
-                <option value="{{ $g->id }}">{{ $g->name }} ({{ $g->unit }})</option>
+            @foreach($inventory->where('quantity_on_hand', '>', 0) as $inv)
+                <option value="{{ $inv->relief_good_id }}" data-max="{{ $inv->quantity_on_hand }}">
+                    {{ $inv->reliefGood->name }} ({{ $inv->quantity_on_hand }} {{ $inv->reliefGood->unit }} left)
+                </option>
             @endforeach
         </select>
         <input type="number" name="items[__INDEX__][quantity]" min="1" max="10000000" value="1" required aria-label="Quantity per family">
@@ -893,5 +901,7 @@
         goods: {!! $goodsJson !!},
         autoOpen: {{ request('open') === 'distribute' ? 'true' : 'false' }},
     };
+
+    
 </script>
 @endpush

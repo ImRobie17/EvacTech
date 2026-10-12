@@ -170,3 +170,32 @@ export function renderComposition(container, data) {
 
     container.hidden = false;
 }
+
+window.enforceMaxQuantity = function(selectElement) {
+    // 1. Get the selected option
+    const selectedOption = selectElement.options[selectElement.selectedIndex];
+    
+    // 2. Find the wrapper row and the quantity input
+    // Your Blade file uses 'dist-item-row' for both modals
+    const row = selectElement.closest('.dist-item-row');
+    if (!row) return;
+
+    const quantityInput = row.querySelector('input[type="number"]');
+    if (!quantityInput) return;
+
+    // 3. Check if a valid item with stock was selected
+    if (selectedOption && selectedOption.hasAttribute('data-max')) {
+        const maxStock = parseInt(selectedOption.getAttribute('data-max'), 10);
+        
+        // Apply the max limit to the HTML input
+        quantityInput.max = maxStock;
+        
+        // Automatically lower the value if the user already typed a number that is too high
+        if (parseInt(quantityInput.value, 10) > maxStock) {
+            quantityInput.value = maxStock;
+        }
+    } else {
+        // Remove the limit if they switch back to the "Select item..." placeholder
+        quantityInput.removeAttribute('max');
+    }
+};

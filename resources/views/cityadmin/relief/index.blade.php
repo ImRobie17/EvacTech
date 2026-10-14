@@ -5,6 +5,12 @@
 @section('page-subtitle', 'City-wide relief stock status and approval of special requests.')
 
 @section('content')
+@if($errors->any())
+    <div class="alert alert-danger" role="alert">
+        <strong>Could not review the relief request.</strong>
+        <ul class="list-disc pl-5">@foreach($errors->all() as $message)<li>{{ $message }}</li>@endforeach</ul>
+    </div>
+@endif
 <div class="card panel table-panel">
     <h2 class="panel-title">Relief Stock by Shelter</h2>
     <table class="data-table" data-stack>
@@ -51,35 +57,45 @@
                 @forelse($restockRequests as $r)
                     <tr>
                         <td data-label="Shelter">{{ $r->evacuationCenter?->name }}</td>
-                        <td data-label="Item" data-fit>{{ $r->reliefGood?->name }}</td>
+                        <td data-label="Item" data-fit>{{ $r->custom_good_name ?? $r->reliefGood?->name ?? 'Unknown item' }}
+                            @if($r->custom_description)<br><small class="text-ink-muted">{{ $r->custom_description }}</small>@endif
+                            @if($r->request_group_id)<br><small class="text-ink-muted">Batch {{ substr($r->request_group_id, 0, 8) }}</small>@endif</td>
                         <td data-label="Qty" data-numeric>{{ $r->requested_quantity }}</td>
                         <td data-label="Requested By">{{ $r->requestedBy?->name ?? '-' }}</td>
-                        {{-- Approving a restock auto-increments inventory and
-                             writes an allocated_in transaction: the loop closes
-                             inside the system.
-
-                             DROP B1. Approval now optionally records a DONOR.
-                             A donation does not always reach a shelter
-                             directly -- it often arrives at the CSWD Office
-                             first and is allocated onward -- and capturing the
-                             donor only on the direct receive path lost every
-                             one of those from the value totals.
-
-                             Left blank, this row is exactly what it always was:
-                             city stock, no donor, no value, contributing
-                             nothing to any total.
-
-                             NOTE the cell does NOT use .actions-cell. That class
-                             sets `display: inline-flex` on every direct child,
-                             which collapses a <details> disclosure into one line
-                             with its own summary. Plain flex utilities instead,
-                             per the Tailwind-only styling rule. --}}
+                        {{-- Approval records a decision and optionally resolves a custom
+                             catalogue item. Only the shelter can confirm delivery. --}}
                         <td class="flex flex-col items-stretch gap-2" data-label="Decision">
                             <details>
                                 <summary class="btn-link cursor-pointer">Approve&hellip;</summary>
                                 <form method="POST" action="{{ route('city.relief.restock.review', $r) }}" class="mt-2 flex flex-col gap-2">
                                     @csrf
                                     <input type="hidden" name="decision" value="approve">
+                                    @if($r->relief_good_id === null)
+                                        <div data-catalog-resolve class="rounded-md border border-border p-2">
+                                            <p class="font-semibold text-sm">Resolve custom relief item</p>
+                                            <label class="flex items-center gap-2 text-sm">
+                                                <input type="radio" name="catalog_choice" value="existing" checked> Match existing catalogue item
+                                            </label>
+                                            <label class="flex items-center gap-2 text-sm">
+                                                <input type="radio" name="catalog_choice" value="new"> Create new catalogue item
+                                            </label>
+                                            <div data-catalog-existing class="field">
+                                                <label for="catalog-match-{{ $r->id }}">Existing relief good</label>
+                                                <select id="catalog-match-{{ $r->id }}" name="matched_good_id">
+                                                    <option value="">Choose existing item&hellip;</option>
+                                                    @foreach($goods as $good)
+                                                        <option value="{{ $good->id }}">{{ $good->name }} ({{ $good->unit }})</option>
+                                                    @endforeach
+                                                </select>
+                                            </div>
+                                            <div data-catalog-new class="field" hidden>
+                                                <p class="text-sm">New item: <strong>{{ $r->custom_good_name }}</strong></p>
+                                                <label for="catalog-unit-{{ $r->id }}">Unit of measurement</label>
+                                                <input id="catalog-unit-{{ $r->id }}" type="text" name="new_good_unit" maxlength="20" placeholder="e.g. piece, pack, sack">
+                                            </div>
+                                        </div>
+                                    @endif
+                                    <p class="kpi-note">Approval does not add stock. The assigned Camp Manager must confirm arrival.</p>
                                     <div class="field">
                                         <label for="donor-type-{{ $r->id }}">Donor category <small>(optional)</small></label>
                                         <select id="donor-type-{{ $r->id }}" name="donor_type">
@@ -99,8 +115,8 @@
                                     </div>
                                     <p class="kpi-note bg-info-bg text-info p-2">
                                         Only fill these in if this stock is a donation routed through the CSWD Office.
-                                        If the camp manager will also record it on arrival, leave the value blank &mdash;
-                                        otherwise the same donation is counted twice.
+                                        Any declared value is recorded only when the Camp Manager confirms the delivery.
+                                        The manager should not separately record the same goods under Receive Stock.
                                     </p>
                                     <button class="btn-primary">Confirm Approval</button>
                                 </form>
@@ -154,4 +170,44 @@
         </table>
     </div>
 </section>
+
+{{-- Approved allocations remain here until Camp Manager receipt or a recorded closure.
+     This is not a stock ledger: approval alone never increments stock. --}}
+<div class="card panel table-panel mt-4">
+    <h2 class="panel-title">Outstanding Approved Deliveries
+        <span class="badge badge-info">{{ $awaitingDeliveries->count() }} awaiting receipt</span>
+    </h2>
+    <p class="kpi-note">Stock increases only after the assigned Camp Manager confirms the amount physically received. If a shipment cannot be completed, close the remaining balance with a reason.</p>
+    <table class="data-table" data-stack>
+        <thead><tr><th scope="col">Shelter</th><th scope="col">Relief Good</th><th scope="col">Received / Approved</th><th scope="col">Last Arrival Note</th><th scope="col">Close Shortage</th></tr></thead>
+        <tbody>
+            @forelse($awaitingDeliveries as $delivery)
+                <tr>
+                    <td data-label="Shelter">{{ $delivery->evacuationCenter?->name ?? 'Shelter removed' }}</td>
+                    <td data-label="Relief Good">{{ $delivery->reliefGood?->name ?? $delivery->custom_good_name }}
+                        @if($delivery->request_group_id)<br><small class="text-ink-muted">Batch {{ substr($delivery->request_group_id, 0, 8) }}</small>@endif
+                    </td>
+                    <td data-label="Received / Approved" data-numeric>
+                        {{ number_format($delivery->received_quantity) }} / {{ number_format($delivery->requested_quantity) }} {{ $delivery->reliefGood?->unit }}
+                        <br><small class="text-ink-muted">{{ number_format($delivery->remaining_quantity) }} outstanding</small>
+                    </td>
+                    <td data-label="Last Arrival Note">{{ $delivery->latestReceipt?->remarks ?: 'No arrival confirmed yet' }}</td>
+                    <td data-label="Close Shortage">
+                        <details>
+                            <summary class="btn-link cursor-pointer">Resolve undelivered amount</summary>
+                            <form method="POST" action="{{ route('city.relief.restock.close', $delivery) }}" class="mt-2 flex flex-col gap-2">
+                                @csrf
+                                <label for="close-reason-{{ $delivery->id }}">Reason (required)</label>
+                                <textarea id="close-reason-{{ $delivery->id }}" name="delivery_closure_reason" maxlength="500" rows="2" required placeholder="Delivery cancelled, supplier shortage, damaged items, etc."></textarea>
+                                <button type="submit" class="btn-secondary">Close Remaining Delivery</button>
+                            </form>
+                        </details>
+                    </td>
+                </tr>
+            @empty
+                <tr><td colspan="5" class="empty-note">No approved deliveries currently awaiting arrival.</td></tr>
+            @endforelse
+        </tbody>
+    </table>
+</div>
 @endsection

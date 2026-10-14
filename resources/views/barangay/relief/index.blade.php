@@ -257,17 +257,47 @@
             <h2 class="panel-title">Stock &amp; Item Requests</h2>
             <div class="card panel activity-panel">
                 @forelse($restockRequests as $r)
-                    <div class="flex flex-col gap-1 border-b border-border p-3 text-sm last:border-b-0">
+                    <div class="flex flex-col gap-2 border-b border-border p-3 text-sm last:border-b-0">
                         <div class="flex flex-wrap items-center justify-between gap-2">
-                            <span class="font-medium">{{ $r->reliefGood?->name ?? 'Item removed' }}</span>
-                            <span class="badge {{ $reqBadge[$r->status] ?? 'badge-info' }}">{{ ucfirst($r->status) }}</span>
+                            <span class="font-medium">{{ $r->custom_good_name ?? $r->reliefGood?->name ?? 'Item removed' }}</span>
+                            <span class="badge {{ $r->status === 'approved' ? ($r->delivery_closed_at !== null ? 'badge-info' : ($r->received_quantity > 0 ? 'badge-info' : 'badge-warning')) : ($reqBadge[$r->status] ?? 'badge-info') }}">{{ ucfirst(str_replace('_', ' ', $r->delivery_status)) }}</span>
                         </div>
+                        @if($r->request_group_id)
+                            <span class="text-ink-muted text-xs">Request batch {{ substr($r->request_group_id, 0, 8) }}</span>
+                        @endif
+                        @if($r->custom_description)
+                            <span class="text-ink-muted">Description: {{ $r->custom_description }}</span>
+                        @endif
                         <span class="text-ink-muted" data-numeric>
-                            {{ number_format($r->requested_quantity) }} {{ $r->reliefGood?->unit }}
+                            Requested: {{ number_format($r->requested_quantity) }} {{ $r->reliefGood?->unit }}
                             @if($r->requested_at) &middot; {{ $r->requested_at->diffForHumans() }} @endif
                         </span>
-                        @if($r->status === 'approved')
-                            <span class="text-success">&check; Approved &mdash; stock was added to this shelter's inventory automatically.</span>
+                        @if($r->status === 'approved' && $r->delivery_closed_at === null && $r->remaining_quantity > 0)
+                            <div class="rounded-md bg-info-bg p-3 text-info">
+                                <p class="font-semibold">Incoming delivery &mdash; awaiting your confirmation</p>
+                                <p class="mt-1">Received {{ number_format($r->received_quantity) }} / {{ number_format($r->requested_quantity) }}. Remaining: {{ number_format($r->remaining_quantity) }} {{ $r->reliefGood?->unit }}.</p>
+                                @if($errors->any() && old('_form') === 'restock-arrival' && old('_arrival_request_id') == $r->id)
+                                    <div class="alert alert-danger" role="alert"><ul class="list-disc pl-5">@foreach($errors->all() as $message)<li>{{ $message }}</li>@endforeach</ul></div>
+                                @endif
+                                <form method="POST" action="{{ route('barangay.relief.restock.arrival', $r) }}" class="mt-2 flex flex-col gap-2">
+                                    @csrf
+                                    <input type="hidden" name="_form" value="restock-arrival">
+                                    <input type="hidden" name="_arrival_request_id" value="{{ $r->id }}">
+                                    <div class="field">
+                                        <label for="arrival-qty-{{ $r->id }}">Actual quantity delivered</label>
+                                        <input type="number" id="arrival-qty-{{ $r->id }}" name="quantity_received" min="1" max="{{ $r->remaining_quantity }}" value="{{ old('_arrival_request_id') == $r->id ? old('quantity_received', $r->remaining_quantity) : $r->remaining_quantity }}" required>
+                                    </div>
+                                    <div class="field">
+                                        <label for="arrival-note-{{ $r->id }}">Delivery remarks (optional)</label>
+                                        <textarea id="arrival-note-{{ $r->id }}" name="remarks" rows="2" maxlength="500" placeholder="Condition, shortage or discrepancy">{{ old('_arrival_request_id') == $r->id ? old('remarks') : '' }}</textarea>
+                                    </div>
+                                    <button type="submit" class="btn-primary">Confirm Stock Arrival</button>
+                                </form>
+                            </div>
+                        @elseif($r->delivery_closed_at !== null)
+                            <span class="text-ink-muted">Delivery closed by City Admin. Received {{ number_format($r->received_quantity) }} out of {{ number_format($r->requested_quantity) }}. Reason: {{ $r->delivery_closure_reason }}</span>
+                        @elseif($r->status === 'fulfilled' || ($r->status === 'approved' && $r->remaining_quantity === 0))
+                            <span class="text-success">Delivery received and recorded in shelter inventory.</span>
                         @elseif($r->status === 'rejected')
                             <span class="text-danger">Not approved. Contact the CSWD Office if this is still needed.</span>
                         @endif
@@ -780,35 +810,65 @@
     </div>
 </div>
 
-{{-- ======== Request Stock modal (shelter-level restock) ======== --}}
-<div class="modal-backdrop" id="restockModal" hidden>
-    <div class="modal modal-narrow" role="dialog" aria-modal="true" aria-labelledby="restockTitle">
+{{-- ======== Multi-item Request Stock modal ======== --}}
+@php
+    $restockFailed = $errors->any() && old('_form') === 'restock';
+    $restockItems = $restockFailed ? (old('items') ?: [['relief_good_id' => '', 'requested_quantity' => 1]])
+        : [['relief_good_id' => '', 'requested_quantity' => 1]];
+@endphp
+<div class="modal-backdrop" id="restockModal" @unless($restockFailed) hidden @endunless>
+    <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="restockTitle">
         <div class="modal-head">
             <h2 id="restockTitle">Request Stock from the City</h2>
             <button type="button" class="icon-btn" data-close-modal aria-label="Close">&times;</button>
         </div>
-        {{-- Says plainly what approval does, because unlike the special-item
-             request this one moves real stock on approval. --}}
-        <p class="kpi-note">
-            Asks the CSWD Office to send more of a standard relief item to this shelter.
-            If it is approved the quantity is added to your inventory automatically &mdash;
-            you do not need to record it again under Receive Stock.
-        </p>
-        <form method="POST" action="{{ route('barangay.relief.request-restock') }}">
+        <p class="kpi-note">Request up to 20 different items for your assigned shelter. City Admin reviews each item separately. Approved goods enter inventory <strong>only when you confirm their arrival</strong>.</p>
+        <form method="POST" action="{{ route('barangay.relief.request-restock') }}" id="restockRequestForm">
             @csrf
-            <div class="field">
-                <label for="req-good">Relief good</label>
-                <select id="req-good" name="relief_good_id" required>
-                    <option value="">Select item&hellip;</option>
-                    @foreach($goods as $g)
-                        <option value="{{ $g->id }}">{{ $g->name }} ({{ $g->unit }})</option>
-                    @endforeach
-                </select>
+            <input type="hidden" name="_form" value="restock">
+            @if($restockFailed)
+                <div class="alert alert-danger" role="alert">
+                    <strong>Please correct your stock request.</strong>
+                    <ul class="list-disc pl-5">@foreach($errors->all() as $message)<li>{{ $message }}</li>@endforeach</ul>
+                </div>
+            @endif
+            <div id="restockRows" class="flex flex-col gap-3">
+                @foreach($restockItems as $i => $row)
+                    <div class="rounded-md border border-border p-3" data-restock-row>
+                        <div class="flex items-center justify-between gap-2">
+                            <strong class="text-sm" data-restock-label>Relief Item {{ $loop->iteration }}</strong>
+                            <button type="button" class="btn-link btn-link-danger" data-restock-remove aria-label="Remove relief item">Remove</button>
+                        </div>
+                        <div class="field">
+                            <label for="restock-good-{{ $i }}">Type of relief *</label>
+                            <select id="restock-good-{{ $i }}" name="items[{{ $i }}][relief_good_id]" data-restock-good required>
+                                <option value="">Choose relief good&hellip;</option>
+                                @foreach($goods as $g)
+                                    @continue(strcasecmp(trim($g->name), 'Others') === 0 && strcasecmp(trim($g->unit), 'piece') === 0)
+                                    <option value="{{ $g->id }}" @selected(($row['relief_good_id'] ?? '') == $g->id)>{{ $g->name }} ({{ $g->unit }})</option>
+                                @endforeach
+                                <option value="other" @selected(($row['relief_good_id'] ?? '') === 'other')>Other / Specify Relief</option>
+                            </select>
+                        </div>
+                        <div data-restock-custom class="grid grid-cols-1 gap-2 sm:grid-cols-2" @unless(($row['relief_good_id'] ?? '') === 'other') hidden @endunless>
+                            <div class="field">
+                                <label for="restock-name-{{ $i }}">Name of relief *</label>
+                                <input id="restock-name-{{ $i }}" name="items[{{ $i }}][custom_good_name]" maxlength="100" value="{{ $row['custom_good_name'] ?? '' }}" data-restock-name>
+                            </div>
+                            <div class="field">
+                                <label for="restock-description-{{ $i }}">Description (optional)</label>
+                                <textarea id="restock-description-{{ $i }}" name="items[{{ $i }}][custom_description]" rows="2" maxlength="1000" data-restock-description>{{ $row['custom_description'] ?? '' }}</textarea>
+                            </div>
+                        </div>
+                        <div class="field">
+                            <label for="restock-qty-{{ $i }}">Quantity needed *</label>
+                            <input type="number" id="restock-qty-{{ $i }}" name="items[{{ $i }}][requested_quantity]" min="1" max="10000000" value="{{ $row['requested_quantity'] ?? 1 }}" data-restock-qty required>
+                        </div>
+                    </div>
+                @endforeach
             </div>
-            <div class="field">
-                <label for="req-qty">Quantity needed</label>
-                <input type="number" id="req-qty" name="requested_quantity" min="1" required>
-            </div>
+            <button type="button" class="btn-secondary mt-3" id="restockAddItem">+ Add Another Relief Item</button>
+            <p class="kpi-note">The approval for each item can be different. For custom goods, City Admin chooses the catalogue item and its unit.</p>
             <div class="modal-actions flex flex-col gap-2 sm:flex-row sm:justify-end">
                 <button type="button" class="btn-secondary" data-close-modal>Cancel</button>
                 <button type="submit" class="btn-primary">Send Request</button>
@@ -816,6 +876,37 @@
         </form>
     </div>
 </div>
+<template id="restockItemTemplate">
+    <div class="rounded-md border border-border p-3" data-restock-row>
+        <div class="flex items-center justify-between gap-2">
+            <strong class="text-sm" data-restock-label>Relief Item</strong>
+            <button type="button" class="btn-link btn-link-danger" data-restock-remove aria-label="Remove relief item">Remove</button>
+        </div>
+        <div class="field">
+            <label>Type of relief *
+                <select name="items[__INDEX__][relief_good_id]" data-restock-good required>
+                    <option value="">Choose relief good&hellip;</option>
+                    @foreach($goods as $g)
+                        @continue(strcasecmp(trim($g->name), 'Others') === 0 && strcasecmp(trim($g->unit), 'piece') === 0)
+                        <option value="{{ $g->id }}">{{ $g->name }} ({{ $g->unit }})</option>
+                    @endforeach
+                    <option value="other">Other / Specify Relief</option>
+                </select>
+            </label>
+        </div>
+        <div data-restock-custom class="grid grid-cols-1 gap-2 sm:grid-cols-2" hidden>
+            <div class="field"><label>Name of relief *
+                <input name="items[__INDEX__][custom_good_name]" data-restock-name maxlength="100">
+            </label></div>
+            <div class="field"><label>Description (optional)
+                <textarea name="items[__INDEX__][custom_description]" data-restock-description rows="2" maxlength="1000"></textarea>
+            </label></div>
+        </div>
+        <div class="field"><label>Quantity needed *
+            <input type="number" name="items[__INDEX__][requested_quantity]" data-restock-qty min="1" max="10000000" value="1" required>
+        </label></div>
+    </div>
+</template>
 
 {{-- ======== Special Item Request modal (per household) ======== --}}
 <div class="modal-backdrop" id="specialModal" hidden>

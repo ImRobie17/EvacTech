@@ -73,6 +73,7 @@ class ReliefTransaction extends Model
            immediately afterwards by an update() inside the same transaction.
            Fillable still matters, because mass assignment guards update() too. */
         'batch_id',
+        'relief_allocation_request_id',
     ];
 
     protected function casts(): array

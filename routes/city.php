@@ -71,6 +71,7 @@ Route::middleware(['auth', 'role:city_admin'])
         // ---- Relief Distribution (city-wide overview + approvals) ----
         Route::get('/relief', [CityRelief::class, 'index'])->name('relief.index');
         Route::post('/relief/restock/{reliefRequest}', [CityRelief::class, 'approveRestock'])->name('relief.restock.review');
+        Route::post('/relief/restock/{reliefRequest}/close', [CityRelief::class, 'closeOutstandingDelivery'])->name('relief.restock.close');
         Route::post('/relief/special/{specialRequest}', [CityRelief::class, 'reviewSpecial'])->name('relief.special.review');
 
         // ---- Report Generation ----

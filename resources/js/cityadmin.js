@@ -32,6 +32,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initShelterAdmin();
     initUserAdmin();
     initCityEvacueeForm();
+    initRestockCatalogChoices();
 });
 
 // Local modal opener. See the header note above for why this is not imported.
@@ -425,4 +426,23 @@ function initCityEvacueeForm() {
 
     document.querySelectorAll('[data-open-modal="cityEvacueeModal"]').forEach((b) => b.addEventListener('click', reset));
     reset();
+}
+
+// Show the catalogue fields relevant to the City Admin's radio selection.
+function initRestockCatalogChoices() {
+    document.querySelectorAll('[data-catalog-resolve]').forEach((box) => {
+        const sync = () => {
+            const newGood = box.querySelector('[name="catalog_choice"]:checked')?.value === 'new';
+            box.querySelector('[data-catalog-existing]').hidden = newGood;
+            box.querySelector('[data-catalog-new]').hidden = !newGood;
+            const match = box.querySelector('[name="matched_good_id"]');
+            const unit = box.querySelector('[name="new_good_unit"]');
+            match.required = !newGood;
+            match.disabled = newGood;
+            unit.required = newGood;
+            unit.disabled = !newGood;
+        };
+        box.addEventListener('change', sync);
+        sync();
+    });
 }

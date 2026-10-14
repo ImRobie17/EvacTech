@@ -3,6 +3,11 @@
 namespace App\Http\Controllers\Barangay;
 
 use App\Exports\ArrayExport;
+use App\Support\ReportDefinitions;
+use App\Support\StandardPdf;
+use App\Support\ReportMetrics;
+use App\Support\OperationalReportDatasets;
+use Illuminate\Validation\Rule;
 use App\Http\Controllers\Concerns\FiltersReports;
 use App\Http\Controllers\Concerns\RendersIdpForm;
 use App\Models\EvacuationCenter;
@@ -36,7 +41,7 @@ class ReportController extends BarangayController
     public const TYPES = [
         'household_registry', 'attendance', 'relief', 'vulnerable',
         'occupancy', 'demographics', 'shelter_demographic_summary',
-        'relief_received',
+        'relief_received', 'relief_inventory', 'shelter_transfers',
     ];
 
     public function index()
@@ -58,8 +63,9 @@ class ReportController extends BarangayController
         // Item 11b. Prepared here rather than read from the class in Blade --
         // controllers prepare, views render.
         $filterOptions = $this->reportFilterOptions();
+        $reportDefinitions = ReportDefinitions::forTypes(self::TYPES);
 
-        return view('barangay.reports.index', compact('center', 'recent', 'idpCounts', 'filterOptions'));
+        return view('barangay.reports.index', compact('center', 'recent', 'idpCounts', 'filterOptions', 'reportDefinitions'));
     }
 
     /**
@@ -125,9 +131,18 @@ class ReportController extends BarangayController
             // generated_reports.format where a real format belongs. A separate
             // submit button leaves format clean.
             'action' => ['nullable', 'in:preview'],
-            'date_from' => ['nullable', 'date'],
-            'date_to' => ['nullable', 'date', 'after_or_equal:date_from'],
-        ], $this->reportFilterRules()));
+            'stock_state' => ['nullable', Rule::in(OperationalReportDatasets::STOCK_STATES),
+                Rule::prohibitedIf(fn () => $request->input('report_type') !== 'relief_inventory')],
+            'transfer_status' => ['nullable', Rule::in(OperationalReportDatasets::TRANSFER_STATES),
+                Rule::prohibitedIf(fn () => $request->input('report_type') !== 'shelter_transfers')],
+            'date_from' => ['nullable', 'date', 'before_or_equal:today', Rule::prohibitedIf(fn () => ! ReportDefinitions::supportsDates((string) $request->input('report_type')))],
+            'date_to' => ['nullable', 'date', 'after_or_equal:date_from', 'before_or_equal:today', Rule::prohibitedIf(fn () => ! ReportDefinitions::supportsDates((string) $request->input('report_type')))],
+        ], array_map(
+            fn ($rules) => array_merge($rules, [Rule::prohibitedIf(
+                fn () => ! ReportDefinitions::supportsDemographics((string) $request->input('report_type'))
+            )]),
+            $this->reportFilterRules()
+        )));
 
         $preview = ($data['action'] ?? null) === 'preview';
 
@@ -146,8 +161,10 @@ class ReportController extends BarangayController
         $filters = $this->reportFilters($data);
 
         [$headings, $rows, $title] = $this->buildDataset(
-            $data['report_type'], $data['date_from'] ?? null, $data['date_to'] ?? null, $center, $filters
+            $data['report_type'], $data['date_from'] ?? null, $data['date_to'] ?? null, $center, $filters, $data
         );
+
+        $metrics = ReportMetrics::forRows($data['report_type'], $headings, $rows);
 
         $record = GeneratedReport::create([
             'report_type' => $data['report_type'],
@@ -158,35 +175,52 @@ class ReportController extends BarangayController
             'evacuation_center_id' => $center->id,
         ]);
 
-        $filterLabels = $this->reportFilterLabels($filters);
+        $filterLabels = array_merge($this->reportFilterLabels($filters),
+            ReportDefinitions::operationalFilterLabels($data['report_type'], $data));
+        $context = ReportDefinitions::context($data['report_type'], $data['date_from'] ?? null, $data['date_to'] ?? null);
+        $reportNote = ReportDefinitions::operationalNote($data['report_type'])
+            ?? $this->reportFilterNote($data['report_type'], $filters);
+        $scopeLabel = $center->name;
 
         // The filters are NOT persisted on generated_reports -- that would be a
         // migration for a column nothing reads back. They are recorded here,
         // where an auditor can already see who generated what and when.
         $note = $filterLabels === [] ? '' : ('; filters: ' . implode(' | ', $filterLabels));
         $verb = $preview ? 'Previewed' : 'Generated';
-        AuditLogger::log('created', $record, "{$verb} {$title} report ({$data['format']}{$note})");
+        AuditLogger::log('created', $record, "{$verb} {$title} report ({$data['format']}; {$context}{$note})");
 
         $filename = str_replace(' ', '_', strtolower($title))
             . $this->reportFilterSlug($filters)
+            . ReportDefinitions::operationalFilterSlug($data['report_type'], $data)
             . '_' . now()->format('Ymd_His');
 
         if ($data['format'] === 'xlsx') {
-            return Excel::download(new ArrayExport($headings, $rows), $filename . '.xlsx');
+            return Excel::download(new ArrayExport($headings, $rows, [
+                'title' => $title, 'scope' => $scopeLabel, 'context' => $context,
+                'metrics' => $metrics, 'filters' => $filterLabels, 'note' => $reportNote,
+                'generated_by' => auth()->user()->name, 'generated_at' => now()->format('M d, Y h:i A'),
+                'sensitive' => ReportDefinitions::isSensitive($data['report_type']),
+                'reference' => 'Report #' . $record->id,
+            ]), $filename . '.xlsx');
         }
 
         $pdf = Pdf::loadView('reports.pdf.generic', [
             'title' => $title,
+            'context' => $context,
+            'metrics' => $metrics,
+            'sensitive' => ReportDefinitions::isSensitive($data['report_type']),
+            'reference' => 'Report #' . $record->id,
             'center' => $center,
             'headings' => $headings,
             'rows' => $rows,
             'from' => $data['date_from'] ?? null,
             'to' => $data['date_to'] ?? null,
             'filters' => $filterLabels,
-            'filterNote' => $this->reportFilterNote($data['report_type'], $filters),
+            'filterNote' => $reportNote,
             'generatedBy' => auth()->user()->name,
-        ])->setPaper('a4', 'landscape');
+        ])->setPaper('a4', count($headings) <= 6 && ! in_array($data['report_type'], ['audit_summary', 'system_activity'], true) ? 'portrait' : 'landscape');
 
+        StandardPdf::addPageNumbers($pdf);
         return $this->pdfResponse($pdf, $filename . '.pdf', $preview);
     }
 
@@ -196,13 +230,19 @@ class ReportController extends BarangayController
      *
      * @return array{0: string[], 1: array[], 2: string}
      */
-    private function buildDataset(string $type, ?string $from, ?string $to, $center, array $filters = []): array
+    private function buildDataset(string $type, ?string $from, ?string $to, $center, array $filters = [], array $options = []): array
     {
         $range = fn ($q, $col = 'created_at') => $q
             ->when($from, fn ($q) => $q->whereDate($col, '>=', $from))
             ->when($to, fn ($q) => $q->whereDate($col, '<=', $to));
 
         return match ($type) {
+            'relief_inventory' => OperationalReportDatasets::inventory(
+                $center?->id, $options['stock_state'] ?? null, false
+            ),
+            'shelter_transfers' => OperationalReportDatasets::transfers(
+                $center?->id, $options['transfer_status'] ?? null, $from, $to
+            ),
             'household_registry' => [
                 $this->withMatchColumn(
                     ['Household ID', 'Household Head', 'Family Size', 'Origin Barangay', 'Address', 'Status', 'Shelter', 'Registered On'],

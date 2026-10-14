@@ -17,8 +17,66 @@ document.addEventListener('DOMContentLoaded', () => {
     initHouseholdView();
     initShelterModals();
     initReliefModals();
+    initRestockRequest();
     initBatchDistribute();
 });
+
+// Request Stock: repeatable rows, with custom name/description only for "Other".
+function initRestockRequest() {
+    const rows = document.getElementById('restockRows');
+    const template = document.getElementById('restockItemTemplate');
+    const add = document.getElementById('restockAddItem');
+    if (!rows || !template || !add) return;
+
+    let nextIndex = Math.max(0, ...Array.from(rows.querySelectorAll('[data-restock-good]'))
+        .map((el) => Number(el.name.match(/items\[(\d+)\]/)?.[1] ?? 0))) + 1;
+
+    const sync = () => {
+        const all = [...rows.querySelectorAll('[data-restock-row]')];
+        all.forEach((row, i) => {
+            row.querySelector('[data-restock-label]').textContent = `Relief Item ${i + 1}`;
+            row.querySelector('[data-restock-remove]').disabled = all.length === 1;
+            const other = row.querySelector('[data-restock-good]').value === 'other';
+            const custom = row.querySelector('[data-restock-custom]');
+            custom.hidden = !other;
+            const name = row.querySelector('[data-restock-name]');
+            name.required = other;
+            name.disabled = !other;
+            row.querySelector('[data-restock-description]').disabled = !other;
+        });
+        add.disabled = all.length >= 20;
+    };
+
+    add.addEventListener('click', () => {
+        if (rows.querySelectorAll('[data-restock-row]').length >= 20) return;
+        const html = template.innerHTML.replaceAll('__INDEX__', String(nextIndex++));
+        rows.insertAdjacentHTML('beforeend', html);
+        sync();
+        rows.lastElementChild.querySelector('[data-restock-good]')?.focus();
+    });
+    rows.addEventListener('change', (e) => {
+        if (e.target.matches('[data-restock-good]')) sync();
+    });
+    rows.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-restock-remove]');
+        if (btn && rows.querySelectorAll('[data-restock-row]').length > 1) {
+            btn.closest('[data-restock-row]').remove();
+            sync();
+        }
+    });
+    // Inventory-row shortcuts target the first line of the new multi-item form.
+    document.querySelectorAll('[data-request-good]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const first = rows.querySelector('[data-restock-good]');
+            if (first) {
+                first.value = btn.dataset.requestGood;
+                sync();
+                rows.querySelector('[data-restock-qty]')?.focus();
+            }
+        });
+    });
+    sync();
+}
 
 // ---------------------------------------------------------------------
 // Connectivity indicator
@@ -1394,20 +1452,6 @@ function initReliefModals() {
             syncRemoveButtons();
         });
         syncRemoveButtons();
-    }
-
-    // ---- Request Stock prefill ----
-    // Opened either from the toolbar (nothing selected) or from an inventory row
-    // (that item preselected). initModals() already opened the modal on click;
-    // this only fills it in.
-    const restockGoodSelect = document.getElementById('req-good');
-    if (restockGoodSelect) {
-        document.querySelectorAll('[data-request-good]').forEach((btn) => {
-            btn.addEventListener('click', () => {
-                restockGoodSelect.value = btn.dataset.requestGood;
-                document.getElementById('req-qty')?.focus();
-            });
-        });
     }
 
     // ---- Special item request ----

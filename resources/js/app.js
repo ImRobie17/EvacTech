@@ -22,7 +22,9 @@ import { initTextFit } from './text-fit';
 // staff.js, cityadmin.js and cityadmin-shelter.js are all imported above and
 // therefore every member row in the app lives on a page that loads this file.
 import { initSexFields } from './sex-fields';
+import { initReportFilters } from './report-filters';
 
 initFormHygiene();
 initTextFit();
 initSexFields();
+initReportFilters();

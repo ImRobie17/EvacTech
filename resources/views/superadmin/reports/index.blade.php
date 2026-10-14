@@ -11,21 +11,31 @@
      an inline style cannot. --}}
 <div class="card panel max-w-2xl">
     <h2 class="panel-title">Generate a System Report</h2>
-    <form method="POST" action="{{ route('super.reports.generate') }}">
+    <form method="POST" action="{{ route('super.reports.generate') }}" data-report-generator data-report-definitions="{{ json_encode($reportDefinitions) }}">
         @csrf
         <div class="field">
             <label for="rep-type">Report type</label>
             <select id="rep-type" name="report_type" required>
-                <option value="user_accounts">User Accounts</option>
-                <option value="audit_summary">Audit Summary</option>
-                <option value="system_activity">System Activity</option>
-                <option value="login_activity">Login Activity</option>
+                <option value="user_accounts" @selected(old('report_type', 'user_accounts') === 'user_accounts')>User Accounts</option>
+                <option value="audit_summary" @selected(old('report_type', 'user_accounts') === 'audit_summary')>Audit Summary</option>
+                <option value="system_activity" @selected(old('report_type', 'user_accounts') === 'system_activity')>System Activity</option>
+                <option value="login_activity" @selected(old('report_type', 'user_accounts') === 'login_activity')>Login Activity</option>
             </select>
         </div>
-        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div class="field"><label for="rep-from">Date from <small>(optional)</small></label><input type="date" id="rep-from" name="date_from" max="{{ now()->toDateString() }}"></div>
-            <div class="field"><label for="rep-to">Date to <small>(optional)</small></label><input type="date" id="rep-to" name="date_to" max="{{ now()->toDateString() }}"></div>
-        </div>
+            <p class="mb-3 text-sm text-ink-muted" data-report-description aria-live="polite"></p>
+            <div data-report-dates>
+                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div class="field">
+                        <label for="rep-from">Date from <small>(optional)</small></label>
+                        <input type="date" id="rep-from" name="date_from" value="{{ old('date_from') }}" max="{{ now()->toDateString() }}">
+                    </div>
+                    <div class="field">
+                        <label for="rep-to">Date to <small>(optional)</small></label>
+                        <input type="date" id="rep-to" name="date_to" value="{{ old('date_to') }}" max="{{ now()->toDateString() }}">
+                    </div>
+                </div>
+            </div>
+            <p class="mb-3 text-xs text-ink-muted" data-report-date-note aria-live="polite"></p>
         <div class="field">
             <label>File format</label>
             <div class="radio-list">

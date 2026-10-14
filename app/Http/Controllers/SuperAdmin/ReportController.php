@@ -3,6 +3,10 @@
 namespace App\Http\Controllers\SuperAdmin;
 
 use App\Exports\ArrayExport;
+use App\Support\ReportDefinitions;
+use App\Support\StandardPdf;
+use App\Support\ReportMetrics;
+use Illuminate\Validation\Rule;
 use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
 use App\Models\Role;
@@ -19,7 +23,7 @@ class ReportController extends Controller
 
     public function index()
     {
-        return view('superadmin.reports.index');
+        return view('superadmin.reports.index', ['reportDefinitions' => ReportDefinitions::forTypes(self::TYPES)]);
     }
 
     public function generate(Request $request)
@@ -33,8 +37,8 @@ class ReportController extends Controller
             // the Household Head and contact columns are Barangay and CityAdmin
             // only.
             'action' => ['nullable', 'in:preview'],
-            'date_from' => ['nullable', 'date'],
-            'date_to' => ['nullable', 'date', 'after_or_equal:date_from'],
+            'date_from' => ['nullable', 'date', 'before_or_equal:today', Rule::prohibitedIf(fn () => ! ReportDefinitions::supportsDates((string) $request->input('report_type')))],
+            'date_to' => ['nullable', 'date', 'after_or_equal:date_from', 'before_or_equal:today', Rule::prohibitedIf(fn () => ! ReportDefinitions::supportsDates((string) $request->input('report_type')))],
         ]);
 
         $preview = ($data['action'] ?? null) === 'preview';
@@ -47,22 +51,35 @@ class ReportController extends Controller
             ]);
         }
 
+        $context = ReportDefinitions::context($data['report_type'], $data['date_from'] ?? null, $data['date_to'] ?? null);
+
         [$headings, $rows, $title] = $this->buildDataset($data['report_type'], $data['date_from'] ?? null, $data['date_to'] ?? null);
+
+        $metrics = ReportMetrics::forRows($data['report_type'], $headings, $rows);
 
         // DROP D. A preview IS logged, the same as a download. These reports
         // list user accounts and login activity; a read that leaves no trace is
         // the wrong default on this screen in particular.
         $verb = $preview ? 'Previewed' : 'Generated';
-        AuditLogger::log('created', null, "{$verb} system report: {$title} ({$data['format']})");
+        AuditLogger::log('created', null, "{$verb} system report: {$title} ({$data['format']}; {$context})");
 
         $filename = str_replace(' ', '_', strtolower($title)) . '_' . now()->format('Ymd_His');
 
         if ($data['format'] === 'xlsx') {
-            return Excel::download(new ArrayExport($headings, $rows), $filename . '.xlsx');
+            return Excel::download(new ArrayExport($headings, $rows, [
+                'title' => $title, 'scope' => 'System-wide', 'context' => $context, 'metrics' => $metrics,
+                'generated_by' => auth()->user()->name, 'generated_at' => now()->format('M d, Y h:i A'),
+                'sensitive' => ReportDefinitions::isSensitive($data['report_type']),
+                'reference' => null,
+            ]), $filename . '.xlsx');
         }
 
         $pdf = Pdf::loadView('reports.pdf.generic', [
             'title' => $title,
+            'context' => $context,
+            'metrics' => $metrics,
+            'sensitive' => ReportDefinitions::isSensitive($data['report_type']),
+            'reference' => null,
             'center' => null,
             'scopeLabel' => 'System-wide',
             'headings' => $headings,
@@ -70,8 +87,9 @@ class ReportController extends Controller
             'from' => $data['date_from'] ?? null,
             'to' => $data['date_to'] ?? null,
             'generatedBy' => auth()->user()->name,
-        ])->setPaper('a4', 'landscape');
+        ])->setPaper('a4', count($headings) <= 6 && ! in_array($data['report_type'], ['audit_summary', 'system_activity'], true) ? 'portrait' : 'landscape');
 
+        StandardPdf::addPageNumbers($pdf);
         return $this->pdfResponse($pdf, $filename . '.pdf', $preview);
     }
 
@@ -110,13 +128,13 @@ class ReportController extends Controller
                     ucfirst(str_replace('_', ' ', $e->type)),
                     $e->description,
                     $e->performedBy?->name ?? 'System',
-                    $e->meta ?? '',
+                    is_array($e->meta) ? json_encode($e->meta, JSON_UNESCAPED_UNICODE) : ($e->meta ?? ''),
                 ])->all(),
                 'System Activity',
             ],
             'login_activity' => [
                 ['Name', 'Email', 'Role', 'Last Login', 'Status'],
-                User::with('role')->whereNotNull('last_login_at')
+                $range(User::with('role')->whereNotNull('last_login_at'), 'last_login_at')
                     ->orderByDesc('last_login_at')->get()->map(fn ($u) => [
                         $u->name, $u->email, $u->role?->display_name ?? '-',
                         $u->last_login_at?->format('M d, Y h:i A'), ucfirst($u->status),

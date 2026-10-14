@@ -7,6 +7,8 @@ use App\Http\Controllers\Controller;
 use App\Models\EvacuationCenter;
 use App\Models\ReliefAllocationRequest;
 use App\Models\ReliefInventory;
+use App\Models\ReliefGood;
+use Illuminate\Validation\ValidationException;
 use App\Models\SpecialReliefRequest;
 use App\Services\AuditLogger;
 use Illuminate\Http\Request;
@@ -14,9 +16,9 @@ use Illuminate\Support\Facades\DB;
 
 class ReliefController extends Controller
 {
-    /* DROP B1. approveRestock() is the THIRD stock-in path. It now captures a
-       donor too, so it shares the donor rules and the write with the two direct
-       receive paths rather than keeping a third private copy of them. */
+    /* City Admin may record optional donor details during approval, but
+       stock-in and the donated-value ledger row are deferred until the
+       requesting shelter confirms physical receipt. */
     use RecordsReliefReceipt;
 
     public function index()
@@ -55,86 +57,115 @@ class ReliefController extends Controller
             ->get();
 
         // Approval queue 2: per-household special item requests.
+        $awaitingDeliveries = ReliefAllocationRequest::with(['evacuationCenter', 'reliefGood', 'latestReceipt'])
+            ->where('status', 'approved')
+            ->whereNull('delivery_closed_at')
+            ->whereColumn('received_quantity', '<', 'requested_quantity')
+            ->latest('resolved_at')->get();
+
+        $goods = ReliefGood::orderBy('name')->get();
         $specialRequests = SpecialReliefRequest::with(['household.headMember', 'evacuationCenter', 'requestedBy'])
             ->where('status', 'pending')
             ->latest()
             ->get();
 
         return view('cityadmin.relief.index', compact(
-            'shelters', 'restockRequests', 'specialRequests', 'cityValueReceived', 'donorTypes'
+            'shelters', 'restockRequests', 'specialRequests', 'cityValueReceived', 'donorTypes', 'goods', 'awaitingDeliveries'
         ));
     }
 
-    /**
-     * Approve or reject a shelter's restock request.
-     *
-     * DROP B1 -- THIS PATH NOW CARRIES A DONOR, and that is a deliberate change
-     * of meaning.
-     *
-     * It used to be treated as purely internal: city stock moving to a shelter,
-     * never a donation, explicitly excluded from any donated-value total. In
-     * practice a donation does not always reach a shelter directly -- it often
-     * arrives at the CSWD Office first and is allocated onward. Recording the
-     * donor only on the direct receive path lost every one of those from the
-     * client's monetary tracking.
-     *
-     * So donor_type and monetary_value are OPTIONAL here, unlike on the two
-     * direct receive paths. Left blank, the row is exactly what it always was:
-     * city stock, no donor, no value, contributing nothing to the totals.
-     * Filled in, it is a donation that happened to be routed through the city.
-     *
-     * THE RISK, and it is stated on the form too: if the CSWD Office records a
-     * value here AND the camp manager records a Receive for the same goods when
-     * they physically arrive, that donation is counted twice. Nothing in the
-     * schema can tell those two rows apart, so this is a procedural rule, not
-     * an enforced one.
-     */
+    /** Approval authorizes delivery. The camp manager credits stock upon arrival. */
     public function approveRestock(Request $request, ReliefAllocationRequest $reliefRequest)
     {
-        abort_if($reliefRequest->status !== 'pending', 422, 'This request has already been resolved.');
+        $data = $request->validate(array_merge([
+            'decision' => ['required', 'in:approve,reject'],
+            'catalog_choice' => ['nullable', 'in:existing,new'],
+            'matched_good_id' => ['nullable', 'integer', 'exists:relief_goods,id'],
+            'new_good_unit' => ['nullable', 'string', 'max:20'],
+        ], $this->reliefDonorRules(false)));
 
-        $data = $request->validate(array_merge(
-            ['decision' => ['required', 'in:approve,reject']],
-            // false: no donor is the normal case here.
-            $this->reliefDonorRules(false)
-        ));
-        $decision = $data['decision'];
+        $result = DB::transaction(function () use ($reliefRequest, $data) {
+            $line = ReliefAllocationRequest::whereKey($reliefRequest->id)->lockForUpdate()->firstOrFail();
+            abort_unless($line->status === 'pending', 422, 'This request has already been reviewed.');
 
-        if ($decision === 'reject') {
-            $reliefRequest->update([
-                'status' => 'rejected', 'approved_by' => auth()->id(), 'resolved_at' => now(),
-            ]);
-            AuditLogger::log('updated', $reliefRequest, 'Rejected restock request');
-            return back()->with('success', 'Restock request rejected.');
-        }
+            if ($data['decision'] === 'reject') {
+                $line->update([
+                    'status' => 'rejected', 'approved_by' => auth()->id(), 'resolved_at' => now(),
+                ]);
+                AuditLogger::log('updated', $line, 'Rejected restock request');
+                return 'rejected';
+            }
 
-        // Approve: add the requested quantity to the shelter's inventory and log it.
-        DB::transaction(function () use ($reliefRequest, $data) {
-            /* Routed through the shared writer rather than a fourth hand-rolled
-               copy of "increment inventory, write a ledger row". The quantity
-               comes from the REQUEST, not from the form -- the CSWD Office
-               approves what was asked for; it does not retype it. */
-            $this->applyReliefReceipt(
-                $reliefRequest->evacuationCenter,
-                $reliefRequest->reliefGood,
-                [
-                    'quantity' => $reliefRequest->requested_quantity,
-                    'donor_type' => $data['donor_type'] ?? null,
-                    'donor_name' => $data['donor_name'] ?? null,
-                    'monetary_value' => $data['monetary_value'] ?? null,
-                    'remarks' => null,
-                ],
-                'allocated_in',
-                'City warehouse (approved allocation)'
-            );
+            if ($line->relief_good_id === null) {
+                if (($data['catalog_choice'] ?? null) === 'existing') {
+                    if (empty($data['matched_good_id'])) {
+                        throw ValidationException::withMessages([
+                            'matched_good_id' => 'Select the existing relief good for this request.',
+                        ]);
+                    }
+                    $line->relief_good_id = $data['matched_good_id'];
+                } elseif (($data['catalog_choice'] ?? null) === 'new') {
+                    $unit = trim((string) ($data['new_good_unit'] ?? ''));
+                    if ($unit === '') {
+                        throw ValidationException::withMessages([
+                            'new_good_unit' => 'Enter the unit for the new relief good.',
+                        ]);
+                    }
+                    $name = trim($line->custom_good_name);
+                    // A matching name must not silently create a second catalogue item.
+                    // Reuse it and its established unit; other pack sizes should
+                    // have an explicitly different catalogue name.
+                    $good = ReliefGood::where('name', $name)->lockForUpdate()->first();
+                    if (! $good) {
+                        $good = ReliefGood::create([
+                            'name' => $name, 'unit' => $unit,
+                            'category' => 'other', 'is_monetary' => false,
+                        ]);
+                    } elseif (strcasecmp($good->unit, $unit) !== 0) {
+                        throw ValidationException::withMessages([
+                            'new_good_unit' => 'An item with this name already exists with unit ' . $good->unit . '. Match that item or use a distinct name.',
+                        ]);
+                    }
+                    $line->relief_good_id = $good->id;
+                } else {
+                    throw ValidationException::withMessages([
+                        'catalog_choice' => 'Choose how to resolve this custom relief item.',
+                    ]);
+                }
+            }
 
-            $reliefRequest->update([
-                'status' => 'approved', 'approved_by' => auth()->id(), 'resolved_at' => now(),
-            ]);
+            $line->status = 'approved';
+            $line->approved_by = auth()->id();
+            $line->resolved_at = now();
+            $line->donor_type = $data['donor_type'] ?? null;
+            $line->donor_name = $data['donor_name'] ?? null;
+            $line->monetary_value = $data['monetary_value'] ?? null;
+            $line->save();
+            AuditLogger::log('updated', $line, 'Approved restock request; awaiting shelter arrival');
+            return 'approved';
         });
 
-        AuditLogger::log('updated', $reliefRequest, 'Approved restock request');
-        return back()->with('success', 'Restock approved and inventory updated.');
+        return back()->with('success', 'Restock request ' . $result .
+            ($result === 'approved' ? '. Shelter inventory will update only after arrival confirmation.' : '.'));
+    }
+
+    /** Record a shortage/cancel the remaining delivery without crediting stock. */
+    public function closeOutstandingDelivery(Request $request, ReliefAllocationRequest $reliefRequest)
+    {
+        $data = $request->validate([
+            'delivery_closure_reason' => ['required', 'string', 'max:500'],
+        ]);
+        DB::transaction(function () use ($reliefRequest, $data) {
+            $line = ReliefAllocationRequest::whereKey($reliefRequest->id)->lockForUpdate()->firstOrFail();
+            abort_unless($line->status === 'approved' && $line->delivery_closed_at === null
+                && $line->remaining_quantity > 0, 422, 'This delivery is already resolved.');
+            $line->update([
+                'delivery_closed_at' => now(), 'delivery_closed_by' => auth()->id(),
+                'delivery_closure_reason' => trim($data['delivery_closure_reason']),
+            ]);
+            AuditLogger::log('updated', $line, 'Closed undelivered relief balance');
+        });
+        return back()->with('success', 'Outstanding delivery closed. No additional stock was added.');
     }
 
     public function reviewSpecial(Request $request, SpecialReliefRequest $specialRequest)

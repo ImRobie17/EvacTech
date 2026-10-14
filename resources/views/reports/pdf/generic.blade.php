@@ -1,71 +1,98 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <style>
-        body { font-family: 'DejaVu Sans', sans-serif; color: #0F172A; font-size: 12px; }
-        .header { border-bottom: 3px solid #0E7490; padding-bottom: 10px; margin-bottom: 16px; }
-        .header h1 { margin: 0; font-size: 20px; color: #0E7490; }
-        .meta { color: #475569; font-size: 11px; margin-top: 4px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        th { background: #F1F5F9; text-align: left; padding: 6px 8px; font-size: 11px; border-bottom: 2px solid #CBD5E1; }
-        td { padding: 6px 8px; font-size: 11px; border-bottom: 1px solid #E2E8F0; }
-        tr:nth-child(even) td { background: #F8FAFC; }
-        .footer { margin-top: 20px; font-size: 9px; color: #94A3B8; text-align: right; }
-        .filters { margin-top: 8px; padding: 6px 8px; background: #F1F5F9; border-left: 3px solid #0E7490; font-size: 10px; color: #334155; }
-        .filters .note { display: block; margin-top: 3px; color: #64748B; font-style: italic; }
+        @page { margin: 21mm 12mm 19mm; }
+        body { font-family: 'DejaVu Sans', sans-serif; color: #172235; font-size: 9px; line-height: 1.4; }
+        .header { border-bottom: 2px solid #0e7490; padding-bottom: 10px; margin-bottom: 11px; }
+        .government { text-transform: uppercase; letter-spacing: .7px; color: #475569; font-size: 8px; }
+        .brand { color: #0e7490; font-size: 10px; font-weight: bold; margin-top: 4px; }
+        h1 { color: #102c41; font-size: 18px; margin: 2px 0 4px; line-height: 1.2; }
+        .subtitle { color: #64748b; font-size: 8px; }
+        .meta { width: 100%; margin-top: 9px; border-collapse: collapse; }
+        .meta td { background: #f1f5f9; padding: 5px 7px; border: 1px solid #e2e8f0; width: 50%; vertical-align: top; }
+        .meta-label { font-size: 7px; color: #475569; font-weight: bold; text-transform: uppercase; margin-bottom: 2px; }
+        .summary { margin: 10px 0; padding: 7px 9px; border-left: 3px solid #0e7490; background: #eff6f9; }
+        .summary strong { font-size: 11px; color: #0e7490; }
+        .filters { margin: 9px 0; padding: 6px 8px; border: 1px solid #cbd5e1; color: #334155; }
+        .note { display: block; margin-top: 4px; color: #475569; font-style: italic; }
+        .section-title { font-size: 10px; font-weight: bold; margin: 12px 0 5px; }
+        table.data { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        table.data thead { display: table-header-group; }
+        table.data th { background: #17374c; color: white; text-align: left; padding: 6px 5px; font-size: {{ count($headings) >= 10 ? '6.8' : (count($headings) >= 8 ? '7.4' : '8') }}px; vertical-align: top; overflow-wrap: break-word; }
+        table.data td { padding: 5px; border-bottom: 1px solid #dbe4ed; vertical-align: top; overflow-wrap: anywhere; word-wrap: break-word; font-size: {{ count($headings) >= 10 ? '7.2' : '8' }}px; }
+        table.data tbody tr:nth-child(even) td { background: #f5f8fb; }
+        table.data tbody tr { page-break-inside: avoid; }
+        table.data .numeric { text-align: right; }
+        table.data .no-data { text-align: center; padding: 16px; color: #475569; }
+        .footer { position: fixed; bottom: -12mm; left: 0; right: 95px; border-top: 1px solid #cbd5e1; padding-top: 5px; color: #64748b; font-size: 7px; }
+        .privacy { font-weight: bold; }
     </style>
 </head>
 <body>
+    @php
+        $reportScope = $scopeLabel ?? ($center?->name ?? 'City-wide');
+        $contextLabel = $context ?? (($from || $to) ? ('Date range: ' . ($from ?? 'Beginning') . ' to ' . ($to ?? 'Present')) : 'As of generation');
+        $generatedAt = now()->format('M d, Y h:i A');
+        $numericHeadings = ['Rank', 'Capacity', 'Current Occupancy', 'Occupancy', 'Members Present', 'Family Size', 'Households', 'Households Checked-in', 'Count', 'Currently Present', 'Age', 'Matching Members', 'Value (PHP)', 'On Hand', 'Reorder Level', 'Expected', 'Received'];
+        $rowCount = count($rows) - (($rows && in_array('TOTAL VALUE', array_values((array) end($rows)), true)) ? 1 : 0);
+    @endphp
     <div class="header">
-        <h1>EvacTech - {{ $title }}</h1>
-        <div class="meta">
-            @if(isset($scopeLabel) && ! $center)
-                {{ $scopeLabel }}
-            @else
-                {{ $center->name ?? '' }}@if($center && $center->barangay) &middot; Barangay {{ $center->barangay->name }}@endif
-            @endif
-            @if($from || $to) &nbsp;&middot;&nbsp; {{ $from ?? 'Start' }} to {{ $to ?? 'Present' }} @endif
-        </div>
+        <div class="government">Republic of the Philippines &middot; City of Cabuyao, Laguna</div>
+        <div class="brand">EVACTECH &middot; Evacuation Management System</div>
+        <h1>{{ $title }}</h1>
+        <div class="subtitle">Standard operational report &middot; Automatically generated @if(! empty($reference)) &middot; {{ $reference }} @endif</div>
     </div>
 
-    {{--
-        PHASE 3 ITEM 11b -- what this report was filtered by, printed on the
-        document itself.
+    <table class="meta">
+        <tr>
+            <td><div class="meta-label">Report scope</div>{{ $reportScope }}@if(! empty($center?->barangay?->name)) &middot; Barangay {{ $center->barangay->name }}@endif</td>
+            <td><div class="meta-label">Reporting basis</div>{{ $contextLabel }}</td>
+        </tr>
+        <tr>
+            <td><div class="meta-label">Generated by</div>{{ $generatedBy }}</td>
+            <td><div class="meta-label">Generated on</div>{{ $generatedAt }}</td>
+        </tr>
+    </table>
 
-        Both variables are optional. SuperAdmin\ReportController shares this
-        view and passes neither, so they are read defensively rather than
-        required -- an undefined variable here would fatal every Super Admin
-        report.
+    <div class="summary"><strong>{{ number_format(max(0, $rowCount)) }}</strong> {{ $rowCount === 1 ? 'data row' : 'data rows' }} in this report.
+        @if(! empty($sensitive)) <span class="privacy"> &middot; Internal use / Personal data</span>@endif
+        @foreach(($metrics ?? []) as $label => $value)
+            <span class="summary-metric"> &middot; {{ $label }}: <strong>{{ $value }}</strong></span>
+        @endforeach
+    </div>
 
-        The note matters more than the filter list. On a household- or
-        shelter-level report the filter chooses WHICH ROWS APPEAR and does not
-        recompute the numbers inside them, so "Occupancy 120" beside "Category:
-        Pregnant" would otherwise read as 120 pregnant people. The Matching
-        Members column carries the same message inside the table.
-    --}}
     @if(! empty($filters ?? []))
         <div class="filters">
-            <strong>Filtered by:</strong> {{ implode('  |  ', $filters) }}
-            @if(! empty($filterNote ?? ''))
-                <span class="note">{{ $filterNote }}</span>
-            @endif
+            <strong>Applied filters:</strong> {{ implode(' | ', $filters) }}
+            @if(! empty($filterNote ?? ''))<span class="note">{{ $filterNote }}</span>@endif
         </div>
+    @elseif(! empty($filterNote ?? ''))
+        <div class="filters">{{ $filterNote }}</div>
     @endif
 
-    <table>
-        <thead>
-            <tr>@foreach($headings as $h)<th>{{ $h }}</th>@endforeach</tr>
-        </thead>
+    <div class="section-title">Detailed records</div>
+    <table class="data">
+        <thead><tr>
+            @foreach($headings as $h)<th class="{{ in_array($h, $numericHeadings, true) ? 'numeric' : '' }}">{{ $h }}</th>@endforeach
+        </tr></thead>
         <tbody>
             @forelse($rows as $row)
-                <tr>@foreach($row as $cell)<td>{{ $cell }}</td>@endforeach</tr>
+                <tr>
+                    @foreach($headings as $index => $heading)
+                        <td class="{{ in_array($heading, $numericHeadings, true) ? 'numeric' : '' }}">{{ $row[$index] ?? '' }}</td>
+                    @endforeach
+                </tr>
             @empty
-                <tr><td colspan="{{ count($headings) }}">No records found for the selected range.</td></tr>
+                <tr><td colspan="{{ max(1, count($headings)) }}" class="no-data">No records matched the selected scope and filters.</td></tr>
             @endforelse
         </tbody>
     </table>
 
-    <div class="footer">Generated by {{ $generatedBy }} on {{ now()->format('M d, Y h:i A') }}</div>
+    <div class="footer">
+        EvacTech &middot; City of Cabuyao &middot; {{ ! empty($sensitive) ? 'Confidential operational record — handle responsibly.' : 'Operational report.' }}
+        &middot; Generated {{ $generatedAt }}
+    </div>
 </body>
 </html>

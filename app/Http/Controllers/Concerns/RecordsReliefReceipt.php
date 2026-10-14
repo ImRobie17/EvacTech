@@ -15,7 +15,7 @@ use Illuminate\Support\Carbon;
  *
  *   1. Barangay\ReliefController::receive()                  (camp manager)
  *   2. CityAdmin\ShelterDetailController::receiveRelief()    (CSWD Office)
- *   3. CityAdmin\ReliefController::approveRestock()          (allocation)
+ *   3. Barangay\ReliefController::confirmRestockArrival() (confirmed allocation)
  *
  * The first two were already IDENTICAL BODIES copied twice, and the two
  * DISTRIBUTE paths beside them had genuinely drifted -- one carried a shelter
@@ -137,8 +137,8 @@ trait RecordsReliefReceipt
      * the stock.
      *
      * $type is 'received' for a direct arrival and 'allocated_in' for an
-     * approved city restock. Both add to inventory; both may now carry a donor,
-     * because a donation does not always reach a shelter directly.
+     * approved city delivery confirmed by the receiving shelter. Both add to
+     * inventory; mere approval does NOT call this method.
      */
     protected function applyReliefReceipt(
         EvacuationCenter $center,
@@ -166,6 +166,7 @@ trait RecordsReliefReceipt
             'recorded_by' => auth()->id(),
             'transaction_date' => now()->toDateString(),
             'remarks' => $this->blankToNull($data['remarks'] ?? null),
+            'relief_allocation_request_id' => $data['relief_allocation_request_id'] ?? null,
         ]);
     }
 

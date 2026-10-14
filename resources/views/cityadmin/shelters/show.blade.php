@@ -76,10 +76,8 @@
                     {{ $center->assignedStaff->pluck('name')->implode(', ') }}
                 @endif
             </dd>
-            {{-- PHASE 9 ITEM 7 -- the Facilities row is removed. It took a whole
-                 @php ... @endphp block with it, which is a MATCHED pair, so this
-                 file's open-minus-close delta is unchanged and the directive
-                 balance check still reports "same" against the baseline. --}}
+            {{-- The removed Facilities section no longer contains any embedded
+                 Blade directives. Shelter details use the assignedStaff relation. --}}
         </dl>
     </article>
 </section>

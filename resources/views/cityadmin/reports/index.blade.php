@@ -100,91 +100,104 @@
 <section class="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
     <div class="card panel lg:col-span-2">
         <h2 class="panel-title">Generate a Report</h2>
-        <form method="POST" action="{{ route('city.reports.generate') }}">
+        <form method="POST" action="{{ route('city.reports.generate') }}" data-report-generator data-report-definitions="{{ json_encode($reportDefinitions) }}">
             @csrf
             <div class="field">
                 <label for="rep-type">Report type</label>
                 <select id="rep-type" name="report_type" required>
-                    <option value="household_registry">Household Registry</option>
-                    <option value="attendance">Attendance / Headcount</option>
-                    <option value="relief">Relief Distribution</option>
-                    <option value="relief_received">Relief Stock Received</option>
-                    <option value="vulnerable">Vulnerable Population</option>
-                    <option value="occupancy">Shelter Occupancy Summary</option>
+                    <option value="household_registry" @selected(old('report_type', 'household_registry') === 'household_registry')>Household Registry</option>
+                    <option value="attendance" @selected(old('report_type', 'household_registry') === 'attendance')>Attendance / Headcount</option>
+                    <option value="relief" @selected(old('report_type', 'household_registry') === 'relief')>Relief Distribution</option>
+                    <option value="relief_received" @selected(old('report_type', 'household_registry') === 'relief_received')>Relief Stock Received</option>
+                    <option value="relief_inventory" @selected(old('report_type') === 'relief_inventory')>Relief Inventory Status (current)</option>
+                    <option value="shelter_transfers" @selected(old('report_type') === 'shelter_transfers')>Shelter Transfer History</option>
+                    <option value="vulnerable" @selected(old('report_type', 'household_registry') === 'vulnerable')>Vulnerable Population</option>
+                    <option value="occupancy" @selected(old('report_type', 'household_registry') === 'occupancy')>Shelter Occupancy Summary</option>
                     {{-- Item 11b. Demographics is every member, not only the
                          tagged ones; Shelter Ranking is City Admin only. --}}
-                    <option value="demographics">Evacuee Demographics</option>
-                    <option value="shelter_ranking">Shelter Ranking (most to least full)</option>
+                    <option value="demographics" @selected(old('report_type', 'household_registry') === 'demographics')>Evacuee Demographics</option>
+                    <option value="shelter_ranking" @selected(old('report_type', 'household_registry') === 'shelter_ranking')>Shelter Ranking (most to least full)</option>
                     {{-- Phase 11 - Shelter Demographic Summary --}}
-                    <option value="shelter_demographic_summary">Shelter Demographic Summary</option>
+                    <option value="shelter_demographic_summary" @selected(old('report_type', 'household_registry') === 'shelter_demographic_summary')>Shelter Demographic Summary</option>
                 </select>
             </div>
-            <div class="field">
-                <label for="rep-center">Shelter <small>(leave blank for all shelters)</small></label>
+            <p class="mb-3 text-sm text-ink-muted" data-report-description aria-live="polite"></p>
+            <div class="field" data-report-center>
+                <label for="rep-center">Shelter <small>(optional)</small></label>
                 <select id="rep-center" name="center">
                     <option value="">All shelters (city-wide)</option>
-                    @foreach($shelters ?? [] as $s)<option value="{{ $s->id }}">{{ $s->name }}</option>@endforeach
+                    @foreach($shelters ?? [] as $s)
+                        <option value="{{ $s->id }}" @selected(old('center') == $s->id && old('center') !== null)>{{ $s->name }}</option>
+                    @endforeach
                 </select>
             </div>
-            <div class="member-grid">
-                <div class="field"><label for="rep-from">Date from <small>(optional)</small></label><input type="date" id="rep-from" name="date_from" max="{{ now()->toDateString() }}"></div>
-                <div class="field"><label for="rep-to">Date to <small>(optional)</small></label><input type="date" id="rep-to" name="date_to" max="{{ now()->toDateString() }}"></div>
+            <div class="field" data-report-stock-filter hidden>
+                <label for="rep-stock-state">Stock level <small>(optional)</small></label>
+                <select id="rep-stock-state" name="stock_state">
+                    <option value="">All tracked stock levels</option>
+                    <option value="out" @selected(old('stock_state') === 'out')>Out of stock (0 on hand)</option>
+                    <option value="low" @selected(old('stock_state') === 'low')>Low stock (positive, at/below reorder level)</option>
+                    <option value="adequate" @selected(old('stock_state') === 'adequate')>Adequate stock</option>
+                </select>
             </div>
-
-            {{--
-                PHASE 3 ITEM 11b -- the three demographic filters.
-
-                They apply to EVERY report type, not just the member-level ones.
-                All three are properties of a member, so on a household or
-                shelter report they select which rows appear -- households or
-                shelters containing at least one matching member -- rather than
-                recomputing the figures inside those rows. The generated PDF says
-                so in its header, and a Matching Members column is added so the
-                distinction is visible in the table itself.
-
-                Leaving all three on "Any" produces exactly the report you got
-                before this feature existed.
-            --}}
-            <div class="field">
-                <label>Demographic filters <small>(optional)</small></label>
-                <p class="mt-1 mb-2 text-xs text-ink-muted">
-                    Narrow the report to a sex, an age group, a vulnerable category, or
-                    any combination. On household and shelter reports these choose which
-                    rows appear; totals stay whole-household and whole-shelter figures,
-                    and a Matching Members column is added.
-                </p>
+            <div class="field" data-report-transfer-filter hidden>
+                <label for="rep-transfer-status">Transfer status <small>(optional)</small></label>
+                <select id="rep-transfer-status" name="transfer_status">
+                    <option value="">All transfer statuses</option>
+                    <option value="pending" @selected(old('transfer_status') === 'pending')>Pending confirmation</option>
+                    <option value="approved" @selected(old('transfer_status') === 'approved')>Approved</option>
+                    <option value="in_transit" @selected(old('transfer_status') === 'in_transit')>In transit</option>
+                    <option value="completed" @selected(old('transfer_status') === 'completed')>Completed</option>
+                    <option value="refused" @selected(old('transfer_status') === 'refused')>Refused</option>
+                    <option value="cancelled" @selected(old('transfer_status') === 'cancelled')>Cancelled</option>
+                </select>
             </div>
-
-            <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <div class="field">
-                    <label for="rep-sex">Sex</label>
-                    <select id="rep-sex" name="sex">
-                        <option value="">Any</option>
-                        @foreach($filterOptions['sexes'] as $value => $label)
-                            <option value="{{ $value }}" @selected(old('sex') === $value)>{{ $label }}</option>
-                        @endforeach
-                    </select>
-                </div>
-                <div class="field">
-                    <label for="rep-age-tier">Age group</label>
-                    <select id="rep-age-tier" name="age_tier">
-                        <option value="">Any</option>
-                        @foreach($filterOptions['tiers'] as $value => $label)
-                            <option value="{{ $value }}" @selected(old('age_tier') === $value)>{{ $label }}</option>
-                        @endforeach
-                    </select>
-                </div>
-                <div class="field">
-                    <label for="rep-category">Vulnerable category</label>
-                    <select id="rep-category" name="category">
-                        <option value="">Any</option>
-                        @foreach($filterOptions['categories'] as $value => $label)
-                            <option value="{{ $value }}" @selected(old('category') === $value)>{{ $label }}</option>
-                        @endforeach
-                    </select>
+            <div data-report-dates>
+                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div class="field">
+                        <label for="rep-from">Date from <small>(optional)</small></label>
+                        <input type="date" id="rep-from" name="date_from" value="{{ old('date_from') }}" max="{{ now()->toDateString() }}">
+                    </div>
+                    <div class="field">
+                        <label for="rep-to">Date to <small>(optional)</small></label>
+                        <input type="date" id="rep-to" name="date_to" value="{{ old('date_to') }}" max="{{ now()->toDateString() }}">
+                    </div>
                 </div>
             </div>
-
+            <p class="mb-3 text-xs text-ink-muted" data-report-date-note aria-live="polite"></p>
+            <details data-report-demographics class="mb-4 rounded-lg border border-border p-3">
+                <summary class="cursor-pointer font-medium" data-report-demographics-summary>Demographic filters (optional)</summary>
+                <p class="mb-2 mt-2 text-xs text-ink-muted" data-report-demographics-note></p>
+                <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <div class="field">
+                        <label for="rep-sex">Sex</label>
+                        <select id="rep-sex" name="sex">
+                            <option value="">Any</option>
+                            @foreach($filterOptions['sexes'] as $value => $label)
+                                <option value="{{ $value }}" @selected(old('sex') === $value)>{{ $label }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="rep-age-tier">Age group</label>
+                        <select id="rep-age-tier" name="age_tier">
+                            <option value="">Any</option>
+                            @foreach($filterOptions['tiers'] as $value => $label)
+                                <option value="{{ $value }}" @selected(old('age_tier') === $value)>{{ $label }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="rep-category">Vulnerable category</label>
+                        <select id="rep-category" name="category">
+                            <option value="">Any</option>
+                            @foreach($filterOptions['categories'] as $value => $label)
+                                <option value="{{ $value }}" @selected(old('category') === $value)>{{ $label }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                </div>
+            </details>
             <div class="field">
                 <label>File format</label>
                 <div class="radio-list">

@@ -161,6 +161,11 @@ class ReliefController extends BarangayController
                 ->where('evacuation_center_id', $center->id)
                 ->where(fn ($q) => $q
                     ->where('status', 'pending')
+                    ->orWhere(fn ($pendingArrival) => $pendingArrival
+                        ->where('status', 'approved')
+                        ->whereColumn('received_quantity', '<', 'requested_quantity')
+                        ->whereNull('delivery_closed_at'))
+                    ->orWhere('delivery_closed_at', '>=', Carbon::now()->subDays(7))
                     ->orWhere('resolved_at', '>=', Carbon::now()->subDays(7)))
                 ->latest('requested_at')
                 ->get();
@@ -520,29 +525,111 @@ class ReliefController extends BarangayController
     // relief page has a server-rendered, searchable history panel, so nothing
     // ever called the endpoint.
 
+    /** One submission can contain multiple independently reviewed relief lines. */
     public function requestRestock(Request $request)
     {
         $center = $this->centerOrFail();
 
         $data = $request->validate([
-            'relief_good_id' => ['required', 'exists:relief_goods,id'],
-            'requested_quantity' => ['required', 'integer', 'min:1'],
+            'items' => ['required', 'array', 'min:1', 'max:20'],
+            'items.*.relief_good_id' => ['required', 'string'],
+            'items.*.custom_good_name' => ['nullable', 'string', 'max:100'],
+            'items.*.custom_description' => ['nullable', 'string', 'max:1000'],
+            'items.*.requested_quantity' => ['required', 'integer', 'min:1', 'max:' . ReliefTransaction::MAX_QUANTITY],
         ]);
 
-        $reliefRequest = \App\Models\ReliefAllocationRequest::create([
-            'evacuation_center_id' => $center->id,
-            'relief_good_id' => $data['relief_good_id'],
-            'requested_quantity' => $data['requested_quantity'],
-            'status' => 'pending',
-            'requested_by' => auth()->id(),
-            'requested_at' => now(),
-        ]);
+        foreach ($data['items'] as $index => $item) {
+            $id = $item['relief_good_id'];
+            if ($id === 'other') {
+                if (trim((string) ($item['custom_good_name'] ?? '')) === '') {
+                    throw ValidationException::withMessages([
+                        "items.$index.custom_good_name" => 'Enter the name of the custom relief item.',
+                    ]);
+                }
+            } elseif (! ctype_digit((string) $id) || ! ReliefGood::whereKey($id)->exists()) {
+                throw ValidationException::withMessages([
+                    "items.$index.relief_good_id" => 'Choose a valid relief good.',
+                ]);
+            }
+        }
 
-        \App\Services\AuditLogger::log('created', $reliefRequest, 'Requested relief restock from city');
+        $group = (string) Str::uuid();
+        DB::transaction(function () use ($data, $center, $group) {
+            foreach ($data['items'] as $item) {
+                $custom = $item['relief_good_id'] === 'other';
+                $line = \App\Models\ReliefAllocationRequest::create([
+                    'request_group_id' => $group,
+                    'evacuation_center_id' => $center->id,
+                    'relief_good_id' => $custom ? null : (int) $item['relief_good_id'],
+                    'custom_good_name' => $custom ? trim($item['custom_good_name']) : null,
+                    'custom_description' => $custom ? (trim($item['custom_description'] ?? '') ?: null) : null,
+                    'requested_quantity' => $item['requested_quantity'],
+                    'status' => 'pending',
+                    'requested_by' => auth()->id(),
+                    'requested_at' => now(),
+                ]);
+                AuditLogger::log('created', $line, 'Requested relief restock from city');
+            }
+        });
 
-        return back()->with('success', 'Restock request submitted for CSWD Office approval.');
+        return back()->with('success', count($data['items']) . ' relief item(s) requested for this shelter.');
     }
-    
+
+    /** Stock for an approved item is credited only after the assigned shelter confirms receipt. */
+    public function confirmRestockArrival(Request $request, \App\Models\ReliefAllocationRequest $reliefRequest)
+    {
+        $center = $this->centerOrFail();
+        abort_unless((int) $reliefRequest->evacuation_center_id === (int) $center->id, 403);
+
+        $data = $request->validate([
+            'quantity_received' => ['required', 'integer', 'min:1', 'max:' . ReliefTransaction::MAX_QUANTITY],
+            'remarks' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $transaction = DB::transaction(function () use ($reliefRequest, $center, $data) {
+            $line = \App\Models\ReliefAllocationRequest::whereKey($reliefRequest->id)
+                ->lockForUpdate()->firstOrFail();
+            abort_unless((int) $line->evacuation_center_id === (int) $center->id, 403);
+            abort_unless($line->status === 'approved' && $line->delivery_closed_at === null
+                && $line->relief_good_id !== null, 422,
+                'This request is not awaiting delivery.');
+            $quantity = (int) $data['quantity_received'];
+            if ($quantity > $line->remaining_quantity) {
+                throw ValidationException::withMessages([
+                    'quantity_received' => 'Quantity exceeds the remaining approved amount (' . $line->remaining_quantity . ').',
+                ]);
+            }
+
+            // Spread a declared donation value across partial receipts without
+            // double counting. The last receipt absorbs any rounding difference.
+            $value = null;
+            if ($line->monetary_value !== null) {
+                $previous = (float) ReliefTransaction::where('relief_allocation_request_id', $line->id)
+                    ->sum('monetary_value');
+                $value = $quantity === $line->remaining_quantity
+                    ? round((float) $line->monetary_value - $previous, 2)
+                    : round((float) $line->monetary_value * $quantity / $line->requested_quantity, 2);
+                $value = max(0, $value);
+            }
+            $transaction = $this->applyReliefReceipt($center, $line->reliefGood, [
+                'quantity' => $quantity,
+                'donor_type' => $line->donor_type,
+                'donor_name' => $line->donor_name,
+                'monetary_value' => $value,
+                'remarks' => $data['remarks'] ?? null,
+                'relief_allocation_request_id' => $line->id,
+            ], 'allocated_in', 'City warehouse (confirmed delivery)');
+
+            $line->received_quantity += $quantity;
+            $line->status = $line->remaining_quantity === 0 ? 'fulfilled' : 'approved';
+            $line->save();
+            return $transaction;
+        });
+
+        AuditLogger::log('created', $transaction, 'Confirmed arrival of city relief allocation');
+        return back()->with('success', 'Delivery confirmed. Only the received quantity was added to shelter stock.');
+    }
+
     public function requestSpecial(Request $request)
     {
         $center = $this->centerOrFail();

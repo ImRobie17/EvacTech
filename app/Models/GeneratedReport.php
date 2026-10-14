@@ -54,6 +54,8 @@ class GeneratedReport extends Model
             // goods coming IN. Named so the two sort together in the recent-
             // reports list and cannot be mistaken for one another on a printout.
             'relief_received' => 'Relief Stock Received',
+            'relief_inventory' => 'Relief Inventory Status',
+            'shelter_transfers' => 'Shelter Transfer History',
             'vulnerable' => 'Vulnerable Population',
             'occupancy' => 'Shelter Occupancy Summary',
             // Phase 3 item 11b. Both ARE in ReportController::TYPES, unlike the

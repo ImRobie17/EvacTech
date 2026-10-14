@@ -640,7 +640,10 @@
 
      >= 768px   ordinary table
      <  768px   every row becomes a labelled card. The <thead> is hidden and
-                each cell prints its own heading from `data-label`.
+                each cell prints its heading ABOVE its value from `data-label`.
+                Do not place labels and values side by side on small screens:
+                cells with a badge, a date and a line break contain multiple
+                flex items, which can shrink a date to one character per line.
 
    Horizontal scroll and column-hiding were both rejected: each relies on the
    user realising that content exists off-screen, and these users are barangay
@@ -869,19 +872,24 @@ select:focus {
         box-shadow: var(--shadow-sm);
     }
 
+    /* Labels sit ABOVE values on phones. Display:block is intentional:
+       display:flex made an unwrapped text node, a <br> and a badge separate
+       flex items. The date in a distribution row then had only a few pixels
+       and wrapped one CHARACTER at a time. Normal block flow keeps all cell
+       content together, including dates, links, badges and multi-line notes. */
     .data-table[data-stack] td {
-        display: flex;
-        align-items: baseline;
-        justify-content: space-between;
-        gap: var(--space-3);
+        display: block;
+        min-width: 0;
         padding: var(--space-2) 0;
         border-bottom: 1px solid var(--color-surface-alt);
-        text-align: right;
+        text-align: left;
+        white-space: normal;
     }
 
     .data-table[data-stack] td::before {
         content: attr(data-label);
-        flex: 0 0 40%;
+        display: block;
+        margin-bottom: var(--space-1);
         text-align: left;
         font-size: var(--text-sm);
         font-weight: var(--weight-semibold);

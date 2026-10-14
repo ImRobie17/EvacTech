@@ -9,6 +9,8 @@ use App\Models\Household;
 use App\Models\ReliefGood;
 use App\Models\ReliefInventory;
 use App\Models\ReliefTransaction;
+use App\Models\SpecialReliefRequest;
+use App\Models\SpecialReliefMovement;
 use App\Services\AuditLogger;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -173,8 +175,9 @@ class ReliefController extends BarangayController
             $specialRequests = \App\Models\SpecialReliefRequest::with(['household.headMember', 'requestedBy'])
                 ->where('evacuation_center_id', $center->id)
                 ->where(fn ($q) => $q
-                    ->where('status', 'pending')
-                    ->orWhere('reviewed_at', '>=', Carbon::now()->subDays(7)))
+                    ->whereIn('status', ['pending', 'approved'])
+                    ->orWhere('reviewed_at', '>=', Carbon::now()->subDays(7))
+                    ->orWhere('updated_at', '>=', Carbon::now()->subDays(7)))
                 ->latest()
                 ->get();
         }
@@ -628,6 +631,93 @@ class ReliefController extends BarangayController
 
         AuditLogger::log('created', $transaction, 'Confirmed arrival of city relief allocation');
         return back()->with('success', 'Delivery confirmed. Only the received quantity was added to shelter stock.');
+    }
+
+    /**
+     * Confirm receipt of household-specific supplies. No inventory or stock
+     * transaction is written: this request is for one household only.
+     */
+    public function confirmSpecialArrival(Request $request, SpecialReliefRequest $specialRequest)
+    {
+        return $this->recordSpecialMovement($request, $specialRequest, 'received');
+    }
+
+    /** Record the actual handover to the intended household, not stock usage. */
+    public function confirmSpecialDistribution(Request $request, SpecialReliefRequest $specialRequest)
+    {
+        return $this->recordSpecialMovement($request, $specialRequest, 'distributed');
+    }
+
+    private function recordSpecialMovement(Request $request, SpecialReliefRequest $specialRequest, string $action)
+    {
+        $center = $this->centerOrFail();
+        abort_unless((int) $specialRequest->evacuation_center_id === (int) $center->id, 403,
+            'This special request belongs to a different shelter.');
+
+        $data = $request->validate([
+            'quantity' => ['required', 'integer', 'min:1'],
+            'remarks' => ['nullable', 'string', 'max:500'],
+            'submission_token' => ['required', 'uuid'],
+        ]);
+
+        $result = DB::transaction(function () use ($specialRequest, $center, $action, $data) {
+            $line = SpecialReliefRequest::whereKey($specialRequest->id)->lockForUpdate()->firstOrFail();
+            abort_unless((int) $line->evacuation_center_id === (int) $center->id, 403);
+
+            // A repeated browser submit of the same action is not a second
+            // delivery. Locking the request row serializes partial updates.
+            $previous = SpecialReliefMovement::where('submission_token', $data['submission_token'])->first();
+            if ($previous) {
+                abort_unless((int) $previous->special_relief_request_id === (int) $line->id
+                    && $previous->action === $action, 422, 'Invalid submission token.');
+                return 'duplicate';
+            }
+
+            abort_unless($line->status === 'approved', 422, 'This request is not awaiting fulfillment.');
+            $quantity = (int) $data['quantity'];
+            if ($action === 'received') {
+                if ($quantity > $line->remaining_to_receive) {
+                    throw ValidationException::withMessages([
+                        'quantity' => 'Quantity exceeds the outstanding approved amount.',
+                    ]);
+                }
+                $line->received_quantity += $quantity;
+            } else {
+                // Staff may only confirm handover to the originally intended
+                // household while it is still checked in at this shelter.
+                $household = Household::whereKey($line->household_id)->firstOrFail();
+                abort_unless((int) $household->evacuation_center_id === (int) $center->id
+                    && $household->status === 'checked_in', 422,
+                    'The intended household is no longer checked in at this shelter.');
+                if ($quantity > $line->available_to_distribute) {
+                    throw ValidationException::withMessages([
+                        'quantity' => 'Confirm receipt before distributing this quantity to the household.',
+                    ]);
+                }
+                $line->distributed_quantity += $quantity;
+                if ((int) $line->distributed_quantity === (int) $line->quantity) {
+                    $line->status = 'fulfilled';
+                }
+            }
+            $line->save();
+            $movement = SpecialReliefMovement::create([
+                'special_relief_request_id' => $line->id,
+                'action' => $action,
+                'quantity' => $quantity,
+                'recorded_by' => auth()->id(),
+                'submission_token' => $data['submission_token'],
+                'remarks' => $data['remarks'] ?? null,
+            ]);
+            AuditLogger::log('created', $movement, $action === 'received'
+                ? 'Confirmed arrival of household-specific relief (not shelter inventory)'
+                : 'Confirmed handover of special relief to intended household');
+            return 'recorded';
+        });
+
+        $message = $action === 'received'
+            ? 'Special item arrival recorded. This item was not added to shelter inventory.'
+            : 'Special item handover to the intended household recorded.';
+        return back()->with('success', $result === 'duplicate' ? 'This confirmation was already recorded.' : $message);
     }
 
     public function requestSpecial(Request $request)

@@ -69,8 +69,16 @@ class ReliefController extends Controller
             ->latest()
             ->get();
 
+        // Household-specific supplies never become inventory. Track their
+        // arrival and direct handover separately from shelter restock delivery.
+        $specialFulfillments = SpecialReliefRequest::with(['household.headMember', 'evacuationCenter'])
+            ->where(fn ($q) => $q->where('status', 'approved')
+                ->orWhere(fn ($recent) => $recent->where('status', 'fulfilled')
+                    ->where('updated_at', '>=', now()->subDays(7))))
+            ->latest('reviewed_at')->get();
+
         return view('cityadmin.relief.index', compact(
-            'shelters', 'restockRequests', 'specialRequests', 'cityValueReceived', 'donorTypes', 'goods', 'awaitingDeliveries'
+            'shelters', 'restockRequests', 'specialRequests', 'specialFulfillments', 'cityValueReceived', 'donorTypes', 'goods', 'awaitingDeliveries'
         ));
     }
 
@@ -170,21 +178,27 @@ class ReliefController extends Controller
 
     public function reviewSpecial(Request $request, SpecialReliefRequest $specialRequest)
     {
-        abort_if($specialRequest->status !== 'pending', 422, 'This request has already been resolved.');
         $data = $request->validate([
             'decision' => ['required', 'in:approve,reject'],
             'remarks' => ['nullable', 'string', 'max:500'],
         ]);
 
-        $specialRequest->update([
-            'status' => $data['decision'] === 'approve' ? 'approved' : 'rejected',
-            'reviewed_by' => auth()->id(),
-            'reviewed_at' => now(),
-            'remarks' => $data['remarks'] ?? $specialRequest->remarks,
-        ]);
+        $status = DB::transaction(function () use ($specialRequest, $data) {
+            $line = SpecialReliefRequest::whereKey($specialRequest->id)->lockForUpdate()->firstOrFail();
+            abort_unless($line->status === 'pending', 422, 'This request has already been resolved.');
+            $line->update([
+                'status' => $data['decision'] === 'approve' ? 'approved' : 'rejected',
+                'reviewed_by' => auth()->id(),
+                'reviewed_at' => now(),
+                'remarks' => $data['remarks'] ?? $line->remarks,
+            ]);
+            AuditLogger::log('updated', $line, ucfirst($data['decision'])
+                . "d special relief request: {$line->item_description}");
+            return $line->status;
+        });
 
-        AuditLogger::log('updated', $specialRequest, ucfirst($data['decision']) . "d special relief request: {$specialRequest->item_description}");
-
-        return back()->with('success', 'Special request ' . $specialRequest->status . '.');
+        return back()->with('success', 'Special request ' . $status .
+            ($status === 'approved' ? '. Camp Manager must confirm arrival and household handover.' : '.'));
     }
+
 }

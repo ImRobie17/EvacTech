@@ -47,9 +47,9 @@
     <p class="kpi-note">Value counts stock that ARRIVED at a shelter, whether received there directly or allocated from an approved restock. Totals exclude nothing by shelter status.</p>
 </div>
 
-<section class="mt-4 grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+<section class="mt-4 flex flex-col gap-4">
     {{-- Restock requests --}}
-    <div class="card panel table-panel">
+    <div class="card panel table-panel w-full min-w-0">
         <h2 class="panel-title">Restock Requests <span class="badge badge-info">{{ $restockRequests->count() }} pending</span></h2>
         <table class="data-table" data-stack>
             <thead><tr><th scope="col">Shelter</th><th scope="col">Item</th><th scope="col">Qty</th><th scope="col">Requested By</th><th scope="col">Decision</th></tr></thead>
@@ -64,7 +64,8 @@
                         <td data-label="Requested By">{{ $r->requestedBy?->name ?? '-' }}</td>
                         {{-- Approval records a decision and optionally resolves a custom
                              catalogue item. Only the shelter can confirm delivery. --}}
-                        <td class="flex flex-col items-stretch gap-2" data-label="Decision">
+                        <td data-label="Decision">
+                            <div class="flex flex-col items-stretch gap-2">
                             <details>
                                 <summary class="btn-link cursor-pointer">Approve&hellip;</summary>
                                 <form method="POST" action="{{ route('city.relief.restock.review', $r) }}" class="mt-2 flex flex-col gap-2">
@@ -125,6 +126,7 @@
                                 @csrf <input type="hidden" name="decision" value="reject">
                                 <button class="btn-link btn-link-danger">Reject</button>
                             </form>
+                            </div>
                         </td>
                     </tr>
                 @empty
@@ -134,13 +136,50 @@
         </table>
     </div>
 
+    {{-- Approved allocations remain here until Camp Manager receipt or a recorded closure.
+         This is not a stock ledger: approval alone never increments stock. --}}
+    <div class="card panel table-panel w-full min-w-0">
+        <h2 class="panel-title">Outstanding Approved Deliveries
+            <span class="badge badge-info">{{ $awaitingDeliveries->count() }} awaiting receipt</span>
+        </h2>
+        <p class="kpi-note">Stock increases only after the assigned Camp Manager confirms the amount physically received. If a shipment cannot be completed, close the remaining balance with a reason.</p>
+        <table class="data-table" data-stack>
+            <thead><tr><th scope="col">Shelter</th><th scope="col">Relief Good</th><th scope="col">Received / Approved</th><th scope="col">Last Arrival Note</th><th scope="col">Close Shortage</th></tr></thead>
+            <tbody>
+                @forelse($awaitingDeliveries as $delivery)
+                    <tr>
+                        <td data-label="Shelter">{{ $delivery->evacuationCenter?->name ?? 'Shelter removed' }}</td>
+                        <td data-label="Relief Good">{{ $delivery->reliefGood?->name ?? $delivery->custom_good_name }}
+                            @if($delivery->request_group_id)<br><small class="text-ink-muted">Batch {{ substr($delivery->request_group_id, 0, 8) }}</small>@endif
+                        </td>
+                        <td data-label="Received / Approved" data-numeric>
+                            {{ number_format($delivery->received_quantity) }} / {{ number_format($delivery->requested_quantity) }} {{ $delivery->reliefGood?->unit }}
+                            <br><small class="text-ink-muted">{{ number_format($delivery->remaining_quantity) }} outstanding</small>
+                        </td>
+                        <td data-label="Last Arrival Note">{{ $delivery->latestReceipt?->remarks ?: 'No arrival confirmed yet' }}</td>
+                        <td data-label="Close Shortage">
+                            <details>
+                                <summary class="btn-link cursor-pointer">Resolve undelivered amount</summary>
+                                <form method="POST" action="{{ route('city.relief.restock.close', $delivery) }}" class="mt-2 flex flex-col gap-2">
+                                    @csrf
+                                    <label for="close-reason-{{ $delivery->id }}">Reason (required)</label>
+                                    <textarea id="close-reason-{{ $delivery->id }}" name="delivery_closure_reason" maxlength="500" rows="2" required placeholder="Delivery cancelled, supplier shortage, damaged items, etc."></textarea>
+                                    <button type="submit" class="btn-secondary">Close Remaining Delivery</button>
+                                </form>
+                            </details>
+                        </td>
+                    </tr>
+                @empty
+                    <tr><td colspan="5" class="empty-note">No approved deliveries currently awaiting arrival.</td></tr>
+                @endforelse
+            </tbody>
+        </table>
+    </div>
+
     {{-- Special item requests --}}
-    <div class="card panel table-panel">
+    <div class="card panel table-panel w-full min-w-0">
         <h2 class="panel-title">Special Item Requests <span class="badge badge-info">{{ $specialRequests->count() }} pending</span></h2>
-        {{-- Approving one of these only RECORDS a decision. There is no
-             relief_good_id to increment and procurement happens outside the
-             system, so nothing arrives in stock as a result. --}}
-        <p class="kpi-note">Approving records a decision only &mdash; procurement happens outside EvacTech, so no stock is added automatically.</p>
+        <p class="kpi-note">Approval authorizes a household-specific delivery. The Camp Manager confirms arrival and handover to the intended household. Special items never enter general shelter stock.</p>
         <table class="data-table" data-stack>
             <thead><tr><th scope="col">Household</th><th scope="col">Shelter</th><th scope="col">Item</th><th scope="col">Qty</th><th scope="col">Decision</th></tr></thead>
             <tbody>
@@ -161,6 +200,7 @@
                                 @csrf <input type="hidden" name="decision" value="reject">
                                 <button class="btn-link btn-link-danger">Reject</button>
                             </form>
+                            </div>
                         </td>
                     </tr>
                 @empty
@@ -171,41 +211,35 @@
     </div>
 </section>
 
-{{-- Approved allocations remain here until Camp Manager receipt or a recorded closure.
-     This is not a stock ledger: approval alone never increments stock. --}}
+{{-- Household special items are tracked as individual family deliveries,
+     never converted into shelter inventory or a general distribution. --}}
 <div class="card panel table-panel mt-4">
-    <h2 class="panel-title">Outstanding Approved Deliveries
-        <span class="badge badge-info">{{ $awaitingDeliveries->count() }} awaiting receipt</span>
+    <h2 class="panel-title">Special Item Fulfillment
+        <span class="badge badge-info">{{ $specialFulfillments->where('status', 'approved')->count() }} in progress</span>
     </h2>
-    <p class="kpi-note">Stock increases only after the assigned Camp Manager confirms the amount physically received. If a shipment cannot be completed, close the remaining balance with a reason.</p>
+    <p class="kpi-note">Approved household-specific items remain visible until the Camp Manager confirms both physical receipt and handover to the intended family. Recently fulfilled items remain visible for seven days. No shelter stock is changed.</p>
     <table class="data-table" data-stack>
-        <thead><tr><th scope="col">Shelter</th><th scope="col">Relief Good</th><th scope="col">Received / Approved</th><th scope="col">Last Arrival Note</th><th scope="col">Close Shortage</th></tr></thead>
+        <thead><tr><th scope="col">Household</th><th scope="col">Shelter</th><th scope="col">Special Item</th><th scope="col">Received / Requested</th><th scope="col">Handed to Household</th><th scope="col">Status</th></tr></thead>
         <tbody>
-            @forelse($awaitingDeliveries as $delivery)
+            @forelse($specialFulfillments as $special)
                 <tr>
-                    <td data-label="Shelter">{{ $delivery->evacuationCenter?->name ?? 'Shelter removed' }}</td>
-                    <td data-label="Relief Good">{{ $delivery->reliefGood?->name ?? $delivery->custom_good_name }}
-                        @if($delivery->request_group_id)<br><small class="text-ink-muted">Batch {{ substr($delivery->request_group_id, 0, 8) }}</small>@endif
-                    </td>
-                    <td data-label="Received / Approved" data-numeric>
-                        {{ number_format($delivery->received_quantity) }} / {{ number_format($delivery->requested_quantity) }} {{ $delivery->reliefGood?->unit }}
-                        <br><small class="text-ink-muted">{{ number_format($delivery->remaining_quantity) }} outstanding</small>
-                    </td>
-                    <td data-label="Last Arrival Note">{{ $delivery->latestReceipt?->remarks ?: 'No arrival confirmed yet' }}</td>
-                    <td data-label="Close Shortage">
-                        <details>
-                            <summary class="btn-link cursor-pointer">Resolve undelivered amount</summary>
-                            <form method="POST" action="{{ route('city.relief.restock.close', $delivery) }}" class="mt-2 flex flex-col gap-2">
-                                @csrf
-                                <label for="close-reason-{{ $delivery->id }}">Reason (required)</label>
-                                <textarea id="close-reason-{{ $delivery->id }}" name="delivery_closure_reason" maxlength="500" rows="2" required placeholder="Delivery cancelled, supplier shortage, damaged items, etc."></textarea>
-                                <button type="submit" class="btn-secondary">Close Remaining Delivery</button>
-                            </form>
-                        </details>
+                    <td data-label="Household">{{ $special->household?->headMember?->full_name ?? $special->household?->household_code ?? 'Household removed' }}</td>
+                    <td data-label="Shelter">{{ $special->evacuationCenter?->name ?? 'Shelter removed' }}</td>
+                    <td data-label="Special Item">{{ $special->item_description }}</td>
+                    <td data-label="Received / Requested" data-numeric>{{ number_format($special->received_quantity) }} / {{ number_format($special->quantity) }}</td>
+                    <td data-label="Handed to Household" data-numeric>{{ number_format($special->distributed_quantity) }} / {{ number_format($special->quantity) }}</td>
+                    <td data-label="Status">
+                        @if($special->status === 'fulfilled')
+                            <span class="badge badge-success">Delivered to family</span>
+                        @elseif($special->available_to_distribute > 0)
+                            <span class="badge badge-info">Awaiting family handover</span>
+                        @else
+                            <span class="badge badge-warning">Awaiting arrival</span>
+                        @endif
                     </td>
                 </tr>
             @empty
-                <tr><td colspan="5" class="empty-note">No approved deliveries currently awaiting arrival.</td></tr>
+                <tr><td colspan="6" class="empty-note">No approved household special items awaiting fulfillment.</td></tr>
             @endforelse
         </tbody>
     </table>

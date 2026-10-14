@@ -122,6 +122,8 @@ Route::middleware(['auth', 'role:barangay_personnel', 'shelter.assigned'])
         Route::post('/relief/request-restock', [ReliefController::class, 'requestRestock'])->name('relief.request-restock');
         Route::post('/relief/restock/{reliefRequest}/arrival', [ReliefController::class, 'confirmRestockArrival'])->name('relief.restock.arrival');
         Route::post('/relief/request-special', [ReliefController::class, 'requestSpecial'])->name('relief.request-special');
+        Route::post('/relief/special/{specialRequest}/arrival', [ReliefController::class, 'confirmSpecialArrival'])->name('relief.special.arrival');
+        Route::post('/relief/special/{specialRequest}/distribution', [ReliefController::class, 'confirmSpecialDistribution'])->name('relief.special.distribute');
 
         // Report Generation
         Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');

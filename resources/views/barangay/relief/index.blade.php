@@ -5,11 +5,8 @@
 @section('page-subtitle', 'Monitor stock, request supplies, and log relief packs given to evacuees.')
 
 @php
-    // Status -> badge. 'fulfilled' is in the special_relief_requests enum but no
-    // code path can currently set it: reviewSpecial() writes only approved or
-    // rejected. The intended lifecycle was pending -> approved -> fulfilled
-    // (item physically handed over) and that last step was never built. Mapped
-    // here so it displays correctly if Phase 3 wires it up.
+    // Special household items become fulfilled only when actual handover is
+    // confirmed. Their arrival/distribution never changes shelter inventory.
     $reqBadge = [
         'pending' => 'badge-warning',
         'approved' => 'badge-success',
@@ -310,7 +307,7 @@
                     <div class="flex flex-col gap-1 border-b border-border p-3 text-sm last:border-b-0">
                         <div class="flex flex-wrap items-center justify-between gap-2">
                             <span class="font-medium">{{ $s->item_description }}</span>
-                            <span class="badge {{ $reqBadge[$s->status] ?? 'badge-info' }}">{{ ucfirst($s->status) }}</span>
+                            <span class="badge {{ $s->status === 'approved' ? ($s->available_to_distribute > 0 ? 'badge-info' : 'badge-warning') : ($reqBadge[$s->status] ?? 'badge-info') }}">{{ ucfirst($s->fulfillment_status) }}</span>
                         </div>
                         <span class="text-ink-muted" data-numeric>
                             {{ number_format($s->quantity) }} for {{ $s->household?->headMember?->full_name ?? $s->household?->household_code ?? 'household removed' }}
@@ -319,8 +316,56 @@
                         @if($s->remarks)
                             <span class="text-ink-soft">Note: {{ $s->remarks }}</span>
                         @endif
-                        @if($s->status === 'approved')
-                            <span class="text-success">&check; Approved by the CSWD Office. The item is sourced outside the system, so it will not appear in inventory.</span>
+                        @if(in_array($s->status, ['approved', 'fulfilled'], true))
+                            <span class="text-ink-muted" data-numeric>
+                                Received: {{ number_format($s->received_quantity) }} / {{ number_format($s->quantity) }}
+                                &middot; Handed to household: {{ number_format($s->distributed_quantity) }} / {{ number_format($s->quantity) }}
+                            </span>
+                            @if($s->status === 'fulfilled')
+                                <span class="text-success">Special relief received and handed to the intended household. Not added to shelter inventory.</span>
+                            @else
+                                <span class="text-ink-muted">{{ ucfirst($s->fulfillment_status) }} &mdash; special items are not added to general shelter stock.</span>
+                                @if($s->remaining_to_receive > 0)
+                                    <div class="rounded-md border border-border p-3 mt-2">
+                                        <p class="font-semibold">Confirm Special Item Arrival</p>
+                                        <p class="kpi-note">Confirm only the quantity physically received for this household.</p>
+                                        <form method="POST" action="{{ route('barangay.relief.special.arrival', $s) }}" class="mt-2 flex flex-col gap-2">
+                                            @csrf
+                                            <input type="hidden" name="submission_token" value="{{ (string) \Illuminate\Support\Str::uuid() }}">
+                                            <div class="field">
+                                                <label for="special-receive-qty-{{ $s->id }}">Quantity received</label>
+                                                <input id="special-receive-qty-{{ $s->id }}" name="quantity" type="number" min="1" max="{{ $s->remaining_to_receive }}" value="{{ $s->remaining_to_receive }}" required>
+                                            </div>
+                                            <div class="field">
+                                                <label for="special-receive-note-{{ $s->id }}">Arrival remarks (optional)</label>
+                                                <textarea id="special-receive-note-{{ $s->id }}" name="remarks" rows="2" maxlength="500" placeholder="Delivery condition or shortage"></textarea>
+                                            </div>
+                                            <button type="submit" class="btn-secondary">Confirm Special Item Arrival</button>
+                                        </form>
+                                    </div>
+                                @endif
+                                @if($s->available_to_distribute > 0)
+                                    <div class="rounded-md border border-border p-3 mt-2">
+                                        <p class="font-semibold">Confirm Handover to Household</p>
+                                        <p class="kpi-note">Recipient: {{ $s->household?->headMember?->full_name ?? $s->household?->household_code ?? 'Household removed' }}. Confirm only goods actually given to this family.</p>
+                                        <form method="POST" action="{{ route('barangay.relief.special.distribute', $s) }}" class="mt-2 flex flex-col gap-2">
+                                            @csrf
+                                            <input type="hidden" name="submission_token" value="{{ (string) \Illuminate\Support\Str::uuid() }}">
+                                            <div class="field">
+                                                <label for="special-give-qty-{{ $s->id }}">Quantity given to family</label>
+                                                <input id="special-give-qty-{{ $s->id }}" name="quantity" type="number" min="1" max="{{ $s->available_to_distribute }}" value="{{ $s->available_to_distribute }}" required>
+                                            </div>
+                                            <div class="field">
+                                                <label for="special-give-note-{{ $s->id }}">Handover remarks (optional)</label>
+                                                <textarea id="special-give-note-{{ $s->id }}" name="remarks" rows="2" maxlength="500" placeholder="Recipient confirmation or notes"></textarea>
+                                            </div>
+                                            <button type="submit" class="btn-primary">Confirm Household Handover</button>
+                                        </form>
+                                    </div>
+                                @endif
+                            @endif
+                        @elseif($s->status === 'rejected')
+                            <span class="text-danger">Not approved for this household.</span>
                         @endif
                     </div>
                 @endforeach
@@ -883,28 +928,30 @@
             <button type="button" class="btn-link btn-link-danger" data-restock-remove aria-label="Remove relief item">Remove</button>
         </div>
         <div class="field">
-            <label>Type of relief *
-                <select name="items[__INDEX__][relief_good_id]" data-restock-good required>
-                    <option value="">Choose relief good&hellip;</option>
-                    @foreach($goods as $g)
-                        @continue(strcasecmp(trim($g->name), 'Others') === 0 && strcasecmp(trim($g->unit), 'piece') === 0)
-                        <option value="{{ $g->id }}">{{ $g->name }} ({{ $g->unit }})</option>
-                    @endforeach
-                    <option value="other">Other / Specify Relief</option>
-                </select>
-            </label>
+            <label for="restock-good-__INDEX__">Type of relief *</label>
+            <select id="restock-good-__INDEX__" name="items[__INDEX__][relief_good_id]" data-restock-good required>
+                <option value="">Choose relief good&hellip;</option>
+                @foreach($goods as $g)
+                    @continue(strcasecmp(trim($g->name), 'Others') === 0 && strcasecmp(trim($g->unit), 'piece') === 0)
+                    <option value="{{ $g->id }}">{{ $g->name }} ({{ $g->unit }})</option>
+                @endforeach
+                <option value="other">Other / Specify Relief</option>
+            </select>
         </div>
         <div data-restock-custom class="grid grid-cols-1 gap-2 sm:grid-cols-2" hidden>
-            <div class="field"><label>Name of relief *
-                <input name="items[__INDEX__][custom_good_name]" data-restock-name maxlength="100">
-            </label></div>
-            <div class="field"><label>Description (optional)
-                <textarea name="items[__INDEX__][custom_description]" data-restock-description rows="2" maxlength="1000"></textarea>
-            </label></div>
+            <div class="field">
+                <label for="restock-name-__INDEX__">Name of relief *</label>
+                <input id="restock-name-__INDEX__" name="items[__INDEX__][custom_good_name]" data-restock-name maxlength="100">
+            </div>
+            <div class="field">
+                <label for="restock-description-__INDEX__">Description (optional)</label>
+                <textarea id="restock-description-__INDEX__" name="items[__INDEX__][custom_description]" data-restock-description rows="2" maxlength="1000"></textarea>
+            </div>
         </div>
-        <div class="field"><label>Quantity needed *
-            <input type="number" name="items[__INDEX__][requested_quantity]" data-restock-qty min="1" max="10000000" value="1" required>
-        </label></div>
+        <div class="field">
+            <label for="restock-qty-__INDEX__">Quantity needed *</label>
+            <input type="number" id="restock-qty-__INDEX__" name="items[__INDEX__][requested_quantity]" data-restock-qty min="1" max="10000000" value="1" required>
+        </div>
     </div>
 </template>
 
